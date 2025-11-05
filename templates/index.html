@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Paper Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- PDF.js (CDN) 用于前端解析PDF元数据 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 左侧分类栏 -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h3><i class="fas fa-folder-tree"></i> 分类目录</h3>
+                <button id="add-root-category" class="btn-add" title="添加分类（选中分类时添加子分类，否则添加根分类）">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+            <div class="category-tree" id="category-tree">
+                <!-- 分类树将在这里动态生成 -->
+            </div>
+            <div class="upload-zone" id="upload-zone">
+                <div class="upload-content">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>拖拽 PDF 文件到这里上传</p>
+                    <p class="upload-hint">或点击选择文件</p>
+                </div>
+                <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
+            </div>
+        </div>
+
+        <!-- 中间 PDF 列表栏 -->
+        <div class="main-content">
+            <div class="content-header">
+                <h3 id="current-category">选择一个分类查看 PDF</h3>
+                <div class="content-actions">
+                    <div class="search-box">
+                        <input id="global-search" type="text" placeholder="搜索 Title / Authors / Abstract" autocomplete="off" />
+                        <div id="search-results" class="search-results" style="display:none;"></div>
+                    </div>
+                    <div class="sort-controls" id="sort-controls" style="display: none;">
+                        <label for="sort-by">排序：</label>
+                        <select id="sort-by">
+                            <option value="upload_date_desc">上传时间 ↓</option>
+                            <option value="upload_date_asc">上传时间 ↑</option>
+                            <option value="title_asc">标题 A-Z</option>
+                            <option value="title_desc">标题 Z-A</option>
+                            <option value="year_desc">年份 ↓</option>
+                            <option value="year_asc">年份 ↑</option>
+                            <option value="authors_asc">作者 A-Z</option>
+                            <option value="authors_desc">作者 Z-A</option>
+                        </select>
+                    </div>
+                    <button id="refresh-papers" class="btn-action" title="刷新">
+                        <i class="fas fa-refresh"></i>
+                    </button>
+                    <button id="upload-btn" class="btn-action" title="上传文件">
+                        <i class="fas fa-upload"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="papers-list" id="papers-list">
+                <div class="empty-state">
+                    <i class="fas fa-file-pdf"></i>
+                    <p>选择左侧分类查看 PDF 文件</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧信息栏 -->
+        <div class="info-panel">
+            <div class="info-header">
+                <h3><i class="fas fa-info-circle"></i> 论文信息</h3>
+            </div>
+            <div class="paper-info" id="paper-info">
+                <div class="empty-state">
+                    <i class="fas fa-file-alt"></i>
+                    <p>选择一篇论文查看详细信息</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模态框 -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 id="modal-title">标题</h4>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 模态框内容 -->
+            </div>
+            <div class="modal-footer">
+                <button id="modal-cancel" class="btn btn-secondary">取消</button>
+                <button id="modal-confirm" class="btn btn-primary">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div id="context-menu" class="context-menu">
+        <ul>
+            <li id="rename-category"><i class="fas fa-edit"></i> 重命名</li>
+            <li id="add-subcategory"><i class="fas fa-plus"></i> 添加子分类</li>
+            <li id="delete-category"><i class="fas fa-trash"></i> 删除</li>
+        </ul>
+    </div>
+
+    <!-- 加载指示器 -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>处理中...</p>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

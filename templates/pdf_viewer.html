@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 阅读器</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #2c2c2c;
+            color: white;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #1a1a1a;
+            border-bottom: 1px solid #444;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .header h3 {
+            margin: 0;
+            font-size: 16px;
+            color: white;
+        }
+        
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: background-color 0.2s;
+        }
+        
+        .btn:hover {
+            background: #0056b3;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        
+        .pdf-container {
+            height: calc(100vh - 60px);
+            width: 100%;
+        }
+        
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            flex-direction: column;
+            color: #ccc;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #444;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <button id="back-btn" class="btn btn-secondary" title="关闭当前标签页 (Ctrl+W)">
+                <i class="fas fa-times"></i> 关闭
+            </button>
+        </div>
+        <h3 id="pdf-title">PDF 阅读器</h3>
+        <div>
+            <a href="/api/paper/{{ paper_id }}/file" class="btn btn-secondary" download>
+                <i class="fas fa-download"></i> 下载
+            </a>
+        </div>
+    </div>
+    
+    <div class="pdf-container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>正在加载 PDF 阅读器...</p>
+        </div>
+        <iframe 
+            id="pdf-iframe" 
+            style="display: none;"
+            src=""
+            title="PDF 阅读器">
+        </iframe>
+    </div>
+    
+    <script>
+        // 获取论文信息并设置标题
+        async function loadPaperInfo() {
+            try {
+                const response = await fetch('/api/paper/{{ paper_id }}');
+                if (response.ok) {
+                    const paper = await response.json();
+                    document.getElementById('pdf-title').textContent = 
+                        paper.title || paper.filename || 'PDF 阅读器';
+                }
+            } catch (error) {
+                console.error('加载论文信息失败:', error);
+            }
+        }
+        
+        // 初始化 PDF 查看器
+        function initPDFViewer() {
+            const iframe = document.getElementById('pdf-iframe');
+            const loading = document.getElementById('loading');
+            
+            // 使用 Mozilla PDF.js 在线查看器
+            const pdfUrl = encodeURIComponent(window.location.origin + '/api/paper/{{ paper_id }}/file');
+            const viewerUrl = `https://mozilla.github.io/pdf.js/web/viewer.html?file=${pdfUrl}`;
+            
+            iframe.src = viewerUrl;
+            
+            // 监听 iframe 加载完成
+            iframe.onload = function() {
+                loading.style.display = 'none';
+                iframe.style.display = 'block';
+            };
+            
+            // 错误处理
+            iframe.onerror = function() {
+                loading.innerHTML = `
+                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
+                    <p style="color: #dc3545;">PDF 加载失败</p>
+                    <button class="btn" onclick="location.reload()">重新加载</button>
+                `;
+            };
+        }
+        
+        // 关闭窗口功能
+        function closeWindow() {
+            // 检查是否是在新标签页中打开的
+            if (window.opener) {
+                // 如果是从其他窗口打开的，关闭当前窗口
+                window.close();
+            } else {
+                // 尝试关闭窗口
+                const closed = window.close();
+                // 如果浏览器不允许关闭（比如直接输入URL访问），则返回主页
+                setTimeout(() => {
+                    if (!closed && !window.closed) {
+                        window.location.href = '/';
+                    }
+                }, 100);
+            }
+        }
+        
+        // 返回按钮功能
+        function setupBackButton() {
+            const backBtn = document.getElementById('back-btn');
+            backBtn.addEventListener('click', closeWindow);
+            
+            // 添加键盘快捷键支持
+            document.addEventListener('keydown', function(e) {
+                // Ctrl+W 或 Cmd+W 关闭窗口
+                if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+                    e.preventDefault();
+                    closeWindow();
+                }
+                // ESC 键也可以关闭窗口
+                if (e.key === 'Escape') {
+                    closeWindow();
+                }
+            });
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            setupBackButton();
+            loadPaperInfo();
+            initPDFViewer();
+        });
+    </script>
+</body>
+</html>
