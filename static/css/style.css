@@ -305,6 +305,43 @@ body {
     background: #c82333;
 }
 
+.paper-action-btn.star {
+    background: #ffc107;
+    color: #333;
+}
+
+.paper-action-btn.star:hover {
+    background: #ffb300;
+}
+
+.paper-action-btn.star.starred {
+    background: #ffc107;
+    color: #333;
+}
+
+.paper-action-btn.star.starred i {
+    color: #ffc107;
+    text-shadow: 0 0 2px rgba(255, 193, 7, 0.5);
+}
+
+/* 被点赞论文右侧的星星图标 */
+.paper-star-icon {
+    position: absolute;
+    right: 180px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #ffc107;
+    font-size: 20px;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.paper-item.starred {
+    border-left: 3px solid #ffc107;
+    background: #fffef5;
+    position: relative;
+}
+
 .paper-action-btn.edit {
     background: #007bff;
 }

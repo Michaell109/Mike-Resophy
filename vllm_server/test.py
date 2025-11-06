@@ -10,6 +10,7 @@ completion = client.chat.completions.create(
     messages=[
         {"role": "user", "content": "Write a long ghost story with 10000 words"},
     ],
+    chat_template_kwargs={"enable_thinking": False},
 )
 
 print(completion.choices[0].message)

@@ -433,8 +433,8 @@ def load_paper_metadata(pdf_path):
     return None
 
 
-def fetch_arxiv_abstract(arxiv_id: str) -> str | None:
-    """从 arXiv API 获取摘要。返回纯文本摘要，失败返回 None。"""
+def fetch_arxiv_abstract(arxiv_id: str) -> dict | None:
+    """从 arXiv API 获取摘要和发布时间。返回包含 abstract 和 published_date 的字典，失败返回 None。"""
     try:
         url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
         resp = requests.get(url, timeout=10)
@@ -447,13 +447,42 @@ def fetch_arxiv_abstract(arxiv_id: str) -> str | None:
         if entry is None:
             return None
         summary = entry.find("{http://www.w3.org/2005/Atom}summary")
-        if summary is None or not summary.text:
-            return None
-        abstract = summary.text.strip()
-        abstract = re.sub(r"\s+", " ", abstract)
-        return abstract
+        abstract = None
+        if summary is not None and summary.text:
+            abstract = summary.text.strip()
+            abstract = re.sub(r"\s+", " ", abstract)
+
+        # 获取发布时间
+        published = entry.find("{http://www.w3.org/2005/Atom}published")
+        published_date = None
+        if published is not None and published.text:
+            # arXiv API 返回的时间格式类似: 2023-01-15T18:30:00Z 或 2023-01-15T18:30:00.123Z
+            try:
+                from datetime import datetime
+
+                published_date_str = published.text.strip().rstrip("Z")
+                # 尝试解析不同格式
+                if "." in published_date_str:
+                    # 包含毫秒: 2023-01-15T18:30:00.123
+                    dt = datetime.strptime(published_date_str, "%Y-%m-%dT%H:%M:%S.%f")
+                else:
+                    # 不包含毫秒: 2023-01-15T18:30:00
+                    dt = datetime.strptime(published_date_str, "%Y-%m-%dT%H:%M:%S")
+                published_date = dt.isoformat()
+            except Exception as e:
+                print(
+                    f"解析 arXiv 发布时间失败: {e}, 原始字符串: {published.text.strip() if published is not None else 'None'}"
+                )
+
+        result = {}
+        if abstract:
+            result["abstract"] = abstract
+        if published_date:
+            result["published_date"] = published_date
+
+        return result if result else None
     except Exception as e:
-        print(f"获取 arXiv 摘要失败: {e}")
+        print(f"获取 arXiv 信息失败: {e}")
         return None
 
 
@@ -487,6 +516,9 @@ def scan_papers_in_directory(directory_path):
                 # 确保文件路径是最新的
                 paper_data["file_path"] = pdf_path
                 paper_data["filename"] = filename
+                # 确保 starred 字段存在（向后兼容）
+                if "starred" not in paper_data:
+                    paper_data["starred"] = False
                 papers.append(paper_data)
             else:
                 # 如果没有JSON文件，创建基本的论文数据
@@ -506,6 +538,7 @@ def scan_papers_in_directory(directory_path):
                     "keywords": "",
                     "subject": "",
                     "notes": "",
+                    "starred": False,
                 }
                 # 保存基本数据到JSON文件
                 save_paper_metadata(pdf_path, paper_data)
@@ -710,12 +743,16 @@ def api_upload():
         if not metadata.get(k):
             metadata[k] = v
 
-    # 如果前端提供 arxiv_id 且没有摘要，尝试从 arXiv 获取摘要
+    # 如果前端提供 arxiv_id 且没有摘要，尝试从 arXiv 获取摘要和发布时间
     arxiv_id = (metadata.get("arxiv_id") or "").strip()
+    arxiv_published_date = None
     if arxiv_id:
-        arxiv_abs = fetch_arxiv_abstract(arxiv_id)
-        if arxiv_abs:
-            metadata["abstract"] = arxiv_abs
+        arxiv_info = fetch_arxiv_abstract(arxiv_id)
+        if arxiv_info:
+            if "abstract" in arxiv_info:
+                metadata["abstract"] = arxiv_info["abstract"]
+            if "published_date" in arxiv_info:
+                arxiv_published_date = arxiv_info["published_date"]
         else:
             # 如果 arXiv 未取到，则保持为空（不使用本地解析）
             metadata["abstract"] = metadata.get("abstract") or ""
@@ -757,6 +794,7 @@ def api_upload():
         "title": metadata.get("title") or os.path.splitext(file.filename)[0],
         "authors": metadata.get("authors") or "",
         "arxiv_id": arxiv_id,
+        "arxiv_published_date": arxiv_published_date,  # arXiv 发布时间
         "affiliation": metadata.get("affiliation") or "",
         "year": metadata.get("year") or "",
         "journal": "",
@@ -764,6 +802,7 @@ def api_upload():
         "keywords": metadata.get("keywords") or "",
         "subject": metadata.get("subject") or "",
         "notes": "",
+        "starred": False,  # 点赞状态
     }
 
     # 保存论文元数据到JSON文件
@@ -1105,6 +1144,14 @@ def api_update_paper(paper_id):
                             paper["journal"] = data["journal"]
                         if "abstract" in data:
                             paper["abstract"] = data["abstract"]
+                        if "starred" in data:
+                            paper["starred"] = data["starred"]
+                        if "notes" in data:
+                            paper["notes"] = data["notes"]
+                        if "keywords" in data:
+                            paper["keywords"] = data["keywords"]
+                        if "subject" in data:
+                            paper["subject"] = data["subject"]
 
                         paper["updated_date"] = datetime.now().isoformat()
 

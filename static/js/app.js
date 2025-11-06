@@ -342,7 +342,7 @@ function renderPapersList() {
     papersList.innerHTML = '';
     sortedPapers.forEach(paper => {
         const div = document.createElement('div');
-        div.className = 'paper-item';
+        div.className = `paper-item${paper.starred ? ' starred' : ''}`;
         div.dataset.paperId = paper.id;
         
     div.innerHTML = `
@@ -352,12 +352,15 @@ function renderPapersList() {
             <div class="paper-details">
                 <div class="paper-title">${paper.title || paper.filename}</div>
                 <div class="paper-meta">
-                    ${paper.authors ? `作者: ${paper.authors} | ` : ''}
-                    ${paper.year ? `年份: ${paper.year} | ` : ''}
                     上传时间: ${new Date(paper.upload_date).toLocaleDateString()}
+                    ${paper.arxiv_published_date ? ` | arXiv: ${new Date(paper.arxiv_published_date).toLocaleDateString()}` : ''}
                 </div>
             </div>
+            ${paper.starred ? '<div class="paper-star-icon"><i class="fas fa-star"></i></div>' : ''}
             <div class="paper-actions">
+                <button class="paper-action-btn star ${paper.starred ? 'starred' : ''}" title="${paper.starred ? '取消点赞' : '点赞论文'}" onclick="toggleStar('${paper.id}', event)">
+                    <i class="fas fa-star"></i>
+                </button>
                 <button class="paper-action-btn edit" title="编辑信息" onclick="editPaper('${paper.id}', event)">
                     <i class="fas fa-edit"></i>
                 </button>
@@ -461,6 +464,7 @@ function renderPaperInfo(paper) {
             <div class="info-value">
                 <strong>文件名:</strong> ${paper.filename}<br>
                 <strong>上传时间:</strong> ${new Date(paper.upload_date).toLocaleString()}
+                ${paper.arxiv_published_date ? `<br><strong>arXiv 发布时间:</strong> ${new Date(paper.arxiv_published_date).toLocaleString()}` : ''}
             </div>
         </div>
     `;
@@ -1311,6 +1315,51 @@ async function deletePaper(paperId, event) {
     } catch (error) {
         console.error('删除论文失败:', error);
         showMessage('删除失败，请稍后重试', 'error');
+    }
+}
+
+// 切换点赞状态
+async function toggleStar(paperId, event) {
+    event.stopPropagation();
+    
+    try {
+        const paper = papers.find(p => p.id === paperId);
+        if (!paper) {
+            showMessage('论文未找到', 'error');
+            return;
+        }
+        
+        const newStarred = !paper.starred;
+        
+        const response = await fetch(`/api/paper/${paperId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                starred: newStarred
+            })
+        });
+        
+        if (response.ok) {
+            // 更新本地数据
+            paper.starred = newStarred;
+            
+            // 重新渲染论文列表以更新显示
+            renderPapersList();
+            
+            // 如果当前选中了这篇论文，重新选中以保持选中状态
+            if (currentPaperId === paperId) {
+                selectPaper(paperId);
+            }
+            
+            showMessage(newStarred ? '已点赞' : '已取消点赞', 'success');
+        } else {
+            showMessage('操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('切换点赞状态失败:', error);
+        showMessage('操作失败，请稍后重试', 'error');
     }
 }
 
