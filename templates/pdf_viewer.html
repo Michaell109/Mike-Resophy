@@ -142,24 +142,73 @@
             const iframe = document.getElementById('pdf-iframe');
             const loading = document.getElementById('loading');
             
-            // 使用 Mozilla PDF.js 在线查看器
-            const pdfUrl = encodeURIComponent(window.location.origin + '/api/paper/{{ paper_id }}/file');
-            const viewerUrl = `https://mozilla.github.io/pdf.js/web/viewer.html?file=${pdfUrl}`;
+            // 检查是否使用中文版
+            const useChinese = {{ 'true' if use_chinese else 'false' }};
+            let pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/file';
             
-            iframe.src = viewerUrl;
+            if (useChinese) {
+                // 使用中文版
+                pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/chinese/file';
+            }
             
-            // 监听 iframe 加载完成
-            iframe.onload = function() {
-                loading.style.display = 'none';
-                iframe.style.display = 'block';
-            };
+            console.log('PDF URL:', pdfUrl);
+            console.log('使用中文版:', useChinese);
+            
+            // 使用 fetch 检查文件是否存在
+            fetch(pdfUrl, { method: 'HEAD' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    console.log('PDF文件检查成功');
+                    
+                    // 使用 Mozilla PDF.js 在线查看器
+                    const encodedPdfUrl = encodeURIComponent(pdfUrl);
+                    const viewerUrl = `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedPdfUrl}`;
+                    console.log('Viewer URL:', viewerUrl);
+                    
+                    iframe.src = viewerUrl;
+                    
+                    // 监听 iframe 加载完成
+                    iframe.onload = function() {
+                        console.log('PDF iframe 加载完成');
+                        loading.style.display = 'none';
+                        iframe.style.display = 'block';
+                    };
+                    
+                    // 设置超时，如果10秒还没加载完成，显示错误
+                    setTimeout(() => {
+                        if (loading.style.display !== 'none') {
+                            console.error('PDF加载超时');
+                            loading.innerHTML = `
+                                <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
+                                <p style="color: #dc3545;">PDF 加载超时</p>
+                                <p style="color: #999; font-size: 12px; margin-top: 10px;">请检查PDF文件是否存在，或尝试直接下载</p>
+                                <button class="btn" onclick="location.reload()" style="margin-top: 15px;">重新加载</button>
+                                <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
+                            `;
+                        }
+                    }, 10000);
+                })
+                .catch(error => {
+                    console.error('PDF文件检查失败:', error);
+                    loading.innerHTML = `
+                        <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
+                        <p style="color: #dc3545;">PDF 加载失败</p>
+                        <p style="color: #999; font-size: 12px; margin-top: 10px;">错误信息: ${error.message}</p>
+                        <button class="btn" onclick="location.reload()" style="margin-top: 15px;">重新加载</button>
+                        <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
+                    `;
+                });
             
             // 错误处理
             iframe.onerror = function() {
+                console.error('PDF iframe 加载错误');
                 loading.innerHTML = `
                     <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
                     <p style="color: #dc3545;">PDF 加载失败</p>
                     <button class="btn" onclick="location.reload()">重新加载</button>
+                    <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
                 `;
             };
         }
@@ -201,11 +250,71 @@
             });
         }
         
+        // 记录阅读时间
+        let readStartTime = null;
+        let readTimeInterval = null;
+        
+        function startReadingTimer() {
+            readStartTime = Date.now();
+            // 每30秒记录一次阅读时间
+            readTimeInterval = setInterval(function() {
+                if (readStartTime) {
+                    const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                    // 发送到后端记录
+                    fetch(`/api/paper/{{ paper_id }}/read-time`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            read_time: elapsed
+                        })
+                    }).catch(err => console.error('记录阅读时间失败:', err));
+                }
+            }, 30000); // 每30秒记录一次
+        }
+        
+        function stopReadingTimer() {
+            if (readStartTime) {
+                const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                // 最后一次记录
+                fetch(`/api/paper/{{ paper_id }}/read-time`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        read_time: elapsed
+                    })
+                }).catch(err => console.error('记录阅读时间失败:', err));
+                readStartTime = null;
+            }
+            if (readTimeInterval) {
+                clearInterval(readTimeInterval);
+                readTimeInterval = null;
+            }
+        }
+        
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             setupBackButton();
             loadPaperInfo();
             initPDFViewer();
+            startReadingTimer();
+        });
+        
+        // 页面关闭或离开时停止计时
+        window.addEventListener('beforeunload', function() {
+            stopReadingTimer();
+        });
+        
+        // 页面隐藏时停止计时（切换标签页等）
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopReadingTimer();
+            } else {
+                startReadingTimer();
+            }
         });
     </script>
 </body>

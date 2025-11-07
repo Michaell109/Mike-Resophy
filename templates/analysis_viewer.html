@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 解读阅读器</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #fff; color: #333; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .header { height: 56px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; position: sticky; top: 0; background: #fff; z-index: 10; }
+        .header .btn { padding: 8px 12px; border: none; background: #f0f0f0; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .header .btn:hover { background: #e6e6e6; }
+        .header .btn-primary { background: #6f42c1; color: #fff; }
+        .header .btn-primary:hover { background: #5a32a3; }
+        .title { font-size: 16px; font-weight: 600; }
+        .container { height: calc(100vh - 56px); overflow-y: auto; padding: 24px; display: flex; justify-content: center; }
+        .content { width: min(1100px, 100%); }
+        .markdown-viewer h1, .markdown-viewer h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        .markdown-viewer h1 { font-size: 2em; }
+        .markdown-viewer h2 { font-size: 1.5em; }
+        .markdown-viewer h3 { font-size: 1.25em; }
+        .markdown-viewer p { line-height: 1.7; }
+        .markdown-viewer code { padding: 0.2em 0.4em; background: rgba(27,31,35,0.05); border-radius: 3px; }
+        .markdown-viewer pre { padding: 16px; background: #f6f8fa; border-radius: 6px; overflow: auto; }
+        .markdown-viewer img { max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .loading { height: calc(100vh - 56px); display: flex; align-items: center; justify-content: center; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <button id="close-btn" class="btn" title="关闭当前标签页 (Ctrl+W)"><i class="fas fa-times"></i> 关闭</button>
+        <div class="title">AI 解读阅读器</div>
+        <div style="width:80px"></div>
+    </div>
+    <div id="loading" class="loading">正在加载 AI 解读内容...</div>
+    <div id="container" class="container" style="display:none;">
+        <div class="content">
+            <div id="md" class="markdown-viewer"></div>
+        </div>
+    </div>
+    <script>
+        const paperId = {{ paper_id|tojson }};
+
+        function rewriteImages(markdown) {
+            const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+            return markdown.replace(imageRegex, (match, alt, src) => {
+                if (!src.startsWith('http') && !src.startsWith('/')) {
+                    const encodedPath = encodeURIComponent(src);
+                    return `![${alt}](/api/paper/${paperId}/analysis/image?path=${encodedPath})`;
+                }
+                return match;
+            });
+        }
+
+        function renderMarkdown(mdText) {
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    highlight: function(code, lang) {
+                        if (typeof hljs !== 'undefined' && lang) {
+                            try { return hljs.highlight(code, { language: lang }).value; }
+                            catch (e) { return hljs.highlightAuto(code).value; }
+                        }
+                        return code;
+                    }
+                });
+                const html = marked.parse(mdText);
+                document.getElementById('md').innerHTML = html;
+                if (typeof hljs !== 'undefined') {
+                    document.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                }
+            } else {
+                document.getElementById('md').innerHTML = `<pre style="white-space: pre-wrap;">${mdText}</pre>`;
+            }
+        }
+
+        async function loadContent() {
+            try {
+                const res = await fetch(`/api/paper/${paperId}/analysis/result`);
+                const json = await res.json();
+                if (!res.ok || !json.success) throw new Error(json.error || '加载失败');
+                const md = rewriteImages(json.content || '');
+                renderMarkdown(md);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('container').style.display = 'block';
+            } catch (e) {
+                document.getElementById('loading').textContent = `加载失败：${e.message}`;
+            }
+        }
+
+        function setupClose() {
+            const btn = document.getElementById('close-btn');
+            btn.onclick = () => { window.close(); };
+            window.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+                    e.preventDefault(); window.close();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault(); window.close();
+                }
+            });
+        }
+
+        // 记录阅读时间
+        let readStartTime = null;
+        let readTimeInterval = null;
+        
+        function startReadingTimer() {
+            readStartTime = Date.now();
+            // 每30秒记录一次阅读时间
+            readTimeInterval = setInterval(function() {
+                if (readStartTime) {
+                    const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                    // 发送到后端记录
+                    fetch(`/api/paper/${paperId}/analysis-view-time`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            view_time: elapsed
+                        })
+                    }).catch(err => console.error('记录阅读时间失败:', err));
+                }
+            }, 30000); // 每30秒记录一次
+        }
+        
+        function stopReadingTimer() {
+            if (readStartTime) {
+                const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                // 最后一次记录
+                fetch(`/api/paper/${paperId}/analysis-view-time`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        view_time: elapsed
+                    })
+                }).catch(err => console.error('记录阅读时间失败:', err));
+                readStartTime = null;
+            }
+            if (readTimeInterval) {
+                clearInterval(readTimeInterval);
+                readTimeInterval = null;
+            }
+        }
+        
+        setupClose();
+        loadContent();
+        startReadingTimer();
+        
+        // 页面关闭或离开时停止计时
+        window.addEventListener('beforeunload', function() {
+            stopReadingTimer();
+        });
+        
+        // 页面隐藏时停止计时（切换标签页等）
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopReadingTimer();
+            } else {
+                startReadingTimer();
+            }
+        });
+    </script>
+</body>
+</html>
+
+

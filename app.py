@@ -2,6 +2,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import threading
 import uuid
 from datetime import datetime
 
@@ -17,10 +19,28 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB max file size
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "papers")
 CATEGORIES_FILE = os.path.join(BASE_DIR, "categories.json")
+READING_LIST_FILE = os.path.join(BASE_DIR, "reading_list.json")  # 待读列表文件
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
 
 # 确保必要的目录存在
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# 初始化待读列表文件
+if not os.path.exists(READING_LIST_FILE):
+    with open(READING_LIST_FILE, "w", encoding="utf-8") as f:
+        json.dump({"papers": []}, f, ensure_ascii=False, indent=2)
+
+# 翻译任务管理
+translation_tasks = (
+    {}
+)  # {task_id: {paper_id, process, logs, status, start_time, log_lock}}
+translation_tasks_lock = threading.Lock()  # 保护翻译任务字典
+
+# AI解读任务管理
+analysis_tasks = (
+    {}
+)  # {task_id: {paper_id, process, logs, status, start_time, log_lock, step}}
+analysis_tasks_lock = threading.Lock()  # 保护解读任务字典
 
 
 # 初始化分类数据
@@ -433,6 +453,140 @@ def load_paper_metadata(pdf_path):
     return None
 
 
+# ==================== 待读列表管理 ====================
+def get_reading_list():
+    """获取待读列表"""
+    try:
+        if os.path.exists(READING_LIST_FILE):
+            with open(READING_LIST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("papers", [])
+    except Exception as e:
+        print(f"读取待读列表失败: {e}")
+    return []
+
+
+def save_reading_list(paper_ids):
+    """保存待读列表"""
+    try:
+        with open(READING_LIST_FILE, "w", encoding="utf-8") as f:
+            json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存待读列表失败: {e}")
+
+
+def add_to_reading_list(paper_id):
+    """添加论文到待读列表"""
+    paper_ids = get_reading_list()
+    if paper_id not in paper_ids:
+        paper_ids.append(paper_id)
+        save_reading_list(paper_ids)
+
+
+def remove_from_reading_list(paper_id):
+    """从待读列表移除论文"""
+    paper_ids = get_reading_list()
+    if paper_id in paper_ids:
+        paper_ids.remove(paper_id)
+        save_reading_list(paper_ids)
+
+
+def is_in_reading_list(paper_id):
+    """检查论文是否在待读列表中"""
+    return paper_id in get_reading_list()
+
+
+def get_paper_total_time(paper_id):
+    """获取论文的总阅读时间（阅读PDF时间 + 阅读AI解读时间）"""
+    categories = get_categories()
+
+    def search_paper_recursive(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    # 获取阅读时间字段（默认为0）
+                    read_time = paper.get("read_time", 0)  # 阅读PDF时间（秒）
+                    analysis_view_time = paper.get(
+                        "analysis_view_time", 0
+                    )  # 阅读AI解读时间（秒）
+                    return read_time + analysis_view_time
+
+        if "children" in node:
+            for child in node["children"]:
+                result = search_paper_recursive(child)
+                if result is not None:
+                    return result
+        return None
+
+    for child in categories.get("children", []):
+        result = search_paper_recursive(child)
+        if result is not None:
+            return result
+
+    return 0
+
+
+def extract_arxiv_id_from_url(url: str) -> str | None:
+    """从 arXiv URL 中提取 arXiv ID"""
+    # 支持的格式：
+    # https://arxiv.org/pdf/2511.03725.pdf
+    # https://arxiv.org/pdf/2511.03725v1.pdf
+    # https://arxiv.org/abs/2511.03725
+    # https://arxiv.org/abs/2511.03725v1
+    # arxiv.org/pdf/2511.03725
+    import re
+
+    patterns = [
+        r"arxiv\.org/pdf/([\d.]+(?:v\d+)?)",
+        r"arxiv\.org/abs/([\d.]+(?:v\d+)?)",
+        r"^([\d.]+(?:v\d+)?)$",  # 直接是 arXiv ID
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url, re.IGNORECASE)
+        if match:
+            arxiv_id = match.group(1)
+            # 移除版本号（如果存在）用于API调用
+            if "v" in arxiv_id:
+                arxiv_id = arxiv_id.split("v")[0]
+            return arxiv_id
+
+    return None
+
+
+def download_arxiv_pdf(arxiv_id: str) -> tuple[bytes, str] | None:
+    """从 arXiv 下载 PDF 文件
+    返回: (pdf_content, filename) 或 None
+    """
+    # arXiv PDF URL 格式: https://arxiv.org/pdf/{id}.pdf
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+
+    try:
+        print(f"正在从 arXiv 下载 PDF: {pdf_url}")
+        response = requests.get(pdf_url, timeout=30, stream=True)
+        response.raise_for_status()
+
+        # 检查 Content-Type
+        content_type = response.headers.get("Content-Type", "")
+        if "pdf" not in content_type.lower():
+            print(f"警告: Content-Type 不是 PDF: {content_type}")
+
+        # 读取PDF内容
+        pdf_content = response.content
+
+        # 生成文件名
+        filename = f"{arxiv_id}.pdf"
+
+        print(f"成功下载 PDF, 大小: {len(pdf_content)} bytes")
+        return (pdf_content, filename)
+
+    except requests.exceptions.RequestException as e:
+        print(f"下载 arXiv PDF 失败: {e}")
+        return None
+
+
 def fetch_arxiv_abstract(arxiv_id: str) -> dict | None:
     """从 arXiv API 获取摘要和发布时间。返回包含 abstract 和 published_date 的字典，失败返回 None。"""
     try:
@@ -446,15 +600,32 @@ def fetch_arxiv_abstract(arxiv_id: str) -> dict | None:
         entry = tree.find("{http://www.w3.org/2005/Atom}entry")
         if entry is None:
             return None
+
+        result = {}
+
+        # 获取标题
+        title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
+        if title_elem is not None and title_elem.text:
+            result["title"] = title_elem.text.strip()
+
+        # 获取作者
+        authors = []
+        for author in entry.findall("{http://www.w3.org/2005/Atom}author"):
+            name_elem = author.find("{http://www.w3.org/2005/Atom}name")
+            if name_elem is not None and name_elem.text:
+                authors.append(name_elem.text.strip())
+        if authors:
+            result["authors"] = ", ".join(authors)
+
+        # 获取摘要
         summary = entry.find("{http://www.w3.org/2005/Atom}summary")
-        abstract = None
         if summary is not None and summary.text:
             abstract = summary.text.strip()
             abstract = re.sub(r"\s+", " ", abstract)
+            result["abstract"] = abstract
 
         # 获取发布时间
         published = entry.find("{http://www.w3.org/2005/Atom}published")
-        published_date = None
         if published is not None and published.text:
             # arXiv API 返回的时间格式类似: 2023-01-15T18:30:00Z 或 2023-01-15T18:30:00.123Z
             try:
@@ -468,17 +639,11 @@ def fetch_arxiv_abstract(arxiv_id: str) -> dict | None:
                 else:
                     # 不包含毫秒: 2023-01-15T18:30:00
                     dt = datetime.strptime(published_date_str, "%Y-%m-%dT%H:%M:%S")
-                published_date = dt.isoformat()
+                result["published_date"] = dt.isoformat()
             except Exception as e:
                 print(
                     f"解析 arXiv 发布时间失败: {e}, 原始字符串: {published.text.strip() if published is not None else 'None'}"
                 )
-
-        result = {}
-        if abstract:
-            result["abstract"] = abstract
-        if published_date:
-            result["published_date"] = published_date
 
         return result if result else None
     except Exception as e:
@@ -487,7 +652,7 @@ def fetch_arxiv_abstract(arxiv_id: str) -> dict | None:
 
 
 def delete_paper_files(pdf_path):
-    """删除PDF文件和对应的JSON文件"""
+    """删除PDF文件、对应的JSON文件、中文翻译PDF，以及AI解读和PDF2MD的输出"""
     json_path = get_paper_json_path(pdf_path)
 
     # 删除PDF文件
@@ -500,6 +665,38 @@ def delete_paper_files(pdf_path):
         os.remove(json_path)
         print(f"已删除JSON文件: {json_path}")
 
+    # 删除中文翻译PDF（.zh.dual.pdf / .zh.mono.pdf）
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    pdf_dir = os.path.dirname(pdf_path)
+    zh_dual = os.path.join(pdf_dir, f"{base_name}.zh.dual.pdf")
+    zh_mono = os.path.join(pdf_dir, f"{base_name}.zh.mono.pdf")
+    for f in (zh_dual, zh_mono):
+        try:
+            if os.path.exists(f):
+                os.remove(f)
+                print(f"已删除中文翻译PDF: {f}")
+        except Exception as e:
+            print(f"删除中文翻译PDF失败: {f}, {e}")
+
+    # 删除outputs目录（包含AI解读和PDF2MD的输出）
+    outputs_dir = os.path.join(pdf_dir, "outputs")
+    if os.path.exists(outputs_dir):
+        # 查找与当前PDF对应的outputs子目录
+        for item in os.listdir(outputs_dir):
+            item_path = os.path.join(outputs_dir, item)
+            # 检查是否是当前PDF的输出目录（目录名通常包含PDF文件名）
+            if os.path.isdir(item_path) and base_name in item:
+                shutil.rmtree(item_path)
+                print(f"已删除AI解读输出目录: {item_path}")
+
+        # 如果outputs目录为空，也删除它
+        try:
+            if not os.listdir(outputs_dir):
+                os.rmdir(outputs_dir)
+                print(f"已删除空的outputs目录: {outputs_dir}")
+        except:
+            pass
+
 
 def scan_papers_in_directory(directory_path):
     """扫描目录中的所有PDF文件并加载其元数据"""
@@ -509,6 +706,10 @@ def scan_papers_in_directory(directory_path):
 
     for filename in os.listdir(directory_path):
         if filename.lower().endswith(".pdf"):
+            # 跳过翻译生成的PDF文件（.zh.dual.pdf 和 .zh.mono.pdf）
+            if filename.endswith(".zh.dual.pdf") or filename.endswith(".zh.mono.pdf"):
+                continue
+
             pdf_path = os.path.join(directory_path, filename)
             paper_data = load_paper_metadata(pdf_path)
 
@@ -519,6 +720,41 @@ def scan_papers_in_directory(directory_path):
                 # 确保 starred 字段存在（向后兼容）
                 if "starred" not in paper_data:
                     paper_data["starred"] = False
+                # 检查是否有中文版本
+                if "has_chinese_version" not in paper_data:
+                    base_name = os.path.splitext(filename)[0]
+                    dual_file = os.path.join(directory_path, f"{base_name}.zh.dual.pdf")
+                    if os.path.exists(dual_file):
+                        paper_data["has_chinese_version"] = True
+                        paper_data["chinese_version_path"] = dual_file
+                    else:
+                        paper_data["has_chinese_version"] = False
+                # 确保 use_chinese_version 字段存在（默认 False）
+                if "use_chinese_version" not in paper_data:
+                    paper_data["use_chinese_version"] = False
+                # 检查是否有解读结果（只检查当前PDF对应的outputs目录）
+                if "has_analysis_result" not in paper_data:
+                    # 检查是否存在解读结果文件
+                    pdf_dir = os.path.dirname(pdf_path)
+                    base_name = os.path.splitext(filename)[0]
+                    outputs_dir = os.path.join(pdf_dir, "outputs")
+                    has_result = False
+                    if os.path.exists(outputs_dir):
+                        # 只检查与当前PDF文件名匹配的outputs子目录
+                        for item in os.listdir(outputs_dir):
+                            item_path = os.path.join(outputs_dir, item)
+                            # 确保目录名包含当前PDF的文件名（去掉扩展名）
+                            if os.path.isdir(item_path) and base_name in item:
+                                vlm_dir = os.path.join(item_path, "vlm")
+                                if os.path.exists(vlm_dir):
+                                    result_file = os.path.join(vlm_dir, "result.md")
+                                    if os.path.exists(result_file):
+                                        has_result = True
+                                        paper_data["has_analysis_result"] = True
+                                        paper_data["analysis_result_path"] = result_file
+                                        break
+                    if not has_result:
+                        paper_data["has_analysis_result"] = False
                 papers.append(paper_data)
             else:
                 # 如果没有JSON文件，创建基本的论文数据
@@ -803,12 +1039,165 @@ def api_upload():
         "subject": metadata.get("subject") or "",
         "notes": "",
         "starred": False,  # 点赞状态
+        "read_time": 0,  # 阅读PDF时间（秒，一次性，取最大值）
+        "analysis_view_time": 0,  # 阅读AI解读时间（秒，一次性，取最大值）
+        "translation_time": 0,  # 翻译任务耗时（秒）
+        "analysis_time": 0,  # 解读任务耗时（秒）
     }
 
     # 保存论文元数据到JSON文件
     save_paper_metadata(file_path, paper_info)
 
+    # 自动添加到待读列表
+    add_to_reading_list(paper_info["id"])
+
     return jsonify({"success": True, "paper": paper_info})
+
+
+@app.route("/api/upload/arxiv", methods=["POST"])
+def api_upload_arxiv():
+    """从 arXiv URL 下载并导入 PDF"""
+    try:
+        data = request.json
+        arxiv_url = data.get("arxiv_url", "").strip()
+        category_id = data.get("category_id")
+
+        if not arxiv_url:
+            return jsonify({"success": False, "error": "未提供 arXiv URL"}), 400
+
+        if not category_id:
+            return jsonify({"success": False, "error": "未选择分类"}), 400
+
+        # 提取 arXiv ID
+        arxiv_id = extract_arxiv_id_from_url(arxiv_url)
+        if not arxiv_id:
+            return (
+                jsonify({"success": False, "error": "无法从 URL 中提取 arXiv ID"}),
+                400,
+            )
+
+        print(f"提取的 arXiv ID: {arxiv_id}")
+
+        # 下载 PDF
+        result = download_arxiv_pdf(arxiv_id)
+        if not result:
+            return jsonify({"success": False, "error": "下载 PDF 失败"}), 500
+
+        pdf_content, filename = result
+
+        # 获取分类路径
+        categories = get_categories()
+        category_path = get_category_path(categories, category_id)
+
+        if not category_path:
+            return jsonify({"success": False, "error": "分类未找到"}), 404
+
+        # 创建目录并保存文件
+        category_folder = create_category_folder(category_path[1:])  # 跳过 Root
+        file_path = os.path.join(category_folder, filename)
+
+        # 如果文件已存在，添加数字后缀
+        counter = 1
+        original_filename = filename
+        while os.path.exists(file_path):
+            name, ext = os.path.splitext(original_filename)
+            filename = f"{name}_{counter}{ext}"
+            file_path = os.path.join(category_folder, filename)
+            counter += 1
+
+        # 保存PDF文件
+        with open(file_path, "wb") as f:
+            f.write(pdf_content)
+
+        print(f"PDF 已保存到: {file_path}")
+
+        # 从 arXiv API 获取元数据
+        metadata = {}
+        arxiv_info = fetch_arxiv_abstract(arxiv_id)
+        if arxiv_info:
+            # 优先使用 arXiv API 的元数据（标题、作者、摘要、发布时间）
+            if "title" in arxiv_info:
+                metadata["title"] = arxiv_info["title"]
+            if "authors" in arxiv_info:
+                metadata["authors"] = arxiv_info["authors"]
+            if "abstract" in arxiv_info:
+                metadata["abstract"] = arxiv_info["abstract"]
+            if "published_date" in arxiv_info:
+                metadata["arxiv_published_date"] = arxiv_info["published_date"]
+
+        # 设置 arXiv ID
+        metadata["arxiv_id"] = arxiv_id
+
+        # 尝试从PDF提取更多元数据（如果 arXiv API 没有提供）
+        server_md = extract_pdf_metadata(file_path)
+        for k, v in server_md.items():
+            if k == "abstract":
+                continue  # 摘要优先使用 arXiv API 的
+            if not metadata.get(k):
+                metadata[k] = v
+
+        # 如果提取到了标题，尝试重命名文件
+        new_filename = filename
+        if metadata.get("title"):
+            clean_title = clean_filename(metadata["title"])
+            if clean_title:
+                new_filename = f"{clean_title}.pdf"
+                new_file_path = os.path.join(category_folder, new_filename)
+
+                counter = 1
+                original_new_filename = new_filename
+                while os.path.exists(new_file_path):
+                    name, ext = os.path.splitext(original_new_filename)
+                    new_filename = f"{name}_{counter}{ext}"
+                    new_file_path = os.path.join(category_folder, new_filename)
+                    counter += 1
+
+                try:
+                    os.rename(file_path, new_file_path)
+                    file_path = new_file_path
+                    filename = new_filename
+                    print(f"文件已重命名为: {filename}")
+                except Exception as e:
+                    print(f"重命名文件失败: {e}")
+
+        # 创建论文记录
+        paper_info = {
+            "id": str(uuid.uuid4()),
+            "filename": filename,
+            "original_filename": filename,
+            "file_path": file_path,
+            "upload_date": datetime.now().isoformat(),
+            "title": metadata.get("title") or arxiv_id,
+            "authors": metadata.get("authors") or "",
+            "arxiv_id": arxiv_id,
+            "arxiv_published_date": metadata.get("arxiv_published_date"),
+            "affiliation": metadata.get("affiliation") or "",
+            "year": metadata.get("year") or "",
+            "journal": "",
+            "abstract": metadata.get("abstract") or "",
+            "keywords": metadata.get("keywords") or "",
+            "subject": metadata.get("subject") or "",
+            "notes": "",
+            "starred": False,
+            "read_time": 0,  # 阅读时间（秒）
+            "translation_time": 0,  # 翻译时间（秒）
+            "analysis_time": 0,  # 解读时间（秒）
+        }
+
+        # 保存论文元数据到JSON文件
+        save_paper_metadata(file_path, paper_info)
+
+        # 自动添加到待读列表
+        add_to_reading_list(paper_info["id"])
+
+        return jsonify({"success": True, "paper": paper_info})
+
+    except Exception as e:
+        print(f"从 arXiv 导入失败: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"导入失败: {str(e)}"}), 500
 
 
 @app.route("/api/paper/<paper_id>")
@@ -1038,19 +1427,49 @@ def api_get_paper_file(paper_id):
             for paper in papers:
                 if paper["id"] == paper_id:
                     file_path = paper.get("file_path")
-                    if file_path and os.path.exists(file_path):
-                        response = send_file(
-                            file_path, as_attachment=False, mimetype="application/pdf"
+                    if not file_path:
+                        print(f"论文 {paper_id} 没有 file_path 字段")
+                        # 尝试从filename和category_path重建路径
+                        filename = paper.get("filename")
+                        if filename and category_path:
+                            category_folder = create_category_folder(category_path[1:])
+                            file_path = os.path.join(category_folder, filename)
+                            print(f"尝试重建路径: {file_path}")
+
+                    if file_path:
+                        # 确保是绝对路径
+                        if not os.path.isabs(file_path):
+                            file_path = os.path.abspath(file_path)
+
+                        print(
+                            f"查找PDF文件: {file_path}, 存在: {os.path.exists(file_path)}"
                         )
-                        # 添加 CORS 头，允许 PDF.js 访问
-                        response.headers["Access-Control-Allow-Origin"] = "*"
-                        response.headers["Access-Control-Allow-Methods"] = "GET"
-                        response.headers["Access-Control-Allow-Headers"] = (
-                            "Content-Type"
-                        )
-                        return response
+
+                        if os.path.exists(file_path):
+                            response = send_file(
+                                file_path,
+                                as_attachment=False,
+                                mimetype="application/pdf",
+                            )
+                            # 添加 CORS 头，允许 PDF.js 访问
+                            response.headers["Access-Control-Allow-Origin"] = "*"
+                            response.headers["Access-Control-Allow-Methods"] = "GET"
+                            response.headers["Access-Control-Allow-Headers"] = (
+                                "Content-Type"
+                            )
+                            return response
+                        else:
+                            print(f"文件不存在: {file_path}")
+                            return (
+                                jsonify({"error": f"File not found: {file_path}"}),
+                                404,
+                            )
                     else:
-                        return jsonify({"error": "File not found"}), 404
+                        print(f"无法确定文件路径，paper数据: {paper}")
+                        return (
+                            jsonify({"error": "File path not found in paper data"}),
+                            404,
+                        )
 
         if "children" in node:
             for child in node["children"]:
@@ -1188,10 +1607,1297 @@ def api_update_paper(paper_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def translate_paper_task(
+    task_id,
+    paper_id,
+    pdf_path,
+    pdf_dir,
+    pdf_filename,
+    openai_model,
+    openai_base_url,
+    openai_api_key,
+):
+    """后台翻译任务"""
+    start_time = datetime.now()  # 记录开始时间
+    with translation_tasks_lock:
+        task_info = translation_tasks[task_id]
+        task_info["status"] = "running"
+        log_lines = task_info["logs"]
+        log_lock = task_info["log_lock"]
+        process = None
+
+    def read_output(pipe, label):
+        """实时读取子进程输出"""
+        try:
+            for line in iter(pipe.readline, ""):
+                if line:
+                    line = line.rstrip()
+                    # 打印到控制台
+                    print(f"[{label}] {line}")
+                    # 保存到日志列表
+                    with log_lock:
+                        log_lines.append(f"[{label}] {line}")
+        except Exception as e:
+            print(f"读取输出时出错: {e}")
+        finally:
+            pipe.close()
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(pdf_dir)
+        cmd = [
+            "babeldoc",
+            "--openai",
+            "--openai-model",
+            openai_model,
+            "--openai-base-url",
+            openai_base_url,
+            "--openai-api-key",
+            openai_api_key,
+            "--files",
+            pdf_filename,
+        ]
+
+        print(f"执行翻译命令: {' '.join(cmd)}")
+        print(f"工作目录: {pdf_dir}")
+
+        # 使用Popen实时捕获输出
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        # 更新任务信息中的进程
+        with translation_tasks_lock:
+            translation_tasks[task_id]["process"] = process
+
+        # 启动线程实时读取输出
+        stdout_thread = threading.Thread(
+            target=read_output, args=(process.stdout, "STDOUT")
+        )
+        stderr_thread = threading.Thread(
+            target=read_output, args=(process.stderr, "STDERR")
+        )
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        stdout_thread.start()
+        stderr_thread.start()
+
+        # 等待进程完成
+        return_code = process.wait(timeout=3600)
+
+        # 等待输出线程完成
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+
+        # 更新任务状态
+        with translation_tasks_lock:
+            if return_code == 0:
+                # 查找生成的翻译文件
+                base_name = os.path.splitext(pdf_filename)[0]
+                dual_file = os.path.join(pdf_dir, f"{base_name}.zh.dual.pdf")
+                mono_file = os.path.join(pdf_dir, f"{base_name}.zh.mono.pdf")
+
+                if os.path.exists(dual_file):
+                    # 删除mono文件
+                    if os.path.exists(mono_file):
+                        os.remove(mono_file)
+
+                    # 更新论文元数据
+                    categories = get_categories()
+
+                    def search_and_update_paper(node):
+                        category_path = get_category_path(categories, node["id"])
+                        if category_path:
+                            papers = get_papers_in_category(category_path)
+                            for paper in papers:
+                                if paper["id"] == paper_id:
+                                    paper["has_chinese_version"] = True
+                                    paper["chinese_version_path"] = dual_file
+                                    save_paper_metadata(pdf_path, paper)
+                                    return True
+                        if "children" in node:
+                            for child in node["children"]:
+                                if search_and_update_paper(child):
+                                    return True
+                        return False
+
+                    for child in categories.get("children", []):
+                        if search_and_update_paper(child):
+                            break
+
+                    # 保存日志文件
+                    log_file = os.path.join(pdf_dir, f"{base_name}.translate.log")
+                    try:
+                        with open(log_file, "w", encoding="utf-8") as f:
+                            f.write("\n".join(log_lines))
+                    except Exception as e:
+                        print(f"保存日志文件失败: {e}")
+
+                    # 计算翻译耗时（秒）
+                    end_time = datetime.now()
+                    translation_duration = int((end_time - start_time).total_seconds())
+
+                    # 更新论文的翻译时间（一次性，取最大值）
+                    categories = get_categories()
+
+                    def search_and_update_paper(node):
+                        category_path = get_category_path(categories, node["id"])
+                        if category_path:
+                            papers = get_papers_in_category(category_path)
+                            for paper in papers:
+                                if paper["id"] == paper_id:
+                                    paper["translation_time"] = max(
+                                        paper.get("translation_time", 0),
+                                        translation_duration,
+                                    )
+                                    pdf_path = paper.get("file_path")
+                                    if pdf_path and os.path.exists(pdf_path):
+                                        save_paper_metadata(pdf_path, paper)
+                                    return True
+                        if "children" in node:
+                            for child in node["children"]:
+                                if search_and_update_paper(child):
+                                    return True
+                        return False
+
+                    for child in categories.get("children", []):
+                        if search_and_update_paper(child):
+                            break
+
+                    translation_tasks[task_id]["status"] = "completed"
+                    translation_tasks[task_id]["result"] = {
+                        "success": True,
+                        "chinese_version_path": dual_file,
+                        "log_file": log_file,
+                    }
+                else:
+                    translation_tasks[task_id]["status"] = "failed"
+                    translation_tasks[task_id]["result"] = {
+                        "success": False,
+                        "error": "翻译文件未生成",
+                    }
+            else:
+                translation_tasks[task_id]["status"] = "failed"
+                translation_tasks[task_id]["result"] = {
+                    "success": False,
+                    "error": f"翻译失败 (退出码: {return_code})",
+                }
+
+    except subprocess.TimeoutExpired:
+        with translation_tasks_lock:
+            translation_tasks[task_id]["status"] = "failed"
+            translation_tasks[task_id]["result"] = {
+                "success": False,
+                "error": "翻译超时",
+            }
+        if process:
+            process.kill()
+    except Exception as e:
+        print(f"翻译过程出错: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        with translation_tasks_lock:
+            translation_tasks[task_id]["status"] = "failed"
+            translation_tasks[task_id]["result"] = {
+                "success": False,
+                "error": f"翻译失败: {str(e)}",
+            }
+        if process:
+            process.kill()
+    finally:
+        os.chdir(original_cwd)
+
+
+def analyze_paper_task(
+    task_id,
+    paper_id,
+    pdf_path,
+    pdf_dir,
+    pdf_filename,
+    mineru_server_url,
+    openai_base_url,
+    openai_api_key,
+    system_prompt,
+):
+    """后台AI解读任务 - 两步：PDF2MD -> LLM解读"""
+    start_time = datetime.now()  # 记录开始时间
+    with analysis_tasks_lock:
+        task_info = analysis_tasks[task_id]
+        task_info["status"] = "running"
+        task_info["step"] = "pdf2md"  # 第一步：PDF转Markdown
+        log_lines = task_info["logs"]
+        log_lock = task_info["log_lock"]
+        process = None
+
+    def read_output(pipe, label):
+        """实时读取子进程输出"""
+        try:
+            for line in iter(pipe.readline, ""):
+                if line:
+                    line = line.rstrip()
+                    # 打印到控制台
+                    print(f"[{label}] {line}")
+                    # 保存到日志列表
+                    with log_lock:
+                        log_lines.append(f"[{label}] {line}")
+        except Exception as e:
+            print(f"读取输出时出错: {e}")
+        finally:
+            pipe.close()
+
+    original_cwd = os.getcwd()
+    try:
+        # ========== 第一步：PDF转Markdown ==========
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["step"] = "pdf2md"
+            with log_lock:
+                log_lines.append("=" * 50)
+                log_lines.append("第一步：开始将PDF解析为Markdown...")
+                log_lines.append("=" * 50)
+
+        os.chdir(pdf_dir)
+
+        # 构建 mineru 命令
+        cmd = [
+            "mineru",
+            "-p",
+            pdf_filename,
+            "-o",
+            "outputs",
+            "-b",
+            "vlm-http-client",
+            "-u",
+            mineru_server_url,
+        ]
+
+        print(f"执行PDF2MD命令: {' '.join(cmd)}")
+        print(f"工作目录: {pdf_dir}")
+
+        # 使用Popen实时捕获输出
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        # 更新任务信息中的进程
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["process"] = process
+
+        # 启动线程实时读取输出
+        stdout_thread = threading.Thread(
+            target=read_output, args=(process.stdout, "STDOUT")
+        )
+        stderr_thread = threading.Thread(
+            target=read_output, args=(process.stderr, "STDERR")
+        )
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        stdout_thread.start()
+        stderr_thread.start()
+
+        # 等待进程完成
+        return_code = process.wait(timeout=3600)
+
+        # 等待输出线程完成
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+
+        if return_code != 0:
+            raise Exception(f"PDF2MD失败 (退出码: {return_code})")
+
+        # 清理输出目录，只保留 images 和 pdf名称.md
+        base_name = os.path.splitext(pdf_filename)[0]
+        outputs_dir = os.path.join(pdf_dir, "outputs")
+
+        # 精确定位当前PDF的目录结构：outputs/<base_name>/vlm/
+        pdf_output_dir = os.path.join(outputs_dir, base_name, "vlm")
+        if not os.path.exists(pdf_output_dir):
+            # 兼容历史或异常结构：回退到遍历，但优先匹配包含 base_name 的目录
+            candidate = None
+            for item in os.listdir(outputs_dir):
+                item_path = os.path.join(outputs_dir, item)
+                if os.path.isdir(item_path) and base_name in item:
+                    vlm_dir = os.path.join(item_path, "vlm")
+                    if os.path.exists(vlm_dir):
+                        candidate = vlm_dir
+                        break
+            if candidate:
+                pdf_output_dir = candidate
+
+        if not pdf_output_dir or not os.path.exists(pdf_output_dir):
+            raise Exception("未找到PDF解析输出目录")
+
+        with log_lock:
+            log_lines.append(f"找到输出目录: {pdf_output_dir}")
+
+        # 保留 images 目录和 pdf名称.md 文件，删除其他
+        vlm_items = os.listdir(pdf_output_dir)
+        md_file = None
+        for item in vlm_items:
+            item_path = os.path.join(pdf_output_dir, item)
+            if item == "images" and os.path.isdir(item_path):
+                continue  # 保留 images 目录
+            elif item.endswith(".md") and os.path.isfile(item_path):
+                md_file = item_path
+                continue  # 保留 markdown 文件
+            else:
+                # 删除其他文件和目录
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    with log_lock:
+                        log_lines.append(f"删除目录: {item}")
+                else:
+                    os.remove(item_path)
+                    with log_lock:
+                        log_lines.append(f"删除文件: {item}")
+
+        if not md_file:
+            raise Exception("未找到生成的Markdown文件")
+
+        with log_lock:
+            log_lines.append("=" * 50)
+            log_lines.append("第一步完成：PDF已解析为Markdown")
+            log_lines.append(f"Markdown文件: {md_file}")
+            log_lines.append("=" * 50)
+
+        # ========== 第二步：LLM解读 ==========
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["step"] = "llm_analysis"
+            with log_lock:
+                log_lines.append("=" * 50)
+                log_lines.append("第二步：开始LLM解读...")
+                log_lines.append("=" * 50)
+
+        # 读取 markdown 文件
+        with open(md_file, "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+
+        # 构建 LLM 请求
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=openai_api_key,
+            base_url=openai_base_url,
+        )
+
+        # 获取模型列表并选择第一个
+        try:
+            models = client.models.list()
+            model = models.data[0].id if models.data else None
+            if not model:
+                raise Exception("无法获取模型列表")
+        except Exception as e:
+            raise Exception(f"获取模型列表失败: {str(e)}")
+
+        # 构建消息
+        prompt = system_prompt.replace("<MARKDOWN>", markdown_content)
+        messages = [{"role": "user", "content": prompt}]
+
+        with log_lock:
+            log_lines.append(f"使用模型: {model}")
+            log_lines.append(f"开始调用LLM API...")
+
+        # 调用 LLM API
+        chat_completion = client.chat.completions.create(
+            messages=messages,
+            model=model,
+        )
+
+        result_content = chat_completion.choices[0].message.content
+
+        # 保存结果到 outputs/pdf名称/vlm/result.md
+        result_file = os.path.join(pdf_output_dir, "result.md")
+        with open(result_file, "w", encoding="utf-8") as f:
+            f.write(result_content)
+
+        with log_lock:
+            log_lines.append("=" * 50)
+            log_lines.append("第二步完成：LLM解读完成")
+            log_lines.append(f"结果文件: {result_file}")
+            log_lines.append("=" * 50)
+
+        # 更新论文元数据，标记有解读结果
+        categories = get_categories()
+
+        def search_and_update_paper(node):
+            category_path = get_category_path(categories, node["id"])
+            if category_path:
+                papers_list = get_papers_in_category(category_path)
+                for paper in papers_list:
+                    if paper["id"] == paper_id:
+                        paper["has_analysis_result"] = True
+                        paper["analysis_result_path"] = result_file
+                        save_paper_metadata(pdf_path, paper)
+                        return True
+            if "children" in node:
+                for child in node["children"]:
+                    if search_and_update_paper(child):
+                        return True
+            return False
+
+        for child in categories.get("children", []):
+            if search_and_update_paper(child):
+                break
+
+        # 计算解读耗时（秒）
+        end_time = datetime.now()
+        analysis_duration = int((end_time - start_time).total_seconds())
+
+        # 更新论文的解读时间（一次性，取最大值）
+        categories = get_categories()
+
+        def search_and_update_analysis_time(node):
+            category_path = get_category_path(categories, node["id"])
+            if category_path:
+                papers = get_papers_in_category(category_path)
+                for paper in papers:
+                    if paper["id"] == paper_id:
+                        paper["analysis_time"] = max(
+                            paper.get("analysis_time", 0), analysis_duration
+                        )
+                        pdf_path = paper.get("file_path")
+                        if pdf_path and os.path.exists(pdf_path):
+                            save_paper_metadata(pdf_path, paper)
+                        return True
+            if "children" in node:
+                for child in node["children"]:
+                    if search_and_update_analysis_time(child):
+                        return True
+            return False
+
+        for child in categories.get("children", []):
+            if search_and_update_analysis_time(child):
+                break
+
+        # 更新任务状态
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["status"] = "completed"
+            analysis_tasks[task_id]["result"] = {
+                "success": True,
+                "result_file": result_file,
+                "markdown_file": md_file,
+            }
+
+    except subprocess.TimeoutExpired:
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["status"] = "failed"
+            analysis_tasks[task_id]["result"] = {
+                "success": False,
+                "error": "解读超时",
+            }
+        if process:
+            process.kill()
+    except Exception as e:
+        print(f"解读过程出错: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        with analysis_tasks_lock:
+            analysis_tasks[task_id]["status"] = "failed"
+            analysis_tasks[task_id]["result"] = {
+                "success": False,
+                "error": f"解读失败: {str(e)}",
+            }
+        if process:
+            process.kill()
+    finally:
+        os.chdir(original_cwd)
+
+
+@app.route("/api/paper/translate", methods=["POST"])
+def api_translate_paper():
+    """翻译PDF论文 - 启动后台任务"""
+    try:
+        data = request.json
+        paper_id = data.get("paper_id")
+        openai_model = data.get("openai_model")
+        openai_base_url = data.get("openai_base_url")
+        openai_api_key = data.get("openai_api_key")
+
+        if (
+            not paper_id
+            or not openai_model
+            or not openai_base_url
+            or not openai_api_key
+        ):
+            return jsonify({"success": False, "error": "缺少必要参数"}), 400
+
+        # 检查是否已有该论文的翻译任务在运行
+        with translation_tasks_lock:
+            for task_id, task_info in translation_tasks.items():
+                if (
+                    task_info["paper_id"] == paper_id
+                    and task_info["status"] == "running"
+                ):
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "该论文已有翻译任务在运行",
+                                "task_id": task_id,
+                            }
+                        ),
+                        400,
+                    )
+
+        # 查找论文
+        categories = get_categories()
+
+        def search_paper_recursive(node):
+            category_path = get_category_path(categories, node["id"])
+            if category_path:
+                papers = get_papers_in_category(category_path)
+                for paper in papers:
+                    if paper["id"] == paper_id:
+                        return paper, category_path
+
+            if "children" in node:
+                for child in node["children"]:
+                    result = search_paper_recursive(child)
+                    if result:
+                        return result
+
+            return None
+
+        result = None
+        for child in categories.get("children", []):
+            result = search_paper_recursive(child)
+            if result:
+                break
+
+        if not result:
+            return jsonify({"success": False, "error": "论文未找到"}), 404
+
+        paper, category_path = result
+        pdf_path = paper.get("file_path")
+
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+
+        # 获取PDF文件所在目录
+        pdf_dir = os.path.dirname(pdf_path)
+        pdf_filename = os.path.basename(pdf_path)
+
+        # 创建任务ID
+        task_id = str(uuid.uuid4())
+
+        # 创建任务信息
+        with translation_tasks_lock:
+            translation_tasks[task_id] = {
+                "paper_id": paper_id,
+                "status": "queued",  # queued, running, completed, failed, cancelled
+                "logs": [],
+                "log_lock": threading.Lock(),
+                "process": None,
+                "start_time": datetime.now().isoformat(),
+                "result": None,
+            }
+
+        # 在后台线程中启动翻译任务
+        thread = threading.Thread(
+            target=translate_paper_task,
+            args=(
+                task_id,
+                paper_id,
+                pdf_path,
+                pdf_dir,
+                pdf_filename,
+                openai_model,
+                openai_base_url,
+                openai_api_key,
+            ),
+        )
+        thread.daemon = True
+        thread.start()
+
+        return jsonify(
+            {"success": True, "message": "翻译任务已启动", "task_id": task_id}
+        )
+
+    except Exception as e:
+        print(f"启动翻译任务失败: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"启动翻译任务失败: {str(e)}"}), 500
+
+
+@app.route("/api/paper/translate/active", methods=["GET"])
+def api_get_active_translations():
+    """获取所有进行中的翻译任务"""
+    with translation_tasks_lock:
+        active_tasks = []
+        for task_id, task_info in translation_tasks.items():
+            if task_info["status"] in ["queued", "running"]:
+                active_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "paper_id": task_info["paper_id"],
+                        "status": task_info["status"],
+                        "start_time": task_info["start_time"],
+                    }
+                )
+        return jsonify({"success": True, "tasks": active_tasks})
+
+
+@app.route("/api/paper/translate/<task_id>/logs", methods=["GET"])
+def api_get_translation_logs(task_id):
+    """获取翻译任务的日志"""
+    with translation_tasks_lock:
+        if task_id not in translation_tasks:
+            return jsonify({"success": False, "error": "任务不存在"}), 404
+
+        task_info = translation_tasks[task_id]
+        with task_info["log_lock"]:
+            logs = task_info["logs"].copy()
+
+        return jsonify(
+            {
+                "success": True,
+                "status": task_info["status"],
+                "logs": logs,
+                "start_time": task_info["start_time"],
+                "result": task_info.get("result"),
+            }
+        )
+
+
+@app.route("/api/paper/translate/<task_id>/cancel", methods=["POST"])
+def api_cancel_translation(task_id):
+    """取消翻译任务"""
+    with translation_tasks_lock:
+        if task_id not in translation_tasks:
+            return jsonify({"success": False, "error": "任务不存在"}), 404
+
+        task_info = translation_tasks[task_id]
+
+        if task_info["status"] in ["completed", "failed", "cancelled"]:
+            return jsonify({"success": False, "error": "任务已结束，无法取消"}), 400
+
+        # 终止进程
+        process = task_info.get("process")
+        if process and process.poll() is None:  # 进程仍在运行
+            try:
+                process.terminate()
+                # 等待进程结束
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # 如果5秒内没有结束，强制杀死
+                process.kill()
+                process.wait()
+            except Exception as e:
+                print(f"终止进程失败: {e}")
+
+        task_info["status"] = "cancelled"
+        task_info["result"] = {"success": False, "error": "翻译已取消"}
+
+        return jsonify({"success": True, "message": "翻译任务已取消"})
+
+
+@app.route("/api/paper/<paper_id>/chinese/file")
+def api_get_chinese_paper_file(paper_id):
+    """获取中文版本PDF文件"""
+    categories = get_categories()
+
+    def search_paper_file(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    chinese_path = paper.get("chinese_version_path")
+                    if chinese_path and os.path.exists(chinese_path):
+                        response = send_file(
+                            chinese_path,
+                            as_attachment=False,
+                            mimetype="application/pdf",
+                        )
+                        response.headers["Access-Control-Allow-Origin"] = "*"
+                        response.headers["Access-Control-Allow-Methods"] = "GET"
+                        response.headers["Access-Control-Allow-Headers"] = (
+                            "Content-Type"
+                        )
+                        return response
+                    else:
+                        return jsonify({"error": "中文版本文件不存在"}), 404
+
+        if "children" in node:
+            for child in node["children"]:
+                result = search_paper_file(child)
+                if result:
+                    return result
+
+        return None
+
+    for child in categories.get("children", []):
+        result = search_paper_file(child)
+        if result:
+            return result
+
+    return jsonify({"error": "论文未找到"}), 404
+
+
+@app.route("/api/paper/analyze", methods=["POST"])
+def api_analyze_paper():
+    """AI解读PDF论文 - 启动后台任务"""
+    try:
+        data = request.json
+        paper_id = data.get("paper_id")
+        mineru_server_url = data.get("mineru_server_url")
+        openai_base_url = data.get("openai_base_url")
+        openai_api_key = data.get("openai_api_key")
+        system_prompt = data.get("system_prompt")
+
+        if (
+            not paper_id
+            or not mineru_server_url
+            or not openai_base_url
+            or not openai_api_key
+            or not system_prompt
+        ):
+            return jsonify({"success": False, "error": "缺少必要参数"}), 400
+
+        # 检查是否已有该论文的解读任务在运行
+        with analysis_tasks_lock:
+            for task_id, task_info in analysis_tasks.items():
+                if (
+                    task_info["paper_id"] == paper_id
+                    and task_info["status"] == "running"
+                ):
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "该论文已有解读任务在运行",
+                                "task_id": task_id,
+                            }
+                        ),
+                        400,
+                    )
+
+        # 查找论文
+        categories = get_categories()
+
+        def search_paper_recursive(node):
+            category_path = get_category_path(categories, node["id"])
+            if category_path:
+                papers = get_papers_in_category(category_path)
+                for paper in papers:
+                    if paper["id"] == paper_id:
+                        return paper, category_path
+
+            if "children" in node:
+                for child in node["children"]:
+                    result = search_paper_recursive(child)
+                    if result:
+                        return result
+
+            return None
+
+        result = None
+        for child in categories.get("children", []):
+            result = search_paper_recursive(child)
+            if result:
+                break
+
+        if not result:
+            return jsonify({"success": False, "error": "论文未找到"}), 404
+
+        paper, category_path = result
+        pdf_path = paper.get("file_path")
+
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+
+        # 获取PDF文件所在目录
+        pdf_dir = os.path.dirname(pdf_path)
+        pdf_filename = os.path.basename(pdf_path)
+
+        # 创建任务ID
+        task_id = str(uuid.uuid4())
+
+        # 创建任务信息
+        with analysis_tasks_lock:
+            analysis_tasks[task_id] = {
+                "paper_id": paper_id,
+                "status": "queued",  # queued, running, completed, failed, cancelled
+                "step": None,  # pdf2md, llm_analysis
+                "logs": [],
+                "log_lock": threading.Lock(),
+                "process": None,
+                "start_time": datetime.now().isoformat(),
+                "result": None,
+            }
+
+        # 在后台线程中启动解读任务
+        thread = threading.Thread(
+            target=analyze_paper_task,
+            args=(
+                task_id,
+                paper_id,
+                pdf_path,
+                pdf_dir,
+                pdf_filename,
+                mineru_server_url,
+                openai_base_url,
+                openai_api_key,
+                system_prompt,
+            ),
+        )
+        thread.daemon = True
+        thread.start()
+
+        return jsonify(
+            {"success": True, "message": "解读任务已启动", "task_id": task_id}
+        )
+
+    except Exception as e:
+        print(f"启动解读任务失败: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"启动解读任务失败: {str(e)}"}), 500
+
+
+@app.route("/api/paper/analyze/<task_id>/logs", methods=["GET"])
+def api_get_analysis_logs(task_id):
+    """获取解读任务的日志"""
+    with analysis_tasks_lock:
+        if task_id not in analysis_tasks:
+            return jsonify({"success": False, "error": "任务不存在"}), 404
+
+        task_info = analysis_tasks[task_id]
+        with task_info["log_lock"]:
+            logs = task_info["logs"].copy()
+
+        return jsonify(
+            {
+                "success": True,
+                "status": task_info["status"],
+                "step": task_info.get("step"),
+                "logs": logs,
+                "start_time": task_info["start_time"],
+                "result": task_info.get("result"),
+            }
+        )
+
+
+@app.route("/api/paper/analyze/active", methods=["GET"])
+def api_get_active_analysis():
+    """获取所有进行中的解读任务"""
+    with analysis_tasks_lock:
+        active_tasks = []
+        for task_id, task_info in analysis_tasks.items():
+            if task_info["status"] in ["queued", "running"]:
+                active_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "paper_id": task_info["paper_id"],
+                        "status": task_info["status"],
+                        "step": task_info.get("step"),
+                        "start_time": task_info["start_time"],
+                    }
+                )
+        return jsonify({"success": True, "tasks": active_tasks})
+
+
+@app.route("/api/paper/analyze/<task_id>/cancel", methods=["POST"])
+def api_cancel_analysis(task_id):
+    """取消解读任务"""
+    with analysis_tasks_lock:
+        if task_id not in analysis_tasks:
+            return jsonify({"success": False, "error": "任务不存在"}), 404
+
+        task_info = analysis_tasks[task_id]
+
+        if task_info["status"] in ["completed", "failed", "cancelled"]:
+            return jsonify({"success": False, "error": "任务已结束，无法取消"}), 400
+
+        # 终止进程
+        process = task_info.get("process")
+        if process and process.poll() is None:  # 进程仍在运行
+            try:
+                process.terminate()
+                # 等待进程结束
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # 如果5秒内没有结束，强制杀死
+                process.kill()
+                process.wait()
+            except Exception as e:
+                print(f"终止进程失败: {e}")
+
+        task_info["status"] = "cancelled"
+        task_info["result"] = {"success": False, "error": "解读已取消"}
+
+        return jsonify({"success": True, "message": "解读任务已取消"})
+
+
+@app.route("/api/paper/<paper_id>/analysis/result")
+def api_get_analysis_result(paper_id):
+    """获取解读结果文件"""
+    categories = get_categories()
+
+    def search_paper_recursive(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    return paper, category_path
+
+        if "children" in node:
+            for child in node["children"]:
+                result = search_paper_recursive(child)
+                if result:
+                    return result
+
+        return None
+
+    result = None
+    for child in categories.get("children", []):
+        result = search_paper_recursive(child)
+        if result:
+            break
+
+    if not result:
+        return jsonify({"error": "论文未找到"}), 404
+
+    paper, category_path = result
+    pdf_path = paper.get("file_path")
+
+    if not pdf_path or not os.path.exists(pdf_path):
+        return jsonify({"error": "PDF文件不存在"}), 404
+
+    # 查找 result.md 文件
+    pdf_dir = os.path.dirname(pdf_path)
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    outputs_dir = os.path.join(pdf_dir, "outputs")
+
+    # 优先精确查找 outputs/当前PDF名/vlm/result.md，避免被其它论文的结果覆盖
+    result_file = None
+    if os.path.exists(outputs_dir):
+        exact_result = os.path.join(outputs_dir, base_name, "vlm", "result.md")
+        if os.path.exists(exact_result):
+            result_file = exact_result
+        else:
+            # 兼容历史目录结构：回退到遍历查找（但这可能命中第一个有结果的论文）
+            for item in os.listdir(outputs_dir):
+                item_path = os.path.join(outputs_dir, item)
+                if os.path.isdir(item_path):
+                    vlm_dir = os.path.join(item_path, "vlm")
+                    if os.path.exists(vlm_dir):
+                        potential_result = os.path.join(vlm_dir, "result.md")
+                        if os.path.exists(potential_result):
+                            result_file = potential_result
+                            break
+
+    if not result_file or not os.path.exists(result_file):
+        return jsonify({"error": "解读结果文件不存在"}), 404
+
+    # 读取并返回 markdown 内容
+    try:
+        with open(result_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({"success": True, "content": content, "file_path": result_file})
+    except Exception as e:
+        return jsonify({"error": f"读取结果文件失败: {str(e)}"}), 500
+
+
+@app.route("/api/paper/<paper_id>/analysis/image")
+def api_get_analysis_image(paper_id):
+    """获取解读结果中的图片"""
+    categories = get_categories()
+
+    def search_paper_recursive(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    return paper, category_path
+
+        if "children" in node:
+            for child in node["children"]:
+                result = search_paper_recursive(child)
+                if result:
+                    return result
+
+        return None
+
+    result = None
+    for child in categories.get("children", []):
+        result = search_paper_recursive(child)
+        if result:
+            break
+
+    if not result:
+        return jsonify({"error": "论文未找到"}), 404
+
+    paper, category_path = result
+    pdf_path = paper.get("file_path")
+
+    if not pdf_path or not os.path.exists(pdf_path):
+        return jsonify({"error": "PDF文件不存在"}), 404
+
+    # 获取图片路径参数
+    image_path = request.args.get("path")
+    if not image_path:
+        return jsonify({"error": "未提供图片路径"}), 400
+
+    # 查找图片文件
+    pdf_dir = os.path.dirname(pdf_path)
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    outputs_dir = os.path.join(pdf_dir, "outputs")
+
+    # 优先精确查找 outputs/当前PDF名/vlm/images/图片名
+    image_file = None
+    if os.path.exists(outputs_dir):
+        vlm_dir_specific = os.path.join(outputs_dir, base_name, "vlm")
+        if os.path.exists(vlm_dir_specific):
+            if image_path.startswith("images/"):
+                potential_image = os.path.join(vlm_dir_specific, image_path)
+            else:
+                potential_image = os.path.join(vlm_dir_specific, "images", image_path)
+
+            if os.path.exists(potential_image) and os.path.isfile(potential_image):
+                image_file = potential_image
+        if not image_file:
+            # 兼容历史目录结构：回退到遍历查找
+            for item in os.listdir(outputs_dir):
+                item_path = os.path.join(outputs_dir, item)
+                if os.path.isdir(item_path):
+                    vlm_dir = os.path.join(item_path, "vlm")
+                    if os.path.exists(vlm_dir):
+                        if image_path.startswith("images/"):
+                            potential_image = os.path.join(vlm_dir, image_path)
+                        else:
+                            potential_image = os.path.join(
+                                vlm_dir, "images", image_path
+                            )
+
+                        if os.path.exists(potential_image) and os.path.isfile(
+                            potential_image
+                        ):
+                            image_file = potential_image
+                            break
+
+    if not image_file or not os.path.exists(image_file):
+        return jsonify({"error": "图片文件不存在"}), 404
+
+    # 返回图片文件
+    return send_file(image_file, mimetype="image/jpeg")
+
+
 @app.route("/viewer/<paper_id>")
 def pdf_viewer(paper_id):
     """PDF阅读器页面"""
-    return render_template("pdf_viewer.html", paper_id=paper_id)
+    use_chinese = request.args.get("chinese", "false").lower() == "true"
+    return render_template(
+        "pdf_viewer.html", paper_id=paper_id, use_chinese=use_chinese
+    )
+
+
+@app.route("/viewer/analysis/<paper_id>")
+def analysis_viewer(paper_id):
+    """AI 解读 Markdown 全屏查看页面"""
+    return render_template("analysis_viewer.html", paper_id=paper_id)
+
+
+# ==================== 待读列表 API ====================
+@app.route("/api/reading-list")
+def api_reading_list():
+    """获取待读列表中的所有论文，并检查是否应该自动移除"""
+    paper_ids = get_reading_list()
+    papers = []
+
+    # 读取设置
+    SETTINGS_FILE = os.path.join(BASE_DIR, "general_settings.json")
+    auto_remove_minutes = 5  # 默认5分钟
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                auto_remove_minutes = settings.get(
+                    "reading_list_auto_remove_minutes", 5
+                )
+    except Exception as e:
+        print(f"读取设置失败: {e}")
+
+    auto_remove_seconds = auto_remove_minutes * 60
+
+    # 获取每个论文的详细信息
+    categories = get_categories()
+    papers_to_remove = []
+
+    for paper_id in paper_ids:
+
+        def search_paper_recursive(node):
+            category_path = get_category_path(categories, node["id"])
+            if category_path:
+                category_papers = get_papers_in_category(category_path)
+                for paper in category_papers:
+                    if paper["id"] == paper_id:
+                        return paper
+            if "children" in node:
+                for child in node["children"]:
+                    result = search_paper_recursive(child)
+                    if result:
+                        return result
+            return None
+
+        for child in categories.get("children", []):
+            paper = search_paper_recursive(child)
+            if paper:
+                # 检查总时间是否超过阈值
+                total_time = get_paper_total_time(paper_id)
+                if total_time >= auto_remove_seconds:
+                    # 自动移除
+                    papers_to_remove.append(paper_id)
+                else:
+                    papers.append(paper)
+                break
+
+    # 移除超过阈值的论文
+    for paper_id in papers_to_remove:
+        remove_from_reading_list(paper_id)
+
+    return jsonify(papers)
+
+
+@app.route("/api/reading-list/<paper_id>/add", methods=["POST"])
+def api_add_to_reading_list(paper_id):
+    """添加论文到待读列表"""
+    add_to_reading_list(paper_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/reading-list/<paper_id>/remove", methods=["POST"])
+def api_remove_from_reading_list(paper_id):
+    """从待读列表移除论文"""
+    remove_from_reading_list(paper_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/reading-list/<paper_id>/check", methods=["GET"])
+def api_check_reading_list(paper_id):
+    """检查论文是否在待读列表中"""
+    in_list = is_in_reading_list(paper_id)
+    return jsonify({"in_list": in_list})
+
+
+@app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
+def api_record_read_time(paper_id):
+    """记录论文的阅读时间（一次性，不是累计）"""
+    data = request.json
+    read_time = data.get("read_time", 0)  # 秒
+
+    # 查找论文并更新阅读时间
+    categories = get_categories()
+
+    def search_and_update_recursive(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    # 更新阅读时间（一次性，取最大值）
+                    paper["read_time"] = max(paper.get("read_time", 0), read_time)
+                    # 保存到JSON文件
+                    pdf_path = paper.get("file_path")
+                    if pdf_path and os.path.exists(pdf_path):
+                        save_paper_metadata(pdf_path, paper)
+                    return True
+        if "children" in node:
+            for child in node["children"]:
+                if search_and_update_recursive(child):
+                    return True
+        return False
+
+    for child in categories.get("children", []):
+        if search_and_update_recursive(child):
+            break
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/paper/<paper_id>/analysis-view-time", methods=["POST"])
+def api_record_analysis_view_time(paper_id):
+    """记录论文的AI解读阅读时间（一次性，不是累计）"""
+    data = request.json
+    view_time = data.get("view_time", 0)  # 秒
+
+    # 查找论文并更新阅读时间
+    categories = get_categories()
+
+    def search_and_update_recursive(node):
+        category_path = get_category_path(categories, node["id"])
+        if category_path:
+            papers = get_papers_in_category(category_path)
+            for paper in papers:
+                if paper["id"] == paper_id:
+                    # 更新AI解读阅读时间（一次性，取最大值）
+                    paper["analysis_view_time"] = max(
+                        paper.get("analysis_view_time", 0), view_time
+                    )
+                    # 保存到JSON文件
+                    pdf_path = paper.get("file_path")
+                    if pdf_path and os.path.exists(pdf_path):
+                        save_paper_metadata(pdf_path, paper)
+                    return True
+        if "children" in node:
+            for child in node["children"]:
+                if search_and_update_recursive(child):
+                    return True
+        return False
+
+    for child in categories.get("children", []):
+        if search_and_update_recursive(child):
+            break
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/settings/general", methods=["GET", "POST"])
+def api_general_settings():
+    """获取或保存通用设置（包括待读列表自动移除时间阈值）"""
+    SETTINGS_FILE = os.path.join(BASE_DIR, "general_settings.json")
+
+    if request.method == "GET":
+        # 读取设置
+        default_settings = {"reading_list_auto_remove_minutes": 5}  # 默认5分钟
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    # 合并默认值
+                    for key, value in default_settings.items():
+                        if key not in settings:
+                            settings[key] = value
+                    return jsonify(settings)
+        except Exception as e:
+            print(f"读取设置失败: {e}")
+        return jsonify(default_settings)
+
+    else:  # POST
+        # 保存设置
+        data = request.json
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":

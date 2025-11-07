@@ -6,6 +6,99 @@ let papers = [];
 let expandedCategories = new Set(); // 记录展开的分类
 let draggedPaper = null; // 当前拖拽的论文
 let dragExpandTimer = null; // 拖拽展开定时器
+let currentViewMode = 'category'; // 'category' | 'translating' | 'analyzing' | 'reading-list' - 当前视图模式
+let readingListCount = 0; // 待读列表数量
+let readingListPaperIds = new Set(); // 待读列表中的论文ID集合
+
+// 翻译相关
+let translationQueue = []; // 翻译队列
+let isTranslating = false; // 是否正在翻译
+let translationStatus = {}; // 翻译状态 {paperId: 'translating' | 'queued' | 'completed' | 'error', queuePosition: number, taskId: string}
+let translationLogInterval = {}; // 日志轮询定时器 {taskId: intervalId}
+
+// AI解读相关
+let analysisQueue = []; // 解读队列
+let isAnalyzing = false; // 是否正在解读
+let analysisStatus = {}; // 解读状态 {paperId: 'analyzing' | 'queued' | 'completed' | 'error', queuePosition: number, taskId: string, step: string}
+let analysisLogInterval = {}; // 日志轮询定时器 {taskId: intervalId}
+
+// 保存队列到 localStorage
+function saveQueuesToStorage() {
+    try {
+        localStorage.setItem('translationQueue', JSON.stringify(translationQueue));
+        localStorage.setItem('analysisQueue', JSON.stringify(analysisQueue));
+        localStorage.setItem('translationStatus', JSON.stringify(translationStatus));
+        localStorage.setItem('analysisStatus', JSON.stringify(analysisStatus));
+    } catch (e) {
+        console.error('保存队列状态失败:', e);
+    }
+}
+
+// 从 localStorage 恢复队列
+function restoreQueuesFromStorage() {
+    try {
+        const savedTQueue = localStorage.getItem('translationQueue');
+        const savedAQueue = localStorage.getItem('analysisQueue');
+        const savedTStatus = localStorage.getItem('translationStatus');
+        const savedAStatus = localStorage.getItem('analysisStatus');
+        
+        if (savedTQueue) {
+            translationQueue = JSON.parse(savedTQueue);
+        }
+        if (savedAQueue) {
+            analysisQueue = JSON.parse(savedAQueue);
+        }
+        if (savedTStatus) {
+            translationStatus = JSON.parse(savedTStatus);
+        }
+        if (savedAStatus) {
+            analysisStatus = JSON.parse(savedAStatus);
+        }
+    } catch (e) {
+        console.error('恢复队列状态失败:', e);
+        translationQueue = [];
+        analysisQueue = [];
+        translationStatus = {};
+        analysisStatus = {};
+    }
+}
+
+// 清理已完成的队列项
+function cleanupCompletedQueues() {
+    // 清理翻译队列中已完成或失败的项目
+    translationQueue = translationQueue.filter(pid => {
+        const status = translationStatus[pid];
+        return status && (status.status === 'queued' || status.status === 'translating');
+    });
+    
+    // 清理解读队列中已完成或失败的项目
+    analysisQueue = analysisQueue.filter(pid => {
+        const status = analysisStatus[pid];
+        return status && (status.status === 'queued' || status.status === 'analyzing');
+    });
+    
+    // 清理状态中已完成或失败的项目
+    Object.keys(translationStatus).forEach(pid => {
+        const status = translationStatus[pid];
+        if (status.status === 'completed' || status.status === 'error') {
+            delete translationStatus[pid];
+        }
+    });
+    
+    Object.keys(analysisStatus).forEach(pid => {
+        const status = analysisStatus[pid];
+        if (status.status === 'completed' || status.status === 'error') {
+            delete analysisStatus[pid];
+        }
+    });
+    
+    saveQueuesToStorage();
+}
+
+// 多选相关
+let isMultiSelectMode = false;
+let selectedPaperIds = new Set();
+let lastSelectedIndex = null; // 用于 shift 选择
 
 // DOM 元素
 const categoryTree = document.getElementById('category-tree');
@@ -22,6 +115,25 @@ const loading = document.getElementById('loading');
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     setupEventListeners();
+    setupNavigation();
+    loadTranslationSettings();
+    loadAnalysisSettings();
+    loadHabitSettings();
+    loadGeneralSettings();
+    // 先恢复队列状态，再恢复运行中的任务
+    restoreQueuesFromStorage();
+    cleanupCompletedQueues();
+    restoreActiveTasks();
+    // 恢复队列后，继续处理队列
+    if (translationQueue.length > 0 && !isTranslating) {
+        processTranslationQueue();
+    }
+    if (analysisQueue.length > 0 && !isAnalyzing) {
+        processAnalysisQueue();
+    }
+    renderRecentIfNoCategory();
+    updateTaskIndicator();
+    updateReadingListCount();
 });
 
 // 设置事件监听器
@@ -46,11 +158,26 @@ function setupEventListeners() {
         }
     });
 
+    // arXiv 导入按钮
+    document.getElementById('upload-arxiv-btn').addEventListener('click', () => {
+        if (currentCategoryId) {
+            showArxivUploadModal();
+        } else {
+            showMessage('请先选择一个分类', 'warning');
+        }
+    });
+
     // 刷新按钮
     document.getElementById('refresh-papers').addEventListener('click', () => {
         if (currentCategoryId) {
             loadPapers(currentCategoryId);
         }
+    });
+
+    // 多选开关按钮
+    document.getElementById('toggle-multiselect').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMultiSelectMode();
     });
 
 // 文件输入
@@ -62,6 +189,18 @@ fileInput.addEventListener('change', handleFileSelect);
             renderPapersList();
         }
     });
+
+    // 批量工具栏动作
+    const batchAnalyze = document.getElementById('batch-analyze');
+    const batchTranslate = document.getElementById('batch-translate');
+    const batchMove = document.getElementById('batch-move');
+    const batchDelete = document.getElementById('batch-delete');
+    const batchCancel = document.getElementById('batch-cancel');
+    if (batchAnalyze) batchAnalyze.addEventListener('click', onBatchAnalyze);
+    if (batchTranslate) batchTranslate.addEventListener('click', onBatchTranslate);
+    if (batchMove) batchMove.addEventListener('click', onBatchMove);
+    if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
+    if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
 
     // 全局搜索
     setupGlobalSearch();
@@ -76,16 +215,29 @@ fileInput.addEventListener('change', handleFileSelect);
     setupContextMenu();
 
     // 点击空白处关闭菜单
-    document.addEventListener('click', () => {
+    document.addEventListener('click', (e) => {
         contextMenu.style.display = 'none';
+        // 多选状态下，点击主要区域空白退出
+        if (isMultiSelectMode) {
+            const main = document.querySelector('.main-content');
+            const isInsideMain = main && main.contains(e.target);
+            const isPaperItem = e.target.closest && e.target.closest('.paper-item');
+            const isToolbar = e.target.closest && e.target.closest('#batch-toolbar');
+            const isToggleBtn = e.target.closest && e.target.closest('#toggle-multiselect');
+            if (isInsideMain && !isPaperItem && !isToolbar && !isToggleBtn) {
+                exitMultiSelectMode();
+            }
+        }
     });
 
-    // 点击分类树空白区域，清空选中
+    // 点击分类树空白区域，清空选中并展示最近阅读
     categoryTree.addEventListener('click', (e) => {
         if (e.target === categoryTree) {
             document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
             currentCategoryId = null;
             currentCategoryTitle.textContent = '选择一个分类查看 PDF';
+            renderRecentIfNoCategory();
+            clearPaperInfo();
         }
     });
 }
@@ -200,6 +352,13 @@ function createCategoryElement(category, level = 0) {
     // 点击事件
     div.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 无论点击分类项的哪个位置，都先展开其子目录（若存在）
+        const children = container.querySelector('.category-children');
+        const toggle = div.querySelector('.category-toggle');
+        if (children && children.classList.contains('collapsed')) {
+            children.classList.remove('collapsed');
+            if (toggle) toggle.classList.add('expanded');
+        }
         // 若重复点击已选中的分类，则取消选中
         if (div.classList.contains('selected')) {
             div.classList.remove('selected');
@@ -298,6 +457,17 @@ function selectCategory(categoryId, categoryName) {
 // 加载论文列表
 async function loadPapers(categoryId) {
     try {
+        currentViewMode = 'category';
+        currentCategoryId = categoryId;
+        // 清除分类树中的选中状态
+        document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+        // 如果点击了分类，选中它
+        if (categoryId && categoryId !== 'root') {
+            const categoryItem = document.querySelector(`.category-item[data-category-id="${categoryId}"]`);
+            if (categoryItem) {
+                categoryItem.classList.add('selected');
+            }
+        }
         // 使用局部占位，避免全局遮罩导致闪烁
         papersList.innerHTML = `
             <div class="empty-state" style="opacity:.7">
@@ -307,11 +477,343 @@ async function loadPapers(categoryId) {
         `;
         const response = await fetch(`/api/papers/${categoryId}`);
         papers = await response.json();
+        // 确保待读列表ID集合已更新
+        await updateReadingListCount();
         renderPapersList();
     } catch (error) {
         console.error('加载论文失败:', error);
         showMessage('加载论文失败', 'error');
     }
+}
+
+// 显示翻译中的论文列表
+async function showTranslatingPapers() {
+    try {
+        currentViewMode = 'translating';
+        currentCategoryId = null; // 清除分类选中
+        // 清除分类树中的选中状态
+        document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+        // 更新标题
+        const currentCategoryTitle = document.getElementById('current-category');
+        if (currentCategoryTitle) {
+            const tCount = translationQueue.length + Object.values(translationStatus).filter(s => s.status === 'translating').length;
+            currentCategoryTitle.textContent = `翻译中 (${tCount} 篇)`;
+        }
+        // 收集所有翻译中的论文ID（队列中 + 正在翻译的）
+        const paperIds = new Set();
+        translationQueue.forEach(pid => paperIds.add(pid));
+        Object.keys(translationStatus).forEach(pid => {
+            const status = translationStatus[pid];
+            if (status && (status.status === 'translating' || status.status === 'queued')) {
+                paperIds.add(pid);
+            }
+        });
+        // 如果没有论文，显示空状态
+        if (paperIds.size === 0) {
+            papers = [];
+            papersList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-language"></i>
+                    <p>当前没有翻译中的论文</p>
+                </div>
+            `;
+            document.getElementById('sort-controls').style.display = 'none';
+            return;
+        }
+        // 从后端获取这些论文的详细信息
+        papersList.innerHTML = `
+            <div class="empty-state" style="opacity:.7">
+                <i class="fas fa-file-pdf"></i>
+                <p>加载中...</p>
+            </div>
+        `;
+        const paperDetails = await Promise.all(
+            Array.from(paperIds).map(async (paperId) => {
+                try {
+                    const response = await fetch(`/api/paper/${paperId}`);
+                    if (response.ok) {
+                        return await response.json();
+                    }
+                    return null;
+                } catch (e) {
+                    console.error(`加载论文 ${paperId} 失败:`, e);
+                    return null;
+                }
+            })
+        );
+        papers = paperDetails.filter(p => p !== null);
+        // 确保待读列表ID集合已更新
+        await updateReadingListCount();
+        renderPapersList();
+    } catch (error) {
+        console.error('加载翻译中论文失败:', error);
+        showMessage('加载翻译中论文失败', 'error');
+    }
+}
+
+// 显示待读列表
+async function showReadingList() {
+    try {
+        currentViewMode = 'reading-list';
+        currentCategoryId = null; // 清除分类选中
+        // 清除分类树中的选中状态
+        document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+        // 更新标题
+        const currentCategoryTitle = document.getElementById('current-category');
+        if (currentCategoryTitle) {
+            currentCategoryTitle.textContent = `待读列表 (${readingListCount} 篇)`;
+        }
+        // 从后端获取待读列表
+        papersList.innerHTML = `
+            <div class="empty-state" style="opacity:.7">
+                <i class="fas fa-file-pdf"></i>
+                <p>加载中...</p>
+            </div>
+        `;
+        const response = await fetch('/api/reading-list');
+        papers = await response.json();
+        // 更新计数
+        readingListCount = papers.length;
+        updateReadingListCount();
+        // 如果没有论文，显示空状态
+        if (papers.length === 0) {
+            papersList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-book-open"></i>
+                    <p>待读列表为空</p>
+                </div>
+            `;
+            document.getElementById('sort-controls').style.display = 'none';
+            return;
+        }
+        renderPapersList();
+    } catch (error) {
+        console.error('加载待读列表失败:', error);
+        showMessage('加载待读列表失败', 'error');
+    }
+}
+
+// 更新待读列表计数和ID集合
+async function updateReadingListCount() {
+    try {
+        const response = await fetch('/api/reading-list');
+        const papers = await response.json();
+        readingListCount = papers.length;
+        // 更新ID集合
+        readingListPaperIds.clear();
+        papers.forEach(p => readingListPaperIds.add(p.id));
+        
+        const tiReadingCount = document.getElementById('ti-reading-count');
+        if (tiReadingCount) {
+            tiReadingCount.textContent = readingListCount;
+        }
+        const btnReading = document.getElementById('btn-show-reading-list');
+        if (btnReading) {
+            if (readingListCount > 0) {
+                btnReading.classList.add('has-tasks');
+            } else {
+                btnReading.classList.remove('has-tasks');
+            }
+        }
+    } catch (e) {
+        console.error('更新待读列表计数失败:', e);
+    }
+}
+
+// 添加到待读列表
+async function addToReadingList(paperId, event) {
+    if (event) event.stopPropagation();
+    try {
+        const response = await fetch(`/api/reading-list/${paperId}/add`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            showMessage('已添加到待读列表', 'success');
+            // 更新ID集合和计数
+            readingListPaperIds.add(paperId);
+            await updateReadingListCount();
+            // 如果当前正在查看分类列表，更新显示
+            if (currentViewMode === 'category' && currentCategoryId) {
+                renderPapersList();
+            }
+        } else {
+            showMessage('添加失败', 'error');
+        }
+    } catch (error) {
+        console.error('添加失败:', error);
+        showMessage('添加失败', 'error');
+    }
+}
+
+// 从待读列表移除论文
+async function removeFromReadingList(paperId, event) {
+    if (event) event.stopPropagation();
+    if (!confirm('确定要从待读列表移除这篇论文吗？')) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/reading-list/${paperId}/remove`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            showMessage('已从待读列表移除', 'success');
+            // 更新ID集合和计数
+            readingListPaperIds.delete(paperId);
+            await updateReadingListCount();
+            // 如果当前正在查看待读列表，刷新列表
+            if (currentViewMode === 'reading-list') {
+                showReadingList();
+            } else if (currentViewMode === 'category' && currentCategoryId) {
+                // 如果在分类列表中，更新显示
+                renderPapersList();
+            }
+        } else {
+            showMessage('移除失败', 'error');
+        }
+    } catch (error) {
+        console.error('移除失败:', error);
+        showMessage('移除失败', 'error');
+    }
+}
+
+// 显示解读中的论文列表
+async function showAnalyzingPapers() {
+    try {
+        currentViewMode = 'analyzing';
+        currentCategoryId = null; // 清除分类选中
+        // 清除分类树中的选中状态
+        document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+        // 更新标题
+        const currentCategoryTitle = document.getElementById('current-category');
+        if (currentCategoryTitle) {
+            const aCount = analysisQueue.length + Object.values(analysisStatus).filter(s => s.status === 'analyzing').length;
+            currentCategoryTitle.textContent = `解读中 (${aCount} 篇)`;
+        }
+        // 收集所有解读中的论文ID（队列中 + 正在解读的）
+        const paperIds = new Set();
+        analysisQueue.forEach(pid => paperIds.add(pid));
+        Object.keys(analysisStatus).forEach(pid => {
+            const status = analysisStatus[pid];
+            if (status && (status.status === 'analyzing' || status.status === 'queued')) {
+                paperIds.add(pid);
+            }
+        });
+        // 如果没有论文，显示空状态
+        if (paperIds.size === 0) {
+            papers = [];
+            papersList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-brain"></i>
+                    <p>当前没有解读中的论文</p>
+                </div>
+            `;
+            document.getElementById('sort-controls').style.display = 'none';
+            return;
+        }
+        // 从后端获取这些论文的详细信息
+        papersList.innerHTML = `
+            <div class="empty-state" style="opacity:.7">
+                <i class="fas fa-file-pdf"></i>
+                <p>加载中...</p>
+            </div>
+        `;
+        const paperDetails = await Promise.all(
+            Array.from(paperIds).map(async (paperId) => {
+                try {
+                    const response = await fetch(`/api/paper/${paperId}`);
+                    if (response.ok) {
+                        return await response.json();
+                    }
+                    return null;
+                } catch (e) {
+                    console.error(`加载论文 ${paperId} 失败:`, e);
+                    return null;
+                }
+            })
+        );
+        papers = paperDetails.filter(p => p !== null);
+        // 确保待读列表ID集合已更新
+        await updateReadingListCount();
+        renderPapersList();
+    } catch (error) {
+        console.error('加载解读中论文失败:', error);
+        showMessage('加载解读中论文失败', 'error');
+    }
+}
+
+// 生成论文项的HTML（可复用）
+function generatePaperItemHTML(paper, showCheckbox = false) {
+    const isSelected = selectedPaperIds.has(paper.id);
+    return `
+        <div class="paper-icon">
+            <i class="fas fa-file-pdf"></i>
+        </div>
+        <div class="paper-details">
+            ${showCheckbox && isMultiSelectMode ? `<label class="paper-checkbox"><input type="checkbox" ${isSelected ? 'checked' : ''} data-check="1" /></label>` : ''}
+            <div class="paper-title">${paper.title || paper.filename}</div>
+                <div class="paper-meta">
+                上传时间: ${new Date(paper.upload_date).toLocaleDateString()}
+                ${paper.arxiv_published_date ? ` | arXiv: ${new Date(paper.arxiv_published_date).toLocaleDateString()}` : ''}
+                    ${getTranslationStatusText(paper.id)}
+                    <span class="analysis-status">${getAnalysisStatusText(paper.id)}</span>
+                    ${getTotalReadTimeText(paper)}
+            </div>
+            ${paper.has_chinese_version ? `
+            <div class="chinese-version-btn-container" style="margin-top: 5px;">
+                <button class="chinese-version-btn" onclick="openChineseVersion('${paper.id}', event)" title="查看中文版PDF">
+                    <i class="fas fa-language"></i> 查看中文版
+                </button>
+            </div>
+            ` : ''}
+            ${paper.has_analysis_result ? `
+            <div class="chinese-version-btn-container" style="margin-top: 5px;">
+                <button class="chinese-version-btn" onclick="viewAnalysisResult('${paper.id}', event)" title="查看 AI 解读" style="background: #6f42c1; color: white; border-color: #6f42c1;">
+                    <i class="fas fa-brain"></i> 查看 AI 解读
+                </button>
+            </div>
+            ` : ''}
+        </div>
+        ${paper.starred ? '<div class="paper-star-icon"><i class="fas fa-star"></i></div>' : ''}
+        <div class="paper-actions">
+            ${translationStatus[paper.id] && translationStatus[paper.id].status === 'translating' ? `
+            <button class="paper-action-btn log" title="查看翻译日志" onclick="showTranslationLogs('${paper.id}', event)">
+                <i class="fas fa-terminal"></i>
+            </button>
+            ` : ''}
+            ${analysisStatus[paper.id] && analysisStatus[paper.id].status === 'analyzing' ? `
+            <button class="paper-action-btn log" title="查看解读日志" onclick="showAnalysisLogs('${paper.id}', event)">
+                <i class="fas fa-terminal"></i>
+            </button>
+            ` : ''}
+            <button class="paper-action-btn analyze" title="${paper.has_analysis_result ? '重新解读' : 'AI解读'}" onclick="requestAnalysis('${paper.id}', event)">
+                <i class="fas fa-brain"></i>
+            </button>
+            <button class="paper-action-btn translate" title="${paper.has_chinese_version ? '重新翻译' : '翻译为中文'}" onclick="requestTranslation('${paper.id}', event)">
+                <i class="fas fa-language"></i>
+            </button>
+            <button class="paper-action-btn star ${paper.starred ? 'starred' : ''}" title="${paper.starred ? '取消点赞' : '点赞论文'}" onclick="toggleStar('${paper.id}', event)">
+                <i class="fas fa-star"></i>
+            </button>
+            <button class="paper-action-btn edit" title="编辑信息" onclick="editPaper('${paper.id}', event)">
+                <i class="fas fa-edit"></i>
+            </button>
+            <button class="paper-action-btn move" title="移动到其他目录" onclick="openMovePaperPicker('${paper.id}', event)">
+                <i class="fas fa-arrow-right"></i>
+            </button>
+            <button class="paper-action-btn" title="删除论文" onclick="deletePaper('${paper.id}', event)">
+                <i class="fas fa-trash"></i>
+            </button>
+            ${currentViewMode === 'reading-list' ? `
+            <button class="paper-action-btn" title="从待读列表移除" onclick="removeFromReadingList('${paper.id}', event)" style="background: #ff9800; color: white;">
+                <i class="fas fa-times-circle"></i>
+            </button>
+            ` : (currentViewMode === 'category' && !readingListPaperIds.has(paper.id)) ? `
+            <button class="paper-action-btn" title="添加到待读列表" onclick="addToReadingList('${paper.id}', event)" style="background: #9c27b0; color: white;">
+                <i class="fas fa-book-open"></i>
+            </button>
+            ` : ''}
+        </div>
+    `;
 }
 
 // 渲染论文列表
@@ -338,48 +840,24 @@ function renderPapersList() {
     
     // 排序论文
     const sortedPapers = sortPapers([...papers], sortBy);
+    // 将当前排序保存，便于 shift 选择
+    window.__currentSortedPapers = sortedPapers.map(p=>p.id);
 
     papersList.innerHTML = '';
     sortedPapers.forEach(paper => {
         const div = document.createElement('div');
-        div.className = `paper-item${paper.starred ? ' starred' : ''}`;
+        const isSelected = selectedPaperIds.has(paper.id);
+        div.className = `paper-item${paper.starred ? ' starred' : ''}${isSelected ? ' multi-selected' : ''}`;
         div.dataset.paperId = paper.id;
-        
-    div.innerHTML = `
-            <div class="paper-icon">
-                <i class="fas fa-file-pdf"></i>
-            </div>
-            <div class="paper-details">
-                <div class="paper-title">${paper.title || paper.filename}</div>
-                <div class="paper-meta">
-                    上传时间: ${new Date(paper.upload_date).toLocaleDateString()}
-                    ${paper.arxiv_published_date ? ` | arXiv: ${new Date(paper.arxiv_published_date).toLocaleDateString()}` : ''}
-                </div>
-            </div>
-            ${paper.starred ? '<div class="paper-star-icon"><i class="fas fa-star"></i></div>' : ''}
-            <div class="paper-actions">
-                <button class="paper-action-btn star ${paper.starred ? 'starred' : ''}" title="${paper.starred ? '取消点赞' : '点赞论文'}" onclick="toggleStar('${paper.id}', event)">
-                    <i class="fas fa-star"></i>
-                </button>
-                <button class="paper-action-btn edit" title="编辑信息" onclick="editPaper('${paper.id}', event)">
-                    <i class="fas fa-edit"></i>
-                </button>
-            <button class="paper-action-btn move" title="移动到其他目录" onclick="openMovePaperPicker('${paper.id}', event)">
-                <i class="fas fa-arrow-right"></i>
-            </button>
-                <button class="paper-action-btn" title="删除论文" onclick="deletePaper('${paper.id}', event)">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        `;
+        div.innerHTML = generatePaperItemHTML(paper, true);
 
         div.addEventListener('click', (e) => {
-            // 如果正在拖拽，不处理点击事件
-            if (draggedPaper) {
-                e.preventDefault();
-                return;
+            if (draggedPaper) { e.preventDefault(); return; }
+            if (isMultiSelectMode) {
+                handleMultiSelectClick(e, paper.id);
+            } else {
+                selectPaper(paper.id);
             }
-            selectPaper(paper.id);
         });
 
         // 双击打开 PDF 阅读器
@@ -410,11 +888,14 @@ function selectPaper(paperId) {
 
     currentPaperId = paperId;
     loadPaperInfo(paperId);
+    markPaperViewed(paperId);
 }
 
 // 加载论文信息
 async function loadPaperInfo(paperId) {
     try {
+        const panel = document.querySelector('.info-panel');
+        if (panel) panel.classList.remove('wide');
         const response = await fetch(`/api/paper/${paperId}`);
         const paper = await response.json();
         renderPaperInfo(paper);
@@ -467,6 +948,16 @@ function renderPaperInfo(paper) {
                 ${paper.arxiv_published_date ? `<br><strong>arXiv 发布时间:</strong> ${new Date(paper.arxiv_published_date).toLocaleString()}` : ''}
             </div>
         </div>
+        ${paper.has_chinese_version ? `
+        <div class="info-section">
+            <div class="info-label">中文版本</div>
+            <div class="info-value">
+                <button class="btn btn-primary" onclick="openChineseVersion('${paper.id}')">
+                    <i class="fas fa-language"></i> 打开中文版本 PDF
+                </button>
+            </div>
+        </div>
+        ` : ''}
     `;
 
     // 添加编辑事件监听器
@@ -530,64 +1021,110 @@ function clearPaperInfo() {
 
 // 设置拖拽上传
 function setupDragAndDrop() {
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, preventDefaults, false);
-    });
-
     function preventDefaults(e) {
         e.preventDefault();
         e.stopPropagation();
     }
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, highlight, false);
+    // 为分类树添加拖拽支持
+    categoryTree.addEventListener('dragover', (e) => {
+        preventDefaults(e);
+        e.dataTransfer.dropEffect = 'copy';
+        const categoryItem = e.target.closest('.category-item');
+        if (categoryItem) {
+            categoryItem.classList.add('drag-over');
+        }
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, unhighlight, false);
+    categoryTree.addEventListener('dragleave', (e) => {
+        const categoryItem = e.target.closest('.category-item');
+        if (categoryItem) {
+            categoryItem.classList.remove('drag-over');
+        }
     });
 
-    function highlight() {
-        uploadZone.classList.add('dragover');
-    }
+    categoryTree.addEventListener('drop', (e) => {
+        preventDefaults(e);
+        const categoryItem = e.target.closest('.category-item');
+        if (categoryItem) {
+            categoryItem.classList.remove('drag-over');
+            const categoryId = categoryItem.dataset.categoryId;
+            if (categoryId) {
+                handleFilesWithCategory(e.dataTransfer.files, categoryId);
+            }
+        }
+    });
 
-    function unhighlight() {
-        uploadZone.classList.remove('dragover');
-    }
-
-    uploadZone.addEventListener('drop', handleDrop, false);
-    uploadZone.addEventListener('click', () => {
+    // 为论文列表区域添加拖拽支持
+    papersList.addEventListener('dragover', (e) => {
+        preventDefaults(e);
+        e.dataTransfer.dropEffect = 'copy';
         if (currentCategoryId) {
-            fileInput.click();
+            papersList.classList.add('drag-over');
+        }
+    });
+
+    papersList.addEventListener('dragleave', (e) => {
+        papersList.classList.remove('drag-over');
+    });
+
+    papersList.addEventListener('drop', (e) => {
+        preventDefaults(e);
+        papersList.classList.remove('drag-over');
+        if (currentCategoryId) {
+            handleFilesWithCategory(e.dataTransfer.files, currentCategoryId);
         } else {
             showMessage('请先选择一个分类', 'warning');
         }
     });
-}
 
-// 处理拖拽放置
-function handleDrop(e) {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    handleFiles(files);
+    // 左下角上传区域已移除：仅在存在时绑定（兼容旧DOM）
+    if (uploadZone) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, preventDefaults, false);
+        });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, () => {
+                uploadZone.classList.add('dragover');
+            }, false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, () => {
+                uploadZone.classList.remove('dragover');
+            }, false);
+        });
+        uploadZone.addEventListener('drop', (e) => {
+            if (currentCategoryId) {
+                handleFilesWithCategory(e.dataTransfer.files, currentCategoryId);
+            } else {
+                showMessage('请先选择一个分类', 'warning');
+            }
+        }, false);
+        uploadZone.addEventListener('click', () => {
+            if (currentCategoryId) {
+                fileInput.click();
+            } else {
+                showMessage('请先选择一个分类', 'warning');
+            }
+        });
+    }
 }
 
 // 处理文件选择
 function handleFileSelect(e) {
     const files = e.target.files;
-    handleFiles(files);
+    if (currentCategoryId) {
+        handleFilesWithCategory(files, currentCategoryId);
+    } else {
+        showMessage('请先选择一个分类', 'warning');
+    }
 }
 
-// 处理文件上传
-function handleFiles(files) {
-    if (!currentCategoryId) {
-        showMessage('请先选择一个分类', 'warning');
-        return;
-    }
-
+// 处理文件上传（带分类ID）
+function handleFilesWithCategory(files, categoryId) {
     Array.from(files).forEach(file => {
         if (file.type === 'application/pdf') {
-            uploadFile(file);
+            uploadFile(file, categoryId);
         } else {
             showMessage(`文件 ${file.name} 不是 PDF 格式`, 'warning');
         }
@@ -595,10 +1132,10 @@ function handleFiles(files) {
 }
 
 // 使用 PDF.js 解析元数据并上传
-async function uploadFile(file) {
+async function uploadFile(file, categoryId) {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('category_id', currentCategoryId);
+    formData.append('category_id', categoryId);
 
     // 前端用 PDF.js 解析元数据
     try {
@@ -625,7 +1162,14 @@ async function uploadFile(file) {
         const result = await response.json();
         if (result.success) {
             showMessage(`文件 ${file.name} 上传成功`, 'success');
-            loadPapers(currentCategoryId);
+            // 如果上传到当前选中的分类，刷新列表
+            if (currentCategoryId === categoryId) {
+                loadPapers(currentCategoryId);
+            }
+            // 同步更新分类计数和待读列表计数
+            await updateCategoriesData();
+            renderCategoryTreeWithState();
+            updateReadingListCount();
         } else {
             showMessage(`上传失败: ${result.error}`, 'error');
         }
@@ -783,7 +1327,8 @@ function setupModal() {
 function showAddCategoryModal(parentId) {
     const modalTitle = document.getElementById('modal-title');
     const modalBody = document.getElementById('modal-body');
-    const confirmBtn = document.getElementById('modal-confirm');
+    let confirmBtn = document.getElementById('modal-confirm');
+    let cancelBtn = document.getElementById('modal-cancel');
 
     modalTitle.textContent = '添加分类';
     modalBody.innerHTML = `
@@ -792,6 +1337,17 @@ function showAddCategoryModal(parentId) {
             <input type="text" id="category-name" placeholder="请输入分类名称">
         </div>
     `;
+
+    // 重置按钮监听，避免与其他弹窗冲突
+    const confirmClone = confirmBtn.cloneNode(true);
+    const cancelClone = cancelBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(confirmClone, confirmBtn);
+    cancelBtn.parentNode.replaceChild(cancelClone, cancelBtn);
+    confirmBtn = document.getElementById('modal-confirm');
+    cancelBtn = document.getElementById('modal-cancel');
+    confirmBtn.style.display = 'inline-block';
+    confirmBtn.textContent = '确认';
+    cancelBtn.textContent = '取消';
 
     confirmBtn.onclick = () => {
         const name = document.getElementById('category-name').value.trim();
@@ -802,9 +1358,19 @@ function showAddCategoryModal(parentId) {
             showMessage('请输入分类名称', 'warning');
         }
     };
+    cancelBtn.onclick = () => hideModal();
 
     showModal();
     document.getElementById('category-name').focus();
+    // 绑定回车键提交
+    const input = document.getElementById('category-name');
+    input.addEventListener('keydown', (e) => {
+        // 避免输入法候选上屏时的 Enter 被当作提交
+        if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+            e.preventDefault();
+            confirmBtn.click();
+        }
+    });
 }
 
 // 显示重命名分类模态框
@@ -1201,11 +1767,138 @@ async function movePaper(paperId, targetCategoryId) {
     }
 }
 
-// 打开 PDF 阅读器
+// 打开中文版PDF
+function openChineseVersion(paperId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper || !paper.has_chinese_version) {
+        showMessage('该论文没有中文版本', 'warning');
+        return;
+    }
+    
+    // 直接打开中文版PDF
+    const viewerUrl = `/viewer/${paperId}?chinese=true`;
+    window.open(viewerUrl, '_blank');
+}
+
+// 打开 PDF 阅读器（打开原版）
 function openPDFViewer(paperId) {
     console.log('打开 PDF 阅读器:', paperId);
     const viewerUrl = `/viewer/${paperId}`;
     window.open(viewerUrl, '_blank');
+    markPaperViewed(paperId);
+}
+
+// 显示 arXiv 上传模态框
+function showArxivUploadModal() {
+    const modalTitle = document.querySelector('#modal-title');
+    const modalBody = document.querySelector('#modal-body');
+    const confirmBtn = document.querySelector('#modal-confirm');
+    const cancelBtn = document.querySelector('#modal-cancel');
+    
+    modalTitle.textContent = '从 arXiv 导入论文';
+    modalBody.innerHTML = `
+        <div style="margin-bottom: 15px;">
+            <label for="arxiv-url" style="display: block; margin-bottom: 5px; font-weight: 500;">arXiv URL 或 ID:</label>
+            <input type="text" id="arxiv-url" placeholder="例如: https://arxiv.org/pdf/2511.03725 或 2511.03725" 
+                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+            <p style="margin-top: 5px; font-size: 12px; color: #666;">
+                支持格式：https://arxiv.org/pdf/2511.03725、https://arxiv.org/abs/2511.03725 或直接输入 arXiv ID
+            </p>
+        </div>
+        <div id="arxiv-upload-status" style="display: none; margin-top: 10px;">
+            <div class="loading-small" style="display: flex; align-items: center; gap: 10px;">
+                <div class="spinner-small"></div>
+                <span>正在下载并导入...</span>
+            </div>
+        </div>
+    `;
+    
+    confirmBtn.style.display = 'inline-block';
+    confirmBtn.textContent = '导入';
+    cancelBtn.textContent = '取消';
+    
+    // 清除之前的所有事件监听器（通过移除并重新添加）
+    const confirmBtnClone = confirmBtn.cloneNode(true);
+    const cancelBtnClone = cancelBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(confirmBtnClone, confirmBtn);
+    cancelBtn.parentNode.replaceChild(cancelBtnClone, cancelBtn);
+    
+    // 重新获取按钮引用
+    const newConfirmBtn = document.getElementById('modal-confirm');
+    const newCancelBtn = document.getElementById('modal-cancel');
+    
+    newConfirmBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const arxivUrl = document.getElementById('arxiv-url').value.trim();
+        if (!arxivUrl) {
+            showMessage('请输入 arXiv URL 或 ID', 'warning');
+            return;
+        }
+        // 非阻塞导入：立即关闭弹窗并在后台导入
+        hideModal();
+        showMessage('开始后台导入…', 'success');
+        
+        // 后台下载并在完成后刷新分类计数/当前列表
+        (async () => {
+            try {
+                const response = await fetch('/api/upload/arxiv', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        arxiv_url: arxivUrl,
+                        category_id: currentCategoryId
+                    })
+                });
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    showMessage('论文导入成功', 'success');
+                    if (currentCategoryId) {
+                        loadPapers(currentCategoryId);
+                    }
+                    await updateCategoriesData();
+                    renderCategoryTreeWithState();
+                    updateReadingListCount();
+                } else {
+                    showMessage(result.error || '导入失败', 'error');
+                }
+            } catch (err) {
+                console.error('导入 arXiv 论文失败:', err);
+                showMessage('导入失败，请稍后重试', 'error');
+            }
+        })();
+    };
+    
+    // 设置取消按钮 - 直接覆盖 onclick
+    newCancelBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideModal();
+    };
+    
+    // 支持回车键提交
+    const arxivUrlInput = document.getElementById('arxiv-url');
+    if (arxivUrlInput) {
+        arxivUrlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                newConfirmBtn.click();
+            }
+        });
+        
+        // 自动聚焦输入框
+        setTimeout(() => {
+            arxivUrlInput.focus();
+        }, 100);
+    }
+    
+    showModal();
 }
 
 // 全局搜索（实时）
@@ -1291,30 +1984,26 @@ async function deletePaper(paperId, event) {
     }
     
     try {
-        const response = await fetch(`/api/paper/${paperId}`, {
-            method: 'DELETE'
-        });
-        
+        // 乐观更新：先从列表移除
+        papers = papers.filter(p => p.id !== paperId);
+        renderPapersList();
+
+        const response = await fetch(`/api/paper/${paperId}`, { method: 'DELETE' });
         if (response.ok) {
-            const result = await response.json();
             showMessage('论文删除成功', 'success');
-            
-            // 刷新当前分类的论文列表
-            if (currentCategoryId) {
-                loadPapers(currentCategoryId);
-            }
-            
-            // 更新分类树（更新PDF计数）
             await updateCategoriesData();
             renderCategoryTreeWithState();
-            
+            updateReadingListCount();
         } else {
             const error = await response.json();
             showMessage(`删除失败: ${error.error}`, 'error');
+            // 回滚：重新加载列表
+            if (currentCategoryId) loadPapers(currentCategoryId);
         }
     } catch (error) {
         console.error('删除论文失败:', error);
         showMessage('删除失败，请稍后重试', 'error');
+        if (currentCategoryId) loadPapers(currentCategoryId);
     }
 }
 
@@ -1604,6 +2293,139 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// ========== 多选逻辑 ==========
+function toggleMultiSelectMode() {
+    isMultiSelectMode = !isMultiSelectMode;
+    if (!isMultiSelectMode) {
+        selectedPaperIds.clear();
+        lastSelectedIndex = null;
+    }
+    updateBatchUI();
+    renderPapersList();
+}
+
+function exitMultiSelectMode() {
+    if (!isMultiSelectMode) return;
+    isMultiSelectMode = false;
+    selectedPaperIds.clear();
+    lastSelectedIndex = null;
+    updateBatchUI();
+    renderPapersList();
+}
+
+function updateBatchUI() {
+    const toolbar = document.getElementById('batch-toolbar');
+    const btn = document.getElementById('toggle-multiselect');
+    const count = document.getElementById('batch-count');
+    if (toolbar) toolbar.style.display = isMultiSelectMode ? 'flex' : 'none';
+    if (btn) btn.classList.toggle('active', isMultiSelectMode);
+    if (count) count.textContent = `已选中 ${selectedPaperIds.size} 项`;
+}
+
+function handleMultiSelectClick(e, paperId) {
+    const ids = window.__currentSortedPapers || papers.map(p=>p.id);
+    const index = ids.indexOf(paperId);
+    const checkbox = e.target && (e.target.matches('input[type="checkbox"]') || (e.target.closest && e.target.closest('.paper-checkbox')));
+    const withShift = e.shiftKey;
+    if (withShift && lastSelectedIndex !== null) {
+        // 选择区间
+        const [start, end] = index > lastSelectedIndex ? [lastSelectedIndex, index] : [index, lastSelectedIndex];
+        for (let i = start; i <= end; i++) selectedPaperIds.add(ids[i]);
+    } else {
+        // 切换当前项
+        if (selectedPaperIds.has(paperId) && !checkbox) {
+            selectedPaperIds.delete(paperId);
+        } else {
+            selectedPaperIds.add(paperId);
+        }
+        lastSelectedIndex = index;
+    }
+    updateBatchUI();
+    renderPapersList();
+}
+
+async function onBatchAnalyze() {
+    if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
+    const ids = Array.from(selectedPaperIds);
+    for (const id of ids) {
+        await requestAnalysis(id);
+    }
+    showMessage(`已提交 ${ids.length} 篇解读`, 'success');
+}
+
+async function onBatchTranslate() {
+    if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
+    const ids = Array.from(selectedPaperIds);
+    for (const id of ids) {
+        await requestTranslation(id);
+    }
+    showMessage(`已提交 ${ids.length} 篇翻译`, 'success');
+    updateTaskIndicator();
+}
+
+async function onBatchMove() {
+    if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
+    // 复用单个移动的目录选择器，但不传 paperId，在确认时对所有选中执行
+    try {
+        await updateCategoriesData();
+        const modalTitle = document.querySelector('#modal-title');
+        const modalBody = document.querySelector('#modal-body');
+        const confirmBtn = document.querySelector('#modal-confirm');
+        const cancelBtn = document.querySelector('#modal-cancel');
+
+        modalTitle.textContent = `移动所选 (${selectedPaperIds.size}) 篇 到目录`;
+        modalBody.innerHTML = `
+            <div class="form-group">
+                <div id="move-category-tree" style="max-height:50vh; overflow:auto; padding:8px; border:1px solid #eee; border-radius:6px;"></div>
+            </div>
+        `;
+        const treeContainer = modalBody.querySelector('#move-category-tree');
+        renderCategorySelectTree(categories, treeContainer);
+
+        // 解绑旧事件
+        const confirmClone = confirmBtn.cloneNode(true);
+        const cancelClone = cancelBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(confirmClone, confirmBtn);
+        cancelBtn.parentNode.replaceChild(cancelClone, cancelBtn);
+        const newConfirm = document.getElementById('modal-confirm');
+        const newCancel = document.getElementById('modal-cancel');
+
+        newConfirm.onclick = async () => {
+            const selected = treeContainer.querySelector('input[name="target-category"]:checked');
+            if (!selected) { showMessage('请选择目标目录', 'warning'); return; }
+            const targetId = selected.value;
+            const ids = Array.from(selectedPaperIds);
+            for (const id of ids) {
+                await movePaper(id, targetId);
+            }
+            hideModal();
+            exitMultiSelectMode();
+        };
+        newCancel.onclick = () => hideModal();
+        showModal();
+    } catch (e) {
+        console.error(e);
+        showMessage('打开移动选择器失败', 'error');
+    }
+}
+
+async function onBatchDelete() {
+    if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
+    if (!confirm(`确定要删除选中的 ${selectedPaperIds.size} 篇论文吗？此操作不可恢复。`)) return;
+    const ids = Array.from(selectedPaperIds);
+    // 乐观更新：先从前端移除
+    papers = papers.filter(p => !selectedPaperIds.has(p.id));
+    renderPapersList();
+    // 依次调用后端删除
+    for (const id of ids) {
+        try { await fetch(`/api/paper/${id}`, { method: 'DELETE' }); } catch (e) { console.error(e); }
+    }
+    showMessage('批量删除完成', 'success');
+    await updateCategoriesData();
+    renderCategoryTreeWithState();
+    exitMultiSelectMode();
+}
+
 // 论文排序函数
 function sortPapers(papers, sortBy) {
     return papers.sort((a, b) => {
@@ -1641,3 +2463,1785 @@ function sortPapers(papers, sortBy) {
         }
     });
 }
+
+// ==================== 导航和设置功能 ====================
+
+// 设置导航
+function setupNavigation() {
+    const navTabs = document.querySelectorAll('.nav-tab');
+    navTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.dataset.tab;
+            switchTab(targetTab);
+        });
+    });
+
+    // 设置页左侧导航
+    document.addEventListener('click', (e) => {
+        const item = e.target.closest && e.target.closest('.setting-nav-item');
+        if (!item) return;
+        document.querySelectorAll('.setting-nav-item').forEach(b=>b.classList.remove('active'));
+        item.classList.add('active');
+        const key = item.getAttribute('data-setting');
+        document.querySelectorAll('.setting-panel').forEach(p=>p.style.display='none');
+        const panel = document.getElementById(`setting-panel-${key}`);
+        if (panel) panel.style.display = 'block';
+    });
+
+    // 翻译任务按钮
+    const btnShowTranslating = document.getElementById('btn-show-translating');
+    if (btnShowTranslating) {
+        btnShowTranslating.addEventListener('click', () => {
+            showTranslatingPapers();
+        });
+    }
+
+    // 解读任务按钮
+    const btnShowAnalyzing = document.getElementById('btn-show-analyzing');
+    if (btnShowAnalyzing) {
+        btnShowAnalyzing.addEventListener('click', () => {
+            showAnalyzingPapers();
+        });
+    }
+
+    // 待读列表按钮
+    const btnShowReadingList = document.getElementById('btn-show-reading-list');
+    if (btnShowReadingList) {
+        btnShowReadingList.addEventListener('click', () => {
+            showReadingList();
+        });
+    }
+}
+
+// 切换标签页
+function switchTab(tabName) {
+    const paperView = document.getElementById('paper-view');
+    const settingView = document.getElementById('setting-view');
+    const navTabs = document.querySelectorAll('.nav-tab');
+    
+    navTabs.forEach(tab => {
+        if (tab.dataset.tab === tabName) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+    
+    if (tabName === 'paper') {
+        paperView.style.display = 'flex';
+        settingView.style.display = 'none';
+        renderRecentIfNoCategory();
+    } else if (tabName === 'setting') {
+        paperView.style.display = 'none';
+        settingView.style.display = 'block';
+    }
+}
+
+// 保存翻译设置
+function saveTranslationSettings() {
+    const settings = {
+        openaiModel: document.getElementById('openai-model').value.trim(),
+        openaiBaseUrl: document.getElementById('openai-base-url').value.trim(),
+        openaiApiKey: document.getElementById('openai-api-key').value.trim()
+    };
+    
+    localStorage.setItem('translationSettings', JSON.stringify(settings));
+    showMessage('设置已保存', 'success');
+}
+
+// 加载翻译设置
+function loadTranslationSettings() {
+    const saved = localStorage.getItem('translationSettings');
+    if (saved) {
+        try {
+            const settings = JSON.parse(saved);
+            document.getElementById('openai-model').value = settings.openaiModel || '';
+            document.getElementById('openai-base-url').value = settings.openaiBaseUrl || '';
+            document.getElementById('openai-api-key').value = settings.openaiApiKey || '';
+        } catch (e) {
+            console.error('加载设置失败:', e);
+        }
+    }
+}
+
+// 获取翻译设置
+function getTranslationSettings() {
+    const saved = localStorage.getItem('translationSettings');
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch (e) {
+            console.error('解析设置失败:', e);
+        }
+    }
+    return null;
+}
+
+// ==================== 翻译功能 ====================
+
+// ========== General 设置 ==========
+async function saveGeneralSettings() {
+    const minutes = parseInt(document.getElementById('reading-list-auto-remove-minutes').value, 10);
+    if (isNaN(minutes) || minutes < 1) {
+        showMessage('请输入有效的分钟数（≥1）', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/settings/general', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                reading_list_auto_remove_minutes: minutes
+            })
+        });
+        
+        const result = await response.json();
+        if (response.ok && result.success) {
+            showMessage('General 设置已保存', 'success');
+        } else {
+            showMessage(result.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存General设置失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+async function loadGeneralSettings() {
+    try {
+        const response = await fetch('/api/settings/general');
+        if (response.ok) {
+            const settings = await response.json();
+            const input = document.getElementById('reading-list-auto-remove-minutes');
+            if (input) {
+                input.value = settings.reading_list_auto_remove_minutes || 5;
+            }
+        }
+    } catch (error) {
+        console.error('加载General设置失败:', error);
+    }
+}
+
+// ========== Habit 设置 ==========
+function saveHabitSettings() {
+    const count = parseInt(document.getElementById('habit-recent-count').value, 10);
+    const settings = {
+        recentCount: (!isNaN(count) && count > 0) ? count : 10
+    };
+    localStorage.setItem('habitSettings', JSON.stringify(settings));
+    showMessage('Habit 设置已保存', 'success');
+    // 立即应用
+    renderRecentIfNoCategory();
+}
+
+function loadHabitSettings() {
+    const saved = localStorage.getItem('habitSettings');
+    let settings = { recentCount: 10 };
+    if (saved) {
+        try { settings = Object.assign(settings, JSON.parse(saved)); } catch {}
+    }
+    const input = document.getElementById('habit-recent-count');
+    if (input) input.value = settings.recentCount;
+}
+
+function getHabitSettings() {
+    const saved = localStorage.getItem('habitSettings');
+    if (saved) {
+        try { return JSON.parse(saved); } catch {}
+    }
+    return { recentCount: 10 };
+}
+
+// ========== 最近阅读 ==========
+function markPaperViewed(paperId) {
+    try {
+        const key = 'recentPapers';
+        const now = Date.now();
+        let items = [];
+        const saved = localStorage.getItem(key);
+        if (saved) { items = JSON.parse(saved) || []; }
+        // 去重保留最新
+        items = items.filter(it => it.paperId !== paperId);
+        items.unshift({ paperId, viewedAt: now });
+        // 限制最大长度（为避免无限增长，取 200）
+        if (items.length > 200) items = items.slice(0, 200);
+        localStorage.setItem(key, JSON.stringify(items));
+    } catch (e) { console.error('标记最近阅读失败', e); }
+}
+
+// 顶部任务指示器
+function updateTaskIndicator() {
+    const tiTCount = document.getElementById('ti-translate-count');
+    const tiACount = document.getElementById('ti-analyze-count');
+    if (!tiTCount || !tiACount) return;
+    // 统计队列中+运行中的数量
+    const transQueued = translationQueue.length;
+    const transRunning = Object.values(translationStatus).filter(s => s.status === 'translating').length;
+    const analyzeQueued = analysisQueue.length;
+    const analyzeRunning = Object.values(analysisStatus).filter(s => s.status === 'analyzing').length;
+    const tCount = transQueued + transRunning;
+    const aCount = analyzeQueued + analyzeRunning;
+    tiTCount.textContent = tCount;
+    tiACount.textContent = aCount;
+    
+    // 更新按钮样式（如果有任务则高亮）
+    const btnT = document.getElementById('btn-show-translating');
+    const btnA = document.getElementById('btn-show-analyzing');
+    if (btnT) {
+        if (tCount > 0) {
+            btnT.classList.add('has-tasks');
+        } else {
+            btnT.classList.remove('has-tasks');
+        }
+    }
+    if (btnA) {
+        if (aCount > 0) {
+            btnA.classList.add('has-tasks');
+        } else {
+            btnA.classList.remove('has-tasks');
+        }
+    }
+}
+
+function renderTaskTooltip() {
+    const tooltip = document.getElementById('task-tooltip');
+    if (!tooltip) return;
+    const parts = [];
+    // 翻译
+    const tBlock = [];
+    translationQueue.forEach(pid => {
+        const p = (papers || []).find(x=>x.id===pid) || {};
+        tBlock.push(`<div class=\"tt-item\"><i class=\"fas fa-file-pdf\"></i><span>(队列)</span> ${escapeHtml(p.title || p.filename || pid)}</div>`);
+    });
+    Object.entries(translationStatus).forEach(([pid, s]) => {
+        if (s.status === 'translating') {
+            const p = (papers || []).find(x=>x.id===pid) || {};
+            tBlock.push(`<div class=\"tt-item\"><i class=\"fas fa-file-pdf\"></i><span>(执行)</span> ${escapeHtml(p.title || p.filename || pid)}</div>`);
+        }
+    });
+    if (tBlock.length) {
+        parts.push('<div class="tt-title">翻 译</div>');
+        parts.push(`<div class=\"tt-group\">${tBlock.join('')}</div>`);
+    }
+    // 解读
+    const aBlock = [];
+    analysisQueue.forEach(pid => {
+        const p = (papers || []).find(x=>x.id===pid) || {};
+        aBlock.push(`<div class=\"tt-item\"><i class=\"fas fa-file-pdf\"></i><span>(队列)</span> ${escapeHtml(p.title || p.filename || pid)}</div>`);
+    });
+    Object.entries(analysisStatus).forEach(([pid, s]) => {
+        if (s.status === 'analyzing') {
+            const p = (papers || []).find(x=>x.id===pid) || {};
+            aBlock.push(`<div class=\"tt-item\"><i class=\"fas fa-file-pdf\"></i><span>(执行)</span> ${escapeHtml(p.title || p.filename || pid)}</div>`);
+        }
+    });
+    if (aBlock.length) {
+        parts.push('<div class="tt-title">解 读</div>');
+        parts.push(`<div class=\"tt-group\">${aBlock.join('')}</div>`);
+    }
+    tooltip.innerHTML = parts.length ? parts.join('') : '<div class="tt-item" style="color:#888;">暂无进行中的任务</div>';
+}
+
+async function renderRecentIfNoCategory() {
+    if (currentCategoryId) return;
+    try {
+        const { recentCount } = getHabitSettings();
+        const saved = JSON.parse(localStorage.getItem('recentPapers') || '[]');
+        const top = saved.slice(0, Math.max(1, recentCount || 10));
+        if (!top.length) {
+            papersList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-file-pdf"></i>
+                    <p>选择左侧分类查看 PDF 文件</p>
+                    <p style="font-size:12px; margin-top:6px; color:#666;">最近阅读为空时显示此提示</p>
+                </div>`;
+            return;
+        }
+        // 并行获取详情
+        const details = await Promise.all(top.map(async (it) => {
+            try {
+                const resp = await fetch(`/api/paper/${it.paperId}`);
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                return data;
+            } catch { return null; }
+        }));
+        const valid = details.filter(Boolean);
+        if (!valid.length) {
+            papersList.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-file-pdf"></i>
+                    <p>选择左侧分类查看 PDF 文件</p>
+                </div>`;
+            return;
+        }
+        // 渲染列表（与分类中的论文项一致的样式与操作）
+        papersList.innerHTML = '';
+        const header = document.createElement('div');
+        header.className = 'content-subheader';
+        header.innerHTML = `<strong>最近阅读</strong> · 显示 ${valid.length} 篇`;
+        papersList.appendChild(header);
+
+        valid.forEach(paper => {
+            const div = document.createElement('div');
+            div.className = `paper-item${paper.starred ? ' starred' : ''}`;
+            div.dataset.paperId = paper.id;
+            div.innerHTML = generatePaperItemHTML(paper, false);
+
+            // 点击/双击行为与分类列表一致
+            div.addEventListener('click', (e) => {
+                if (draggedPaper) { e.preventDefault(); return; }
+                if (isMultiSelectMode) {
+                    handleMultiSelectClick(e, paper.id);
+                } else {
+                    selectPaper(paper.id);
+                }
+            });
+            div.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                openPDFViewer(paper.id);
+            });
+
+            // 启用拖拽到分类
+            setupPaperDrag(div, paper);
+
+            papersList.appendChild(div);
+        });
+    } catch (e) {
+        console.error('渲染最近阅读失败', e);
+    }
+}
+
+// 请求翻译
+async function requestTranslation(paperId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) {
+        showMessage('论文未找到', 'error');
+        return;
+    }
+    
+    // 检查是否已有中文版本
+    if (paper.has_chinese_version) {
+        if (confirm('该论文已有中文版本，是否重新翻译？')) {
+            // 可以在这里添加重新翻译的逻辑
+        } else {
+            return;
+        }
+    }
+    
+    // 检查设置
+    const settings = getTranslationSettings();
+    if (!settings || !settings.openaiModel || !settings.openaiBaseUrl || !settings.openaiApiKey) {
+        showMessage('请先在设置中配置翻译参数', 'warning');
+        switchTab('setting');
+        return;
+    }
+    
+    // 添加到队列
+    if (translationStatus[paperId]) {
+        showMessage('该论文已在翻译队列中', 'warning');
+        return;
+    }
+    
+    translationQueue.push(paperId);
+    // 更新队列位置（包括当前这一个）
+    const queuePosition = translationQueue.length;
+    updateTranslationStatus(paperId, 'queued', queuePosition);
+    saveQueuesToStorage(); // 保存队列状态
+    renderPapersList(); // 立即更新显示
+    updateTaskIndicator();
+    
+    // 开始处理队列
+    processTranslationQueue();
+}
+
+// 处理翻译队列（全局唯一队列，确保同一时间只有一个任务执行）
+async function processTranslationQueue() {
+    // 严格检查：如果正在翻译或队列为空，直接返回
+    if (isTranslating) {
+        return; // 已有任务在执行，不启动新任务
+    }
+    if (translationQueue.length === 0) {
+        return; // 队列为空
+    }
+    
+    // 原子性设置：先设置标志，再取任务
+    isTranslating = true;
+    const paperId = translationQueue.shift();
+    saveQueuesToStorage();
+    
+    try {
+        updateTranslationStatus(paperId, 'translating', 0);
+        renderPapersList(); // 更新显示
+        
+        const settings = getTranslationSettings();
+        const response = await fetch('/api/paper/translate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                paper_id: paperId,
+                openai_model: settings.openaiModel,
+                openai_base_url: settings.openaiBaseUrl,
+                openai_api_key: settings.openaiApiKey
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            const taskId = result.task_id;
+            
+            // 开始轮询日志
+            startLogPolling(taskId, paperId);
+            
+            // 更新状态为正在翻译，并保存taskId
+            updateTranslationStatus(paperId, 'translating', 0, taskId);
+            renderPapersList(); // 更新显示
+            
+            // 显示日志查看按钮的提示
+            showMessage('翻译任务已启动，点击日志按钮查看进度', 'success');
+        } else {
+            updateTranslationStatus(paperId, 'error', 0);
+            saveQueuesToStorage();
+            showMessage(result.error || '翻译失败', 'error');
+            isTranslating = false;
+            renderPapersList(); // 更新显示
+            processTranslationQueue(); // 继续处理队列
+        }
+    } catch (error) {
+        console.error('翻译失败:', error);
+        updateTranslationStatus(paperId, 'error', 0);
+        saveQueuesToStorage();
+        showMessage('翻译失败，请稍后重试', 'error');
+        isTranslating = false;
+        renderPapersList(); // 更新显示
+        processTranslationQueue(); // 继续处理队列
+    }
+}
+
+// 开始轮询翻译日志
+function startLogPolling(taskId, paperId) {
+    // 停止之前的轮询（如果有）
+    if (translationLogInterval[taskId]) {
+        clearInterval(translationLogInterval[taskId]);
+    }
+    
+    // 每2秒轮询一次
+    translationLogInterval[taskId] = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                const status = result.status;
+                
+                // 如果任务完成或失败，停止轮询
+                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                    clearInterval(translationLogInterval[taskId]);
+                    delete translationLogInterval[taskId];
+                    
+                    // 更新状态（保留taskId）
+                    const currentTaskId = translationStatus[paperId]?.taskId;
+                    if (status === 'completed') {
+                        updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
+                        const paper = papers.find(p => p.id === paperId);
+                        if (paper && result.result && result.result.success) {
+                            paper.has_chinese_version = true;
+                            paper.chinese_version_path = result.result.chinese_version_path;
+                        }
+                        showMessage('翻译完成', 'success');
+                    } else {
+                        updateTranslationStatus(paperId, 'error', 0, currentTaskId);
+                        showMessage(result.result?.error || '翻译失败', 'error');
+                    }
+                    
+                    // 继续处理队列
+                    isTranslating = false;
+                    renderPapersList();
+                    renderRecentIfNoCategory(); // 同时更新最近阅读列表
+                    processTranslationQueue();
+                }
+            } else {
+                // 如果任务不存在（可能被外部删除或服务器重启），停止轮询并清理状态
+                if (response.status === 404) {
+                    clearInterval(translationLogInterval[taskId]);
+                    delete translationLogInterval[taskId];
+                    // 从队列中移除
+                    const queueIndex = translationQueue.indexOf(paperId);
+                    if (queueIndex !== -1) {
+                        translationQueue.splice(queueIndex, 1);
+                    }
+                    // 删除状态
+                    delete translationStatus[paperId];
+                    // 重置标志
+                    isTranslating = false;
+                    saveQueuesToStorage();
+                    updateTaskIndicator();
+                    renderPapersList();
+                    renderRecentIfNoCategory();
+                    processTranslationQueue();
+                }
+            }
+        } catch (error) {
+            console.error('获取翻译日志失败:', error);
+        }
+    }, 2000); // 每2秒轮询一次
+}
+
+// 停止日志轮询
+function stopLogPolling(taskId) {
+    if (translationLogInterval[taskId]) {
+        clearInterval(translationLogInterval[taskId]);
+        delete translationLogInterval[taskId];
+    }
+}
+
+// 查看翻译日志
+async function showTranslationLogs(paperId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    const status = translationStatus[paperId];
+    if (!status || !status.taskId) {
+        showMessage('未找到翻译任务', 'warning');
+        return;
+    }
+    
+    const taskId = status.taskId;
+    
+    // 获取日志
+    try {
+        const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            // 显示日志模态框
+            showLogModal(taskId, result.logs, result.status, paperId);
+        } else {
+            showMessage('获取日志失败', 'error');
+        }
+    } catch (error) {
+        console.error('获取日志失败:', error);
+        showMessage('获取日志失败', 'error');
+    }
+}
+
+// 显示日志模态框
+function showLogModal(taskId, logs, status, paperId) {
+    const modalTitle = document.querySelector('#modal-title');
+    const modalBody = document.querySelector('#modal-body');
+    const confirmBtn = document.querySelector('#modal-confirm');
+    const cancelBtn = document.querySelector('#modal-cancel');
+    
+    modalTitle.textContent = '翻译日志';
+    
+    const logContent = logs.length > 0 ? logs.join('\n') : '暂无日志';
+    const canCancel = status === 'running' || status === 'queued';
+    
+    modalBody.innerHTML = `
+        <div style="margin-bottom: 15px;">
+            <strong>状态:</strong> 
+            <span id="log-status">${getStatusText(status)}</span>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <button class="btn btn-secondary" onclick="refreshLogs('${taskId}', '${paperId}')" style="margin-right: 10px;">
+                <i class="fas fa-refresh"></i> 刷新日志
+            </button>
+            ${canCancel ? `
+            <button class="btn btn-danger" onclick="cancelTranslation('${taskId}', '${paperId}')">
+                <i class="fas fa-stop"></i> 终止翻译
+            </button>
+            ` : ''}
+        </div>
+        <div style="background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; max-height: 500px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-wrap: break-word;">
+            ${escapeHtml(logContent)}
+        </div>
+    `;
+    
+    confirmBtn.style.display = 'none';
+    cancelBtn.textContent = '关闭';
+    cancelBtn.onclick = () => hideModal();
+    
+    showModal();
+    
+    // 如果正在运行，自动刷新
+    if (status === 'running' || status === 'queued') {
+        const autoRefresh = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    const statusEl = document.getElementById('log-status');
+                    if (statusEl) {
+                        statusEl.textContent = getStatusText(result.status);
+                    }
+                    const logEl = modalBody.querySelector('div[style*="background: #1e1e1e"]');
+                    if (logEl) {
+                        logEl.textContent = result.logs.join('\n');
+                    }
+                    
+                    // 如果完成，停止自动刷新
+                    if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
+                        clearInterval(autoRefresh);
+                        // 更新状态（保留taskId）
+                        const currentTaskId = translationStatus[paperId]?.taskId;
+                        if (result.status === 'completed') {
+                            updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
+                            const paper = papers.find(p => p.id === paperId);
+                            if (paper && result.result && result.result.success) {
+                                paper.has_chinese_version = true;
+                                paper.chinese_version_path = result.result.chinese_version_path;
+                            }
+                        } else {
+                            updateTranslationStatus(paperId, 'error', 0, currentTaskId);
+                        }
+                        renderPapersList();
+                    }
+                }
+            } catch (error) {
+                console.error('刷新日志失败:', error);
+            }
+        }, 2000);
+        
+        // 模态框关闭时停止自动刷新
+        const closeBtn = document.querySelector('.close');
+        const originalClose = closeBtn.onclick;
+        closeBtn.onclick = () => {
+            clearInterval(autoRefresh);
+            hideModal();
+        };
+    }
+}
+
+// 刷新日志
+async function refreshLogs(taskId, paperId) {
+    showTranslationLogs(paperId);
+}
+
+// 取消翻译（从状态中取消，需要taskId）
+async function cancelTranslation(taskId, paperId) {
+    if (!confirm('确定要终止翻译吗？')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/paper/translate/${taskId}/cancel`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showMessage('翻译已取消', 'success');
+            stopLogPolling(taskId);
+            updateTranslationStatus(paperId, 'error', 0, taskId);
+            isTranslating = false;
+            renderPapersList();
+            renderRecentIfNoCategory();
+            hideModal();
+            processTranslationQueue(); // 继续处理队列
+        } else {
+            // 如果任务不存在（服务器重启等情况），清理前端状态
+            if (response.status === 404 || (result.error && result.error.includes('任务不存在'))) {
+                showMessage('任务不存在，已清理状态', 'warning');
+                // 检查是否正在翻译（在删除状态前检查）
+                const wasTranslating = isTranslating && translationStatus[paperId] && translationStatus[paperId].taskId === taskId;
+                // 清理前端状态
+                stopLogPolling(taskId);
+                // 从队列中移除
+                const queueIndex = translationQueue.indexOf(paperId);
+                if (queueIndex !== -1) {
+                    translationQueue.splice(queueIndex, 1);
+                }
+                // 删除状态
+                delete translationStatus[paperId];
+                // 如果正在翻译，重置标志
+                if (wasTranslating) {
+                    isTranslating = false;
+                }
+                saveQueuesToStorage();
+                updateTaskIndicator();
+                renderPapersList();
+                renderRecentIfNoCategory();
+                hideModal();
+                // 继续处理队列
+                processTranslationQueue();
+            } else {
+                showMessage(result.error || '取消翻译失败', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('取消翻译失败:', error);
+        showMessage('取消翻译失败', 'error');
+    }
+}
+
+// 从状态中取消翻译（通过paperId查找taskId）
+async function cancelTranslationFromStatus(paperId, event) {
+    if (event) event.stopPropagation();
+    const status = translationStatus[paperId];
+    if (!status || !status.taskId) {
+        showMessage('未找到翻译任务', 'warning');
+        return;
+    }
+    await cancelTranslation(status.taskId, paperId);
+}
+
+// 从队列中取消翻译
+async function cancelTranslationFromQueue(paperId, event) {
+    if (event) event.stopPropagation();
+    const index = translationQueue.indexOf(paperId);
+    if (index === -1) {
+        showMessage('论文不在队列中', 'warning');
+        return;
+    }
+    translationQueue.splice(index, 1);
+    saveQueuesToStorage();
+    delete translationStatus[paperId];
+    updateTranslationStatus(paperId, 'error', 0);
+    showMessage('已从队列中移除', 'success');
+}
+
+// 获取状态文本
+function getStatusText(status) {
+    const statusMap = {
+        'queued': '队列中',
+        'running': '正在翻译',
+        'completed': '已完成',
+        'failed': '失败',
+        'cancelled': '已取消'
+    };
+    return statusMap[status] || status;
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 更新翻译状态
+function updateTranslationStatus(paperId, status, queuePosition, taskId) {
+    // 保留已有的taskId
+    const existingTaskId = translationStatus[paperId]?.taskId;
+    translationStatus[paperId] = {
+        status: status,
+        queuePosition: queuePosition,
+        taskId: taskId || existingTaskId  // 保留已有的taskId，或使用新的
+    };
+    
+    // 如果完成或出错，从状态中移除
+    if (status === 'completed' || status === 'error') {
+        delete translationStatus[paperId];
+    }
+    
+    // 更新显示（根据当前视图模式）
+    if (currentViewMode === 'translating') {
+        // 如果正在查看翻译列表，刷新列表
+        showTranslatingPapers();
+    } else if (currentViewMode === 'reading-list') {
+        // 如果正在查看待读列表，只更新单个论文状态，不重新加载整个列表
+        updatePaperStatusDisplay(paperId);
+    } else if (currentCategoryId) {
+        updatePaperStatusDisplay(paperId);
+    } else {
+        renderRecentIfNoCategory();
+    }
+    updateTaskIndicator();
+    saveQueuesToStorage();
+}
+
+// 获取总阅读时长显示文本
+function getTotalReadTimeText(paper) {
+    const readTime = paper.read_time || 0; // 阅读PDF时间（秒）
+    const analysisViewTime = paper.analysis_view_time || 0; // 阅读AI解读时间（秒）
+    const totalTime = readTime + analysisViewTime;
+    
+    if (totalTime === 0) {
+        return '';
+    }
+    
+    // 转换为分钟和秒
+    const minutes = Math.floor(totalTime / 60);
+    const seconds = totalTime % 60;
+    
+    let timeText = '';
+    if (minutes > 0) {
+        timeText = `${minutes}分`;
+        if (seconds > 0) {
+            timeText += `${seconds}秒`;
+        }
+    } else {
+        timeText = `${seconds}秒`;
+    }
+    
+    return `<span style="color: #666; margin-left: 8px;">| 已读: ${timeText}</span>`;
+}
+
+// 获取翻译状态显示文本
+function getTranslationStatusText(paperId) {
+    const status = translationStatus[paperId];
+    if (!status) return '';
+    
+    if (status.status === 'translating') {
+        return `<span class="translation-status translating">
+            <i class="fas fa-spinner fa-spin"></i> 正在翻译...
+            <button class="status-cancel-btn" onclick="cancelTranslationFromStatus('${paperId}', event)" title="取消翻译">
+                <i class="fas fa-times"></i>
+            </button>
+        </span>`;
+    } else if (status.status === 'queued') {
+        // 计算当前在队列中的位置
+        const currentIndex = translationQueue.indexOf(paperId) + 1;
+        return `<span class="translation-status queued">
+            <i class="fas fa-clock"></i> 队列中 (${currentIndex}/${translationQueue.length})
+            <button class="status-cancel-btn" onclick="cancelTranslationFromQueue('${paperId}', event)" title="取消队列">
+                <i class="fas fa-times"></i>
+            </button>
+        </span>`;
+    }
+    return '';
+}
+
+// 打开中文版本PDF
+function openChineseVersion(paperId) {
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper || !paper.has_chinese_version || !paper.chinese_version_path) {
+        showMessage('中文版本不存在', 'error');
+        return;
+    }
+    
+    // 打开中文版本PDF
+    const url = `/api/paper/${paperId}/chinese/file`;
+    window.open(url, '_blank');
+    markPaperViewed(paperId);
+}
+
+// ========== AI解读相关函数 ==========
+
+// 保存解读设置
+function saveAnalysisSettings() {
+    const settings = {
+        mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
+        openaiBaseUrl: document.getElementById('analysis-openai-base-url').value.trim(),
+        openaiApiKey: document.getElementById('analysis-openai-api-key').value.trim(),
+        systemPrompt: document.getElementById('analysis-system-prompt').value.trim()
+    };
+    
+    localStorage.setItem('analysisSettings', JSON.stringify(settings));
+    showMessage('设置已保存', 'success');
+}
+
+// 加载解读设置
+function loadAnalysisSettings() {
+    const saved = localStorage.getItem('analysisSettings');
+    if (saved) {
+        try {
+            const settings = JSON.parse(saved);
+            document.getElementById('mineru-server-url').value = settings.mineruServerUrl || '';
+            document.getElementById('analysis-openai-base-url').value = settings.openaiBaseUrl || '';
+            document.getElementById('analysis-openai-api-key').value = settings.openaiApiKey || '';
+            document.getElementById('analysis-system-prompt').value = settings.systemPrompt || '';
+        } catch (e) {
+            console.error('加载设置失败:', e);
+        }
+    } else {
+        // 设置默认的 SYSTEM_PROMPT
+        const defaultPrompt = `请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
+图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
+
+INPUT: <MARKDOWN>`;
+        document.getElementById('analysis-system-prompt').value = defaultPrompt;
+    }
+}
+
+// 获取解读设置
+function getAnalysisSettings() {
+    const saved = localStorage.getItem('analysisSettings');
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch (e) {
+            console.error('读取设置失败:', e);
+            return null;
+        }
+    }
+    return null;
+}
+
+// 恢复进行中的任务状态（页面刷新/重新打开后）
+async function restoreActiveTasks() {
+    try {
+        // 翻译任务
+        const tRes = await fetch('/api/paper/translate/active');
+        const tJson = await tRes.json();
+        if (tRes.ok && tJson.success && Array.isArray(tJson.tasks)) {
+            let hasRunningTranslation = false;
+            for (const t of tJson.tasks) {
+                const paperId = t.paper_id;
+                // 验证任务是否真的存在
+                try {
+                    const logRes = await fetch(`/api/paper/translate/${t.task_id}/logs`);
+                    if (logRes.ok) {
+                        const logData = await logRes.json();
+                        if (logData.success) {
+                            // 任务存在，恢复状态
+                            translationStatus[paperId] = {
+                                status: t.status === 'running' ? 'translating' : 'queued',
+                                taskId: t.task_id
+                            };
+                            // 如果正在运行，设置全局标志并启动轮询
+                            if (t.status === 'running') {
+                                hasRunningTranslation = true;
+                                startLogPolling(t.task_id, paperId);
+                            }
+                        } else {
+                            // 任务不存在或已结束，清理状态
+                            delete translationStatus[paperId];
+                        }
+                    } else if (logRes.status === 404) {
+                        // 任务不存在，清理状态
+                        delete translationStatus[paperId];
+                    }
+                } catch (e) {
+                    console.error(`验证翻译任务 ${t.task_id} 失败:`, e);
+                    delete translationStatus[paperId];
+                }
+            }
+            // 设置全局翻译标志
+            isTranslating = hasRunningTranslation;
+            updateTaskIndicator();
+        }
+
+        // 解读任务
+        const aRes = await fetch('/api/paper/analyze/active');
+        const aJson = await aRes.json();
+        if (aRes.ok && aJson.success && Array.isArray(aJson.tasks)) {
+            let hasRunningAnalysis = false;
+            for (const a of aJson.tasks) {
+                const paperId = a.paper_id;
+                // 验证任务是否真的存在
+                try {
+                    const logRes = await fetch(`/api/paper/analyze/${a.task_id}/logs`);
+                    if (logRes.ok) {
+                        const logData = await logRes.json();
+                        if (logData.success) {
+                            // 任务存在，恢复状态
+                            analysisStatus[paperId] = {
+                                status: a.status === 'running' ? 'analyzing' : 'queued',
+                                taskId: a.task_id,
+                                step: a.step || null
+                            };
+                            // 如果正在运行，设置全局标志并启动轮询
+                            if (a.status === 'running') {
+                                hasRunningAnalysis = true;
+                                startAnalysisLogPolling(a.task_id, paperId);
+                            }
+                        } else {
+                            // 任务不存在或已结束，清理状态
+                            delete analysisStatus[paperId];
+                        }
+                    } else if (logRes.status === 404) {
+                        // 任务不存在，清理状态
+                        delete analysisStatus[paperId];
+                    }
+                } catch (e) {
+                    console.error(`验证解读任务 ${a.task_id} 失败:`, e);
+                    delete analysisStatus[paperId];
+                }
+            }
+            // 设置全局解读标志
+            isAnalyzing = hasRunningAnalysis;
+            updateTaskIndicator();
+        }
+
+        // 刷新状态显示
+        if (currentCategoryId) {
+            loadPapers(currentCategoryId);
+        } else {
+            renderRecentIfNoCategory();
+        }
+    } catch (e) {
+        console.error('恢复任务状态失败:', e);
+    }
+}
+
+// 请求AI解读
+async function requestAnalysis(paperId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) {
+        showMessage('论文未找到', 'error');
+        return;
+    }
+
+    // 检查是否已有解读结果
+    const hasResult = paper.has_analysis_result;
+    if (hasResult) {
+        if (!confirm('该论文已有AI解读结果，是否重新解读？')) {
+            return;
+        }
+    }
+
+    // 检查设置
+    const settings = getAnalysisSettings();
+    if (!settings || !settings.mineruServerUrl || !settings.openaiBaseUrl || !settings.openaiApiKey || !settings.systemPrompt) {
+        showMessage('请先在设置中配置AI解读参数', 'warning');
+        // 切换到设置页面
+        document.querySelector('.nav-tab[data-tab="setting"]').click();
+        return;
+    }
+
+    // 检查是否已在队列中或正在解读
+    if (analysisStatus[paperId]) {
+        const status = analysisStatus[paperId].status;
+        if (status === 'analyzing' || status === 'queued') {
+            showMessage('该论文已在解读队列中', 'info');
+            return;
+        }
+    }
+
+    // 添加到队列
+    analysisQueue.push(paperId);
+    
+    // 更新状态
+    const queuePosition = analysisQueue.length;
+    updateAnalysisStatus(paperId, 'queued', queuePosition);
+    saveQueuesToStorage();
+    
+    // 处理队列
+    processAnalysisQueue();
+    updateTaskIndicator();
+}
+
+// 处理解读队列（全局唯一队列，确保同一时间只有一个任务执行）
+async function processAnalysisQueue() {
+    // 严格检查：如果正在解读或队列为空，直接返回
+    if (isAnalyzing) {
+        return; // 已有任务在执行，不启动新任务
+    }
+    if (analysisQueue.length === 0) {
+        return; // 队列为空
+    }
+
+    // 原子性设置：先设置标志，再取任务
+    isAnalyzing = true;
+    const paperId = analysisQueue.shift();
+    saveQueuesToStorage();
+
+    try {
+        // 更新状态为解读中
+        updateAnalysisStatus(paperId, 'analyzing');
+
+        // 获取设置
+        const settings = getAnalysisSettings();
+        if (!settings) {
+            throw new Error('设置未配置');
+        }
+
+        // 调用后端API
+        const response = await fetch('/api/paper/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                paper_id: paperId,
+                mineru_server_url: settings.mineruServerUrl,
+                openai_base_url: settings.openaiBaseUrl,
+                openai_api_key: settings.openaiApiKey,
+                system_prompt: settings.systemPrompt
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            // 保存 task_id
+            updateAnalysisStatus(paperId, 'analyzing', null, result.task_id);
+            
+            // 开始轮询日志
+            startAnalysisLogPolling(result.task_id, paperId);
+            
+            // 轮询任务状态
+            pollAnalysisStatus(result.task_id, paperId);
+        } else {
+            throw new Error(result.error || '启动解读失败');
+        }
+    } catch (error) {
+        console.error('解读失败:', error);
+        showMessage(`解读失败: ${error.message}`, 'error');
+        updateAnalysisStatus(paperId, 'error');
+        saveQueuesToStorage();
+        isAnalyzing = false;
+        processAnalysisQueue(); // 继续处理队列
+    }
+}
+
+// 轮询解读状态
+async function pollAnalysisStatus(taskId, paperId) {
+    const maxAttempts = 3600; // 最多轮询1小时（每秒一次）
+    let attempts = 0;
+
+    const poll = async () => {
+        if (attempts >= maxAttempts) {
+            updateAnalysisStatus(paperId, 'error');
+            isAnalyzing = false;
+            processAnalysisQueue();
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/paper/analyze/${taskId}/logs`);
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                if (result.status === 'completed') {
+                    updateAnalysisStatus(paperId, 'completed');
+                    isAnalyzing = false;
+                    stopAnalysisLogPolling(taskId);
+                    showMessage('解读完成，可以查看结果', 'success');
+                    // 更新显示（不重新加载整个列表，避免闪烁）
+                    updatePaperStatusDisplay(paperId);
+                    processAnalysisQueue(); // 继续处理队列
+                } else if (result.status === 'failed' || result.status === 'cancelled') {
+                    updateAnalysisStatus(paperId, 'error');
+                    isAnalyzing = false;
+                    stopAnalysisLogPolling(taskId);
+                    showMessage(`解读失败: ${result.result?.error || '未知错误'}`, 'error');
+                    processAnalysisQueue(); // 继续处理队列
+                } else {
+                    // 仍在运行，继续轮询
+                    attempts++;
+                    setTimeout(poll, 1000);
+                }
+            } else {
+                throw new Error(result.error || '获取状态失败');
+            }
+        } catch (error) {
+            console.error('轮询状态失败:', error);
+            attempts++;
+            setTimeout(poll, 1000);
+        }
+    };
+
+    poll();
+}
+
+// 更新解读状态
+function updateAnalysisStatus(paperId, status, queuePosition = null, taskId = null) {
+    if (!analysisStatus[paperId]) {
+        analysisStatus[paperId] = {};
+    }
+    
+    analysisStatus[paperId].status = status;
+    if (queuePosition !== null) {
+        analysisStatus[paperId].queuePosition = queuePosition;
+    }
+    if (taskId !== null || analysisStatus[paperId].taskId) {
+        analysisStatus[paperId].taskId = taskId || analysisStatus[paperId].taskId;
+    }
+    
+    // 如果完成或出错，从状态中移除（避免旋转状态一直显示）
+    if (status === 'completed' || status === 'error') {
+        delete analysisStatus[paperId];
+    }
+    
+    // 更新状态显示（根据当前视图模式）
+    if (currentViewMode === 'analyzing') {
+        // 如果正在查看解读列表，刷新列表
+        showAnalyzingPapers();
+    } else if (currentViewMode === 'reading-list') {
+        // 如果正在查看待读列表，只更新单个论文状态，不重新加载整个列表
+        updatePaperStatusDisplay(paperId);
+    } else if (currentCategoryId) {
+        updatePaperStatusDisplay(paperId);
+    } else {
+        // 如果没有选中分类，重新渲染最近阅读列表以更新状态
+        renderRecentIfNoCategory();
+    }
+    updateTaskIndicator();
+    saveQueuesToStorage();
+}
+
+// 更新论文状态显示（不重新加载整个列表）
+function updatePaperStatusDisplay(paperId) {
+    const paperItem = document.querySelector(`.paper-item[data-paper-id="${paperId}"]`);
+    if (!paperItem) return;
+    
+    const paperMeta = paperItem.querySelector('.paper-meta');
+    if (paperMeta) {
+        const paper = papers.find(p => p.id === paperId);
+        if (paper) {
+            // 更新翻译状态
+            const translationStatusHtml = getTranslationStatusText(paperId);
+            const oldTranslationStatus = paperMeta.querySelector('.translation-status');
+            if (oldTranslationStatus) {
+                oldTranslationStatus.remove();
+            }
+            if (translationStatusHtml) {
+                const statusDiv = document.createElement('span');
+                statusDiv.className = 'translation-status';
+                statusDiv.innerHTML = translationStatusHtml;
+                // 插入到 meta 的开始位置
+                paperMeta.insertBefore(statusDiv, paperMeta.firstChild);
+            }
+            
+            // 更新解读状态
+            const analysisStatusHtml = getAnalysisStatusText(paperId);
+            const oldAnalysisStatus = paperMeta.querySelector('.analysis-status');
+            if (oldAnalysisStatus) {
+                oldAnalysisStatus.remove();
+            }
+            if (analysisStatusHtml) {
+                const statusDiv = document.createElement('span');
+                statusDiv.className = 'analysis-status';
+                statusDiv.innerHTML = analysisStatusHtml;
+                paperMeta.appendChild(statusDiv);
+            }
+            
+            // 更新查看结果按钮
+            // 检查是否需要显示"查看中文版"按钮
+            const existingChineseBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="openChineseVersion"]');
+            if (paper.has_chinese_version && !existingChineseBtn) {
+                const btnContainer = paperItem.querySelector('.paper-details');
+                if (btnContainer) {
+                    const btnHtml = `
+                        <div class="chinese-version-btn-container" style="margin-top: 5px;">
+                            <button class="chinese-version-btn" onclick="openChineseVersion('${paperId}', event)" title="查看中文版PDF">
+                                <i class="fas fa-language"></i> 查看中文版
+                            </button>
+                        </div>
+                    `;
+                    btnContainer.insertAdjacentHTML('beforeend', btnHtml);
+                }
+            }
+            
+            // 检查是否需要显示"查看 AI 解读"按钮
+            const existingAnalysisBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="viewAnalysisResult"]');
+            if (paper.has_analysis_result) {
+                if (!existingAnalysisBtn) {
+                    const btnContainer = paperItem.querySelector('.paper-details');
+                    if (btnContainer) {
+                        const btnHtml = `
+                            <div class="chinese-version-btn-container" style="margin-top: 5px;">
+                                <button class="chinese-version-btn" onclick="viewAnalysisResult('${paperId}', event)" title="查看 AI 解读" style="background: #6f42c1; color: white; border-color: #6f42c1;">
+                                    <i class="fas fa-brain"></i> 查看 AI 解读
+                                </button>
+                            </div>
+                        `;
+                        btnContainer.insertAdjacentHTML('beforeend', btnHtml);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 获取解读状态显示文本
+function getAnalysisStatusText(paperId) {
+    const status = analysisStatus[paperId];
+    if (!status) return '';
+    
+    if (status.status === 'analyzing') {
+        const step = status.step === 'pdf2md' ? 'PDF转Markdown' : status.step === 'llm_analysis' ? 'LLM解读' : '解读中';
+        return `<span class="translation-status translating">
+            <i class="fas fa-spinner fa-spin"></i> 正在解读 (${step})...
+            <button class="status-cancel-btn" onclick="cancelAnalysisFromStatus('${paperId}', event)" title="取消解读">
+                <i class="fas fa-times"></i>
+            </button>
+        </span>`;
+    } else if (status.status === 'queued') {
+        const currentIndex = analysisQueue.indexOf(paperId) + 1;
+        return `<span class="translation-status queued">
+            <i class="fas fa-clock"></i> 解读队列中 (${currentIndex}/${analysisQueue.length})
+            <button class="status-cancel-btn" onclick="cancelAnalysisFromQueue('${paperId}', event)" title="取消队列">
+                <i class="fas fa-times"></i>
+            </button>
+        </span>`;
+    } else if (status.status === 'completed') {
+        // 完成时不显示状态文本，因为已经有"查看 AI 解读"按钮了
+        return '';
+    }
+    return '';
+}
+
+// 开始轮询解读日志
+function startAnalysisLogPolling(taskId, paperId) {
+    if (analysisLogInterval[taskId]) {
+        clearInterval(analysisLogInterval[taskId]);
+    }
+    
+    analysisLogInterval[taskId] = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/paper/analyze/${taskId}/logs`);
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                const status = result.status;
+                
+                // 检测任务是否被终止或失败
+                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                    clearInterval(analysisLogInterval[taskId]);
+                    delete analysisLogInterval[taskId];
+                    
+                    // 更新状态
+                    if (status === 'completed') {
+                        updateAnalysisStatus(paperId, 'completed');
+                        showMessage('解读完成，可以查看结果', 'success');
+                    } else {
+                        updateAnalysisStatus(paperId, 'error');
+                        showMessage(`解读${status === 'cancelled' ? '已取消' : '失败'}: ${result.result?.error || '未知错误'}`, 'error');
+                    }
+                    
+                    // 继续处理队列
+                    isAnalyzing = false;
+                    updatePaperStatusDisplay(paperId);
+                    processAnalysisQueue();
+                } else {
+                    // 更新步骤信息（不重新加载整个列表，避免闪烁）
+                    if (result.step && analysisStatus[paperId]) {
+                        analysisStatus[paperId].step = result.step;
+                        updatePaperStatusDisplay(paperId);
+                    }
+                }
+            } else {
+                // 如果任务不存在（可能被外部删除或服务器重启），停止轮询并清理状态
+                if (response.status === 404) {
+                    clearInterval(analysisLogInterval[taskId]);
+                    delete analysisLogInterval[taskId];
+                    // 从队列中移除
+                    const queueIndex = analysisQueue.indexOf(paperId);
+                    if (queueIndex !== -1) {
+                        analysisQueue.splice(queueIndex, 1);
+                    }
+                    // 删除状态
+                    delete analysisStatus[paperId];
+                    // 重置标志
+                    isAnalyzing = false;
+                    saveQueuesToStorage();
+                    updateTaskIndicator();
+                    // 根据当前视图模式更新显示
+                    if (currentViewMode === 'reading-list') {
+                        updatePaperStatusDisplay(paperId);
+                    } else if (currentCategoryId) {
+                        updatePaperStatusDisplay(paperId);
+                    } else {
+                        renderRecentIfNoCategory();
+                    }
+                    processAnalysisQueue();
+                }
+            }
+        } catch (error) {
+            console.error('获取日志失败:', error);
+        }
+    }, 2000); // 每2秒轮询一次
+}
+
+// 停止轮询解读日志
+function stopAnalysisLogPolling(taskId) {
+    if (analysisLogInterval[taskId]) {
+        clearInterval(analysisLogInterval[taskId]);
+        delete analysisLogInterval[taskId];
+    }
+}
+
+// 显示解读日志
+async function showAnalysisLogs(paperId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+
+    const status = analysisStatus[paperId];
+    if (!status || !status.taskId) {
+        showMessage('未找到解读任务', 'error');
+        return;
+    }
+
+    const taskId = status.taskId;
+
+    try {
+        const response = await fetch(`/api/paper/analyze/${taskId}/logs`);
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showAnalysisLogModal(taskId, result.logs, result.status, result.step, paperId);
+        } else {
+            showMessage(result.error || '获取日志失败', 'error');
+        }
+    } catch (error) {
+        console.error('获取日志失败:', error);
+        showMessage('获取日志失败', 'error');
+    }
+}
+
+// 显示解读日志模态框
+function showAnalysisLogModal(taskId, logs, status, step, paperId) {
+    const modalTitle = document.querySelector('#modal-title');
+    const modalBody = document.querySelector('#modal-body');
+    const confirmBtn = document.querySelector('#modal-confirm');
+    const cancelBtn = document.querySelector('#modal-cancel');
+    
+    modalTitle.textContent = '解读日志';
+    modalBody.innerHTML = `
+        <div style="margin-bottom: 10px;">
+            <strong>状态:</strong> <span id="log-status">${getStatusText(status)}</span>
+            ${step ? `<br><strong>当前步骤:</strong> ${step === 'pdf2md' ? 'PDF转Markdown' : step === 'llm_analysis' ? 'LLM解读' : step}` : ''}
+        </div>
+        <div style="background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-wrap: break-word;" id="log-content">
+            ${logs.map(log => escapeHtml(log)).join('\n')}
+        </div>
+    `;
+    
+    confirmBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+    confirmBtn.textContent = '取消解读';
+    cancelBtn.textContent = '关闭';
+    
+    // 清除之前的事件监听器
+    const confirmBtnClone = confirmBtn.cloneNode(true);
+    const cancelBtnClone = cancelBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(confirmBtnClone, confirmBtn);
+    cancelBtn.parentNode.replaceChild(cancelBtnClone, cancelBtn);
+    
+    const newConfirmBtn = document.getElementById('modal-confirm');
+    const newCancelBtn = document.getElementById('modal-cancel');
+    
+    if (status === 'running') {
+        newConfirmBtn.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await cancelAnalysis(taskId, paperId);
+        };
+    }
+    
+    newCancelBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideModal();
+    };
+    
+    showModal();
+    
+    // 如果任务正在运行，开始自动刷新日志
+    if (status === 'running') {
+        const logInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/paper/analyze/${taskId}/logs`);
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    const logContent = document.getElementById('log-content');
+                    const logStatus = document.getElementById('log-status');
+                    if (logContent) {
+                        logContent.textContent = result.logs.map(log => escapeHtml(log)).join('\n');
+                        logContent.scrollTop = logContent.scrollHeight;
+                    }
+                    if (logStatus) {
+                        logStatus.textContent = getStatusText(result.status);
+                    }
+                    
+                    // 如果任务完成，停止刷新
+                    if (result.status !== 'running') {
+                        clearInterval(logInterval);
+                        if (result.status === 'completed') {
+                            showMessage('解读完成', 'success');
+                            // 更新状态显示（不重新加载整个列表，避免闪烁）
+                            updateAnalysisStatus(paperId, 'completed');
+                            updatePaperStatusDisplay(paperId);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('刷新日志失败:', error);
+            }
+        }, 2000);
+        
+        // 当模态框关闭时，清除定时器
+        const originalHideModal = window.hideModal;
+        window.hideModal = function() {
+            clearInterval(logInterval);
+            if (originalHideModal) {
+                originalHideModal();
+            }
+        };
+    }
+}
+
+// 取消解读（从状态中取消，需要taskId）
+async function cancelAnalysis(taskId, paperId) {
+    try {
+        const response = await fetch(`/api/paper/analyze/${taskId}/cancel`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showMessage('解读已取消', 'success');
+            updateAnalysisStatus(paperId, 'error');
+            isAnalyzing = false;
+            processAnalysisQueue();
+            hideModal();
+        } else {
+            // 如果任务不存在（服务器重启等情况），清理前端状态
+            if (response.status === 404 || (result.error && result.error.includes('任务不存在'))) {
+                showMessage('任务不存在，已清理状态', 'warning');
+                // 检查是否正在解读（在删除状态前检查）
+                const wasAnalyzing = isAnalyzing && analysisStatus[paperId] && analysisStatus[paperId].taskId === taskId;
+                // 清理前端状态
+                stopAnalysisLogPolling(taskId);
+                // 从队列中移除
+                const queueIndex = analysisQueue.indexOf(paperId);
+                if (queueIndex !== -1) {
+                    analysisQueue.splice(queueIndex, 1);
+                }
+                // 删除状态
+                delete analysisStatus[paperId];
+                // 如果正在解读，重置标志
+                if (wasAnalyzing) {
+                    isAnalyzing = false;
+                }
+                saveQueuesToStorage();
+                updateTaskIndicator();
+                if (currentCategoryId) {
+                    updatePaperStatusDisplay(paperId);
+                } else {
+                    renderRecentIfNoCategory();
+                }
+                hideModal();
+                // 继续处理队列
+                processAnalysisQueue();
+            } else {
+                showMessage(result.error || '取消失败', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('取消解读失败:', error);
+        showMessage('取消失败', 'error');
+    }
+}
+
+// 从状态中取消解读（通过paperId查找taskId）
+async function cancelAnalysisFromStatus(paperId, event) {
+    if (event) event.stopPropagation();
+    const status = analysisStatus[paperId];
+    if (!status || !status.taskId) {
+        showMessage('未找到解读任务', 'warning');
+        return;
+    }
+    if (!confirm('确定要终止解读吗？')) {
+        return;
+    }
+    await cancelAnalysis(status.taskId, paperId);
+}
+
+// 从队列中取消解读
+async function cancelAnalysisFromQueue(paperId, event) {
+    if (event) event.stopPropagation();
+    const index = analysisQueue.indexOf(paperId);
+    if (index === -1) {
+        showMessage('论文不在队列中', 'warning');
+        return;
+    }
+    analysisQueue.splice(index, 1);
+    saveQueuesToStorage();
+    delete analysisStatus[paperId];
+    updateAnalysisStatus(paperId, 'error');
+    showMessage('已从队列中移除', 'success');
+}
+
+// 查看解读结果（右侧信息面板内展示，放宽面板宽度）
+async function viewAnalysisResult(paperId, event) {
+    if (event) { event.stopPropagation(); }
+
+    try {
+        const response = await fetch(`/api/paper/${paperId}/analysis/result`);
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.error || '获取结果失败', 'error');
+            return;
+        }
+
+        const panel = document.querySelector('.info-panel');
+        const paperInfoEl = document.getElementById('paper-info');
+        if (!panel || !paperInfoEl) return;
+
+        // 加宽面板
+        panel.classList.add('wide');
+
+        // 处理图片路径
+        let markdownContent = result.content || '';
+        const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+        markdownContent = markdownContent.replace(imageRegex, (match, alt, src) => {
+            if (!src.startsWith('http') && !src.startsWith('/')) {
+                const encodedPath = encodeURIComponent(src);
+                return `![${alt}](/api/paper/${paperId}/analysis/image?path=${encodedPath})`;
+            }
+            return match;
+        });
+
+        // 渲染 markdown
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({
+                breaks: true,
+                gfm: true,
+                highlight: function(code, lang) {
+                    if (typeof hljs !== 'undefined' && lang) {
+                        try { return hljs.highlight(code, { language: lang }).value; }
+                        catch (e) { return hljs.highlightAuto(code).value; }
+                    }
+                    return code;
+                }
+            });
+        }
+
+        let htmlContent = '';
+        if (typeof marked !== 'undefined') {
+            htmlContent = marked.parse(markdownContent);
+        } else {
+            htmlContent = `<pre style="white-space: pre-wrap;">${escapeHtml(markdownContent)}</pre>`;
+        }
+
+        // 注入工具栏 + 内容
+        paperInfoEl.innerHTML = `
+            <div class="paper-info-toolbar">
+                <div style="font-weight:600;">AI 解读</div>
+                <div>
+                    <button class="btn" onclick="closeAnalysisView()"><i class="fas fa-times"></i> 关闭</button>
+                </div>
+            </div>
+            <div class="paper-info-content markdown-viewer">${htmlContent}</div>
+        `;
+
+        // 代码高亮
+        if (typeof hljs !== 'undefined') {
+            paperInfoEl.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+        }
+
+        // 应用样式（若需要）
+        if (typeof applyMarkdownStyles === 'function') {
+            applyMarkdownStyles();
+        }
+    } catch (e) {
+        console.error('获取结果失败:', e);
+        showMessage('获取结果失败', 'error');
+    }
+}
+
+function closeAnalysisView() {
+    const panel = document.querySelector('.info-panel');
+    if (panel) panel.classList.remove('wide');
+    // 还原当前论文信息
+    if (currentPaperId) {
+        loadPaperInfo(currentPaperId);
+    } else {
+        document.getElementById('paper-info').innerHTML = '';
+    }
+}
+
+// 应用 Markdown 样式
+function applyMarkdownStyles() {
+    const style = document.createElement('style');
+    style.id = 'markdown-viewer-styles';
+    if (document.getElementById('markdown-viewer-styles')) {
+        return; // 样式已存在
+    }
+    style.textContent = `
+        .markdown-viewer h1, .markdown-viewer h2, .markdown-viewer h3, 
+        .markdown-viewer h4, .markdown-viewer h5, .markdown-viewer h6 {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+        .markdown-viewer h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        .markdown-viewer h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        .markdown-viewer h3 { font-size: 1.25em; }
+        .markdown-viewer h4 { font-size: 1em; }
+        .markdown-viewer p { margin-bottom: 16px; line-height: 1.6; }
+        .markdown-viewer ul, .markdown-viewer ol { margin-bottom: 16px; padding-left: 2em; }
+        .markdown-viewer li { margin-bottom: 0.25em; }
+        .markdown-viewer blockquote {
+            padding: 0 1em;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+            margin-bottom: 16px;
+        }
+        .markdown-viewer code {
+            padding: 0.2em 0.4em;
+            margin: 0;
+            font-size: 85%;
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+        .markdown-viewer pre {
+            padding: 16px;
+            overflow: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+        .markdown-viewer pre code {
+            display: inline;
+            padding: 0;
+            margin: 0;
+            overflow: visible;
+            line-height: inherit;
+            word-wrap: normal;
+            background-color: transparent;
+            border: 0;
+        }
+        .markdown-viewer img {
+            max-width: 100%;
+            height: auto;
+            margin: 16px 0;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .markdown-viewer table {
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            width: 100%;
+        }
+        .markdown-viewer table th,
+        .markdown-viewer table td {
+            padding: 6px 13px;
+            border: 1px solid #dfe2e5;
+        }
+        .markdown-viewer table th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }
+        .markdown-viewer hr {
+            height: 0.25em;
+            padding: 0;
+            margin: 24px 0;
+            background-color: #e1e4e8;
+            border: 0;
+        }
+        .markdown-viewer a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+        .markdown-viewer a:hover {
+            text-decoration: underline;
+        }
+    `;
+    document.head.appendChild(style);
+}
+

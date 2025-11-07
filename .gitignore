@@ -2,4 +2,4 @@
 *.pdf
 vllm_server/MinerU2.5-2509-1.2B/
 vllm_server/Qwen3-14B/
-outputs/
+papers/

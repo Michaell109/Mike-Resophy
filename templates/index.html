@@ -9,9 +9,47 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Marked.js (CDN) 用于渲染 Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js (CDN) 用于代码高亮 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
-    <div class="container">
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="navbar-content">
+            <div class="navbar-brand">
+                <i class="fas fa-book"></i> PDF Paper Manager
+            </div>
+            <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+                <button id="btn-show-translating" class="ti-item ti-translate" title="查看翻译中的论文">
+                    <i class="fas fa-language"></i>
+                    <span class="ti-label">翻译</span>
+                    <span class="ti-count" id="ti-translate-count">0</span>
+                </button>
+                <button id="btn-show-analyzing" class="ti-item ti-analyze" title="查看解读中的论文">
+                    <i class="fas fa-brain"></i>
+                    <span class="ti-label">解读</span>
+                    <span class="ti-count" id="ti-analyze-count">0</span>
+                </button>
+                <button id="btn-show-reading-list" class="ti-item ti-reading" title="查看待读列表">
+                    <i class="fas fa-book-open"></i>
+                    <span class="ti-label">待读</span>
+                    <span class="ti-count" id="ti-reading-count">0</span>
+                </button>
+                <button class="nav-tab active" data-tab="paper">
+                    <i class="fas fa-file-pdf"></i> Paper
+                </button>
+                <button class="nav-tab" data-tab="setting">
+                    <i class="fas fa-cog"></i> Setting
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Paper 界面 -->
+    <div class="container" id="paper-view">
         <!-- 左侧分类栏 -->
         <div class="sidebar">
             <div class="sidebar-header">
@@ -23,14 +61,8 @@
             <div class="category-tree" id="category-tree">
                 <!-- 分类树将在这里动态生成 -->
             </div>
-            <div class="upload-zone" id="upload-zone">
-                <div class="upload-content">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <p>拖拽 PDF 文件到这里上传</p>
-                    <p class="upload-hint">或点击选择文件</p>
-                </div>
-                <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
-            </div>
+            <!-- 已移除左下角上传区域 -->
+            <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
         </div>
 
         <!-- 中间 PDF 列表栏 -->
@@ -58,9 +90,27 @@
                     <button id="refresh-papers" class="btn-action" title="刷新">
                         <i class="fas fa-refresh"></i>
                     </button>
+                    <button id="toggle-multiselect" class="btn-action" title="多选模式">
+                        <i class="fas fa-check-double"></i>
+                    </button>
                     <button id="upload-btn" class="btn-action" title="上传文件">
                         <i class="fas fa-upload"></i>
                     </button>
+                    <button id="upload-arxiv-btn" class="btn-action" title="从 arXiv 导入">
+                        <i class="fas fa-link"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="batch-toolbar" id="batch-toolbar" style="display:none;">
+                <div class="batch-left">
+                    <span id="batch-count">已选中 0 项</span>
+                </div>
+                <div class="batch-actions">
+                    <button class="btn" id="batch-analyze" title="AI解读"><i class="fas fa-brain"></i> 解读</button>
+                    <button class="btn" id="batch-translate" title="翻译为中文"><i class="fas fa-language"></i> 翻译</button>
+                    <button class="btn" id="batch-move" title="移动目录"><i class="fas fa-arrow-right"></i> 移动</button>
+                    <button class="btn btn-danger" id="batch-delete" title="删除"><i class="fas fa-trash"></i> 删除</button>
+                    <button class="btn btn-secondary" id="batch-cancel" title="退出多选"><i class="fas fa-times"></i> 取消</button>
                 </div>
             </div>
             <div class="papers-list" id="papers-list">
@@ -80,6 +130,98 @@
                 <div class="empty-state">
                     <i class="fas fa-file-alt"></i>
                     <p>选择一篇论文查看详细信息</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setting 界面 -->
+    <div class="container setting-view" id="setting-view" style="display: none;">
+        <div class="setting-layout">
+            <div class="setting-nav">
+                <div class="setting-nav-title"><i class="fas fa-sliders-h"></i> Settings</div>
+                <button class="setting-nav-item active" data-setting="general"><i class="fas fa-cog"></i> General</button>
+                <button class="setting-nav-item" data-setting="habit"><i class="fas fa-clock"></i> Habit</button>
+                <button class="setting-nav-item" data-setting="translation"><i class="fas fa-language"></i> Translation</button>
+                <button class="setting-nav-item" data-setting="analysis"><i class="fas fa-brain"></i> AI 解读</button>
+            </div>
+            <div class="setting-panels">
+                <!-- General -->
+                <div class="setting-panel" id="setting-panel-general" style="display:block;">
+                    <h3><i class="fas fa-cog"></i> General</h3>
+                    <div class="setting-form">
+                        <div class="form-group">
+                            <label for="reading-list-auto-remove-minutes">待读列表自动移除时间阈值（分钟）</label>
+                            <input type="number" id="reading-list-auto-remove-minutes" min="1" max="1440" placeholder="默认 5" />
+                            <small style="color:#666;">当论文的阅读PDF时间 + 阅读AI解读时间（一次性）超过此阈值时，自动从待读列表移除</small>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="saveGeneralSettings()"><i class="fas fa-save"></i> 保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Habit -->
+                <div class="setting-panel" id="setting-panel-habit" style="display:none;">
+                    <h3><i class="fas fa-clock"></i> Habit</h3>
+                    <div class="setting-form">
+                        <div class="form-group">
+                            <label for="habit-recent-count">最近阅读显示数量</label>
+                            <input type="number" id="habit-recent-count" min="1" max="100" placeholder="默认 10" />
+                            <small style="color:#666;">主页无分类选中时，显示最近阅读的前 N 篇论文</small>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="saveHabitSettings()"><i class="fas fa-save"></i> 保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Translation -->
+                <div class="setting-panel" id="setting-panel-translation" style="display:none;">
+                    <h3><i class="fas fa-language"></i> PDF翻译器参数</h3>
+                    <div class="setting-form">
+                        <div class="form-group">
+                            <label for="openai-model">OpenAI Model:</label>
+                            <input type="text" id="openai-model" placeholder="例如: vllm_server/Qwen3-30B-A3B-Instruct-2507" />
+                        </div>
+                        <div class="form-group">
+                            <label for="openai-base-url">OpenAI Base URL:</label>
+                            <input type="text" id="openai-base-url" placeholder="例如: http://192.168.81.133:8080/v1" />
+                        </div>
+                        <div class="form-group">
+                            <label for="openai-api-key">OpenAI API Key:</label>
+                            <input type="text" id="openai-api-key" placeholder="例如: token-abc123" />
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="saveTranslationSettings()"><i class="fas fa-save"></i> 保存设置</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis -->
+                <div class="setting-panel" id="setting-panel-analysis" style="display:none;">
+                    <h3><i class="fas fa-brain"></i> AI解读参数</h3>
+                    <div class="setting-form">
+                        <div class="form-group">
+                            <label for="mineru-server-url">MinerU Server URL:</label>
+                            <input type="text" id="mineru-server-url" placeholder="例如: http://192.168.81.138:9000" />
+                        </div>
+                        <div class="form-group">
+                            <label for="analysis-openai-base-url">OpenAI Base URL:</label>
+                            <input type="text" id="analysis-openai-base-url" placeholder="例如: http://192.168.81.133:8080/v1" />
+                        </div>
+                        <div class="form-group">
+                            <label for="analysis-openai-api-key">OpenAI API Key:</label>
+                            <input type="text" id="analysis-openai-api-key" placeholder="例如: token-abc123" />
+                        </div>
+                        <div class="form-group">
+                            <label for="analysis-system-prompt">System Prompt:</label>
+                            <textarea id="analysis-system-prompt" rows="8" placeholder="请输入系统提示词..."></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="saveAnalysisSettings()"><i class="fas fa-save"></i> 保存设置</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
