@@ -162,12 +162,8 @@
                     }
                     console.log('PDF文件检查成功');
                     
-                    // 使用 Mozilla PDF.js 在线查看器
-                    const encodedPdfUrl = encodeURIComponent(pdfUrl);
-                    const viewerUrl = `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedPdfUrl}`;
-                    console.log('Viewer URL:', viewerUrl);
-                    
-                    iframe.src = viewerUrl;
+                    // 直接在 iframe 中加载原始 PDF，避免跨域阻止
+                    iframe.src = pdfUrl;
                     
                     // 监听 iframe 加载完成
                     iframe.onload = function() {
@@ -183,7 +179,7 @@
                             loading.innerHTML = `
                                 <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
                                 <p style="color: #dc3545;">PDF 加载超时</p>
-                                <p style="color: #999; font-size: 12px; margin-top: 10px;">请检查PDF文件是否存在，或尝试直接下载</p>
+                                <p style="color: #999; font-size: 12px; margin-top: 10px;">请检查 PDF 文件是否存在，或尝试直接下载</p>
                                 <button class="btn" onclick="location.reload()" style="margin-top: 15px;">重新加载</button>
                                 <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
                             `;

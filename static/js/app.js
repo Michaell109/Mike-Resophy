@@ -1768,19 +1768,15 @@ async function movePaper(paperId, targetCategoryId) {
 }
 
 // 打开中文版PDF
-function openChineseVersion(paperId, event) {
-    if (event) {
-        event.stopPropagation();
-    }
+function openChineseVersion(paperId) {
     const paper = papers.find(p => p.id === paperId);
     if (!paper || !paper.has_chinese_version) {
-        showMessage('该论文没有中文版本', 'warning');
+        showMessage('中文版本不存在', 'error');
         return;
     }
-    
-    // 直接打开中文版PDF
     const viewerUrl = `/viewer/${paperId}?chinese=true`;
     window.open(viewerUrl, '_blank');
+    markPaperViewed(paperId);
 }
 
 // 打开 PDF 阅读器（打开原版）
@@ -3314,14 +3310,12 @@ function getTranslationStatusText(paperId) {
 // 打开中文版本PDF
 function openChineseVersion(paperId) {
     const paper = papers.find(p => p.id === paperId);
-    if (!paper || !paper.has_chinese_version || !paper.chinese_version_path) {
+    if (!paper || !paper.has_chinese_version) {
         showMessage('中文版本不存在', 'error');
         return;
     }
-    
-    // 打开中文版本PDF
-    const url = `/api/paper/${paperId}/chinese/file`;
-    window.open(url, '_blank');
+    const viewerUrl = `/viewer/${paperId}?chinese=true`;
+    window.open(viewerUrl, '_blank');
     markPaperViewed(paperId);
 }
 
