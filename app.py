@@ -2903,4 +2903,4 @@ def api_general_settings():
 if __name__ == "__main__":
     init_categories()
     # 论文数据现在直接存储在PDF文件旁边的JSON文件中
-    app.run(host="0.0.0.0", port=5005, debug=True)
+    app.run(host="192.168.81.138", port=5005, debug=True)

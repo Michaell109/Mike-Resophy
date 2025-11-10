@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Paper Manager</title>
+    <title>ReadPaper</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- PDF.js (CDN) 用于前端解析PDF元数据 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -20,7 +20,8 @@
     <nav class="navbar">
         <div class="navbar-content">
             <div class="navbar-brand">
-                <i class="fas fa-book"></i> PDF Paper Manager
+                <img src="{{ url_for('static', filename='images/readpaper-logo.png') }}" alt="ReadPaper" class="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                <span class="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> ReadPaper</span>
             </div>
             <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
                 <button id="btn-show-translating" class="ti-item ti-translate" title="查看翻译中的论文">

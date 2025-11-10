@@ -43,6 +43,12 @@ body {
     gap: 8px;
 }
 
+.navbar-logo {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
+}
+
 .navbar-tabs {
     display: flex;
     gap: 10px;
