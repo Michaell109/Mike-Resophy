@@ -64,6 +64,11 @@ class Paper:
     arxiv_published_date: Optional[str] = None
     arxiv_url: Optional[str] = None
     upload_source: Optional[str] = None
+    translation_status: str = "idle"
+    translation_task_id: Optional[str] = None
+    analysis_status: str = "idle"
+    analysis_task_id: Optional[str] = None
+    status_updated_at: Optional[str] = None
     extra: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     # ------------------------------------------------------------------
@@ -169,6 +174,42 @@ class Paper:
     def mark_starred(self, value: Any) -> None:
         self.starred = _normalize_bool(value, False)
 
+    def set_translation_status(
+        self,
+        status: str,
+        *,
+        task_id: Optional[str] = None,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        self.translation_status = status
+        if task_id is not None or status in {
+            "idle",
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            self.translation_task_id = task_id
+        if timestamp is not None:
+            self.status_updated_at = timestamp
+
+    def set_analysis_status(
+        self,
+        status: str,
+        *,
+        task_id: Optional[str] = None,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        self.analysis_status = status
+        if task_id is not None or status in {
+            "idle",
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            self.analysis_task_id = task_id
+        if timestamp is not None:
+            self.status_updated_at = timestamp
+
     def clone(self) -> "Paper":
         return Paper.from_dict(self.to_dict())  # type: ignore[return-value]
 
@@ -186,6 +227,8 @@ class Paper:
         self.analysis_view_time = _normalize_int(self.analysis_view_time, 0)
         self.translation_time = _normalize_int(self.translation_time, 0)
         self.analysis_time = _normalize_int(self.analysis_time, 0)
+        self.translation_status = (self.translation_status or "idle").strip() or "idle"
+        self.analysis_status = (self.analysis_status or "idle").strip() or "idle"
 
     # ------------------------------------------------------------------
     # Convenience iteration helpers

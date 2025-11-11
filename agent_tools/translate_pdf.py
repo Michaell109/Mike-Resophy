@@ -19,7 +19,7 @@ class TranslationDependencies:
     translation_tasks_lock: threading.Lock
     get_categories: Callable[[], dict]
     get_category_path: Callable[[dict, str], CategoryPath | None]
-    get_papers_in_category: Callable[[CategoryPath], PaperList]
+    get_papers_in_category: Callable[[str, CategoryPath], PaperList]
     save_paper_metadata: Callable[[str, Paper], None]
 
 
@@ -119,7 +119,9 @@ def translate_paper_task(
                     def search_and_update_paper(node):
                         category_path = deps.get_category_path(categories, node["id"])
                         if category_path:
-                            papers = deps.get_papers_in_category(category_path)
+                            papers = deps.get_papers_in_category(
+                                node["id"], category_path
+                            )
                             for paper in papers:
                                 if paper.id == paper_id:
                                     paper.mark_chinese_version(dual_file)
@@ -152,7 +154,9 @@ def translate_paper_task(
                     def search_and_update_time(node):
                         category_path = deps.get_category_path(categories, node["id"])
                         if category_path:
-                            papers = deps.get_papers_in_category(category_path)
+                            papers = deps.get_papers_in_category(
+                                node["id"], category_path
+                            )
                             for paper in papers:
                                 if paper.id == paper_id:
                                     paper.translation_time = max(

@@ -75,7 +75,7 @@ def create_category_folder(upload_folder: str, category_path: List[str]) -> str:
 def get_category_pdf_count(
     categories: Dict[str, Any],
     category_id: str,
-    get_papers_in_category: Callable[[List[str]], List[Any]],
+    get_papers_in_category: Callable[[str, List[str]], List[Any]],
 ) -> int:
     target_node = find_category_node(categories, category_id)
     if not target_node:
@@ -85,7 +85,7 @@ def get_category_pdf_count(
         total = 0
         path = get_category_path(categories, node["id"])
         if path:
-            total += len(get_papers_in_category(path))
+            total += len(get_papers_in_category(node["id"], path))
         for child in node.get("children", []):
             total += traverse(child)
         return total

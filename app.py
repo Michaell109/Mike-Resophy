@@ -9,6 +9,7 @@ from flask import Flask, jsonify, render_template, request
 from basic_tools import category_manager, paper_repository
 from basic_tools.arxiv_client import fetch_arxiv_abstract
 from basic_tools.pdf_extractor import extract_pdf_metadata
+from core.paper_store import paper_store
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
 from routes.basic_routes.category_tree_route import register_category_routes
@@ -117,6 +118,7 @@ register_paper_operation_routes(
     upload_folder=UPLOAD_FOLDER,
     general_settings_file=GENERAL_SETTINGS_FILE,
     default_settings=DEFAULT_GENERAL_SETTINGS,
+    paper_store=paper_store,
 )
 
 register_upload_from_pdf_routes(
@@ -128,6 +130,7 @@ register_upload_from_pdf_routes(
     fetch_arxiv_abstract=fetch_arxiv_abstract,
     save_paper_metadata=save_paper_metadata,
     reading_list_file=READING_LIST_FILE,
+    paper_store=paper_store,
 )
 
 register_update_from_url_routes(
@@ -139,6 +142,7 @@ register_update_from_url_routes(
     extract_pdf_metadata=extract_pdf_metadata,
     save_paper_metadata=save_paper_metadata,
     reading_list_file=READING_LIST_FILE,
+    paper_store=paper_store,
 )
 
 register_agent_summary_routes(

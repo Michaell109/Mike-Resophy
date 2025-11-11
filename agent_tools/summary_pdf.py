@@ -20,7 +20,7 @@ class AnalysisDependencies:
     analysis_tasks_lock: threading.Lock
     get_categories: Callable[[], dict]
     get_category_path: Callable[[dict, str], CategoryPath | None]
-    get_papers_in_category: Callable[[CategoryPath], PaperList]
+    get_papers_in_category: Callable[[str, CategoryPath], PaperList]
     save_paper_metadata: Callable[[str, Paper], None]
 
 
@@ -221,7 +221,7 @@ def analyze_paper_task(
         def search_and_update_paper(node):
             category_path = deps.get_category_path(categories, node["id"])
             if category_path:
-                papers_list = deps.get_papers_in_category(category_path)
+                papers_list = deps.get_papers_in_category(node["id"], category_path)
                 for paper in papers_list:
                     if paper.id == paper_id:
                         paper.mark_analysis_result(result_file)
@@ -245,7 +245,7 @@ def analyze_paper_task(
         def search_and_update_analysis_time(node):
             category_path = deps.get_category_path(categories, node["id"])
             if category_path:
-                papers = deps.get_papers_in_category(category_path)
+                papers = deps.get_papers_in_category(node["id"], category_path)
                 for paper in papers:
                     if paper.id == paper_id:
                         paper.analysis_time = max(

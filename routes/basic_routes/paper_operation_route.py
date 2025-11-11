@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tupl
 from flask import Flask, jsonify, request, send_file
 
 from core.base_paper import Paper
+from core.paper_store import PaperStore
 
 
 class GetCategoriesFn(Protocol):
@@ -33,7 +34,7 @@ class FindCategoryNodeFn(Protocol):
 
 
 class GetPapersInCategoryFn(Protocol):
-    def __call__(self, category_path: List[str]) -> List[Paper]: ...
+    def __call__(self, category_id: str, category_path: List[str]) -> List[Paper]: ...
 
 
 class CreateCategoryFolderFn(Protocol):
@@ -75,6 +76,7 @@ def register_paper_operation_routes(
     upload_folder: str,
     general_settings_file: str,
     default_settings: Dict[str, Any],
+    paper_store: PaperStore,
 ) -> None:
     def load_general_settings() -> Dict[str, Any]:
         try:
@@ -120,57 +122,24 @@ def register_paper_operation_routes(
     def is_in_reading_list(paper_id: str) -> bool:
         return paper_id in load_reading_list()
 
-    def find_paper(
-        categories: Dict[str, Any],
-        paper_id: str,
-    ) -> Optional[Tuple[Paper, List[str], str]]:
-        """Return Paper object, category path, and category_id."""
-
-        def search(node: Dict[str, Any]) -> Optional[Tuple[Paper, List[str], str]]:
-            category_path = get_category_path(categories, node["id"])
-            if category_path:
-                papers = get_papers_in_category(category_path)
-                for paper in papers:
-                    if paper.id == paper_id:
-                        return paper, category_path, node["id"]
-            for child in node.get("children", []):
-                result = search(child)
-                if result:
-                    return result
+    def find_paper(paper_id: str) -> Optional[Tuple[Paper, List[str], str]]:
+        entry = paper_store.get_entry(paper_id)
+        if not entry:
             return None
+        return entry.paper, list(entry.category_path), entry.category_id
 
-        for child in categories.get("children", []):
-            result = search(child)
-            if result:
-                return result
-        return None
-
-    def collect_papers_by_ids(
-        categories: Dict[str, Any],
-        paper_ids: Iterable[str],
-    ) -> List[Paper]:
-        id_order = list(paper_ids)
-        id_set = set(id_order)
-        collected: Dict[str, Paper] = {}
-
-        def traverse(node: Dict[str, Any]) -> None:
-            if not id_set:
-                return
-            category_path = get_category_path(categories, node["id"])
-            if category_path:
-                for paper in get_papers_in_category(category_path):
-                    if paper.id in id_set:
-                        collected[paper.id] = paper
-                        id_set.remove(paper.id)
-            for child in node.get("children", []):
-                if id_set:
-                    traverse(child)
-
-        for child in categories.get("children", []):
-            traverse(child)
-            if not id_set:
-                break
-        return [collected[pid] for pid in id_order if pid in collected]
+    def collect_papers_by_ids(paper_ids: Iterable[str]) -> List[Paper]:
+        ordered_ids = list(paper_ids)
+        collected: List[Paper] = []
+        seen: set[str] = set()
+        for pid in ordered_ids:
+            if pid in seen:
+                continue
+            paper = paper_store.get(pid)
+            if paper:
+                collected.append(paper)
+                seen.add(pid)
+        return collected
 
     @app.route("/api/papers/<category_id>")
     def api_papers(category_id: str):
@@ -180,13 +149,12 @@ def register_paper_operation_routes(
         if not category_path:
             return jsonify({"error": "Category not found"}), 404
 
-        papers = get_papers_in_category(category_path)
+        papers = get_papers_in_category(category_id, category_path)
         return jsonify([paper.to_dict() for paper in papers])
 
     @app.route("/api/paper/<paper_id>")
     def api_paper_info(paper_id: str):
-        categories = get_categories()
-        result = find_paper(categories, paper_id)
+        result = find_paper(paper_id)
         if result:
             paper, _, _ = result
             return jsonify(paper.to_dict())
@@ -204,7 +172,7 @@ def register_paper_operation_routes(
             )
 
         categories = get_categories()
-        result = find_paper(categories, paper_id)
+        result = find_paper(paper_id)
         if not result:
             return jsonify({"success": False, "error": "Paper not found"}), 404
 
@@ -260,6 +228,11 @@ def register_paper_operation_routes(
             paper_obj.file_path = target_file_path
 
             save_paper_metadata(target_file_path, paper_obj)
+            paper_store.update_category(
+                paper_id,
+                category_id=target_category_id,
+                category_path=target_path,
+            )
 
             return jsonify(
                 {
@@ -279,9 +252,7 @@ def register_paper_operation_routes(
 
     @app.route("/api/paper/<paper_id>/file")
     def api_get_paper_file(paper_id: str):
-        categories = get_categories()
-
-        result = find_paper(categories, paper_id)
+        result = find_paper(paper_id)
         if not result:
             return jsonify({"error": "Paper not found"}), 404
 
@@ -318,14 +289,14 @@ def register_paper_operation_routes(
     @app.route("/api/paper/<paper_id>", methods=["DELETE"])
     def api_delete_paper(paper_id: str):
         try:
-            categories = get_categories()
-            result = find_paper(categories, paper_id)
+            result = find_paper(paper_id)
             if not result:
                 return jsonify({"error": "Paper not found"}), 404
 
             paper, _, category_id = result
             if paper.file_path:
                 delete_paper_files(paper.file_path)
+            paper_store.remove(paper_id)
 
             return jsonify(
                 {
@@ -344,8 +315,7 @@ def register_paper_operation_routes(
     def api_update_paper(paper_id: str):
         try:
             data = request.json or {}
-            categories = get_categories()
-            result = find_paper(categories, paper_id)
+            result = find_paper(paper_id)
             if not result:
                 return jsonify({"error": "Paper not found"}), 404
 
@@ -370,19 +340,17 @@ def register_paper_operation_routes(
 
     @app.route("/api/reading-list", methods=["GET"])
     def api_get_reading_list():
-        categories = get_categories()
         paper_ids = load_reading_list()
         settings = load_general_settings()
         max_items = settings.get("reading_list_max_items")
         if isinstance(max_items, int) and max_items > 0:
             paper_ids = paper_ids[:max_items]
-        papers = collect_papers_by_ids(categories, paper_ids)
+        papers = collect_papers_by_ids(paper_ids)
         return jsonify([paper.to_dict() for paper in papers])
 
     @app.route("/api/reading-list/<paper_id>/add", methods=["POST"])
     def api_add_to_reading_list(paper_id: str):
-        categories = get_categories()
-        result = find_paper(categories, paper_id)
+        result = find_paper(paper_id)
         if not result:
             return jsonify({"success": False, "error": "Paper not found"}), 404
 

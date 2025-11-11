@@ -4,9 +4,10 @@ import json
 import os
 import shutil
 from datetime import datetime
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from core.base_paper import Paper
+from core.paper_store import paper_store
 
 
 def get_paper_json_path(pdf_path: str) -> str:
@@ -77,7 +78,14 @@ def delete_paper_files(pdf_path: str) -> None:
             pass
 
 
-def scan_papers_in_directory(directory_path: str) -> List[Paper]:
+def scan_papers_in_directory(
+    directory_path: str,
+    *,
+    category_id: str,
+    category_path: Iterable[str],
+) -> List[Paper]:
+    category_path_list = list(category_path)
+    paper_store.mark_category_initialized(category_id, category_path_list)
     papers: List[Paper] = []
     if not os.path.exists(directory_path):
         return papers
@@ -127,14 +135,23 @@ def scan_papers_in_directory(directory_path: str) -> List[Paper]:
                             break
         paper.mark_analysis_result(analysis_result_path)
 
-        save_paper_metadata(pdf_path, paper)
-        papers.append(paper)
+        registered = paper_store.upsert(
+            paper, category_id=category_id, category_path=category_path_list
+        )
+        save_paper_metadata(pdf_path, registered)
+        papers.append(registered)
 
     return papers
 
 
-def get_papers_in_category(upload_folder: str, category_path: List[str]) -> List[Paper]:
+def get_papers_in_category(
+    upload_folder: str, category_id: str, category_path: List[str]
+) -> List[Paper]:
     if not category_path:
         return []
+    if paper_store.is_category_initialized(category_id):
+        return paper_store.list_by_category(category_id)
     directory_path = os.path.join(upload_folder, *category_path[1:])
-    return scan_papers_in_directory(directory_path)
+    return scan_papers_in_directory(
+        directory_path, category_id=category_id, category_path=category_path
+    )

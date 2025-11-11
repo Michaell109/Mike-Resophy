@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request
 import requests
 
 from core.base_paper import Paper
+from core.paper_store import PaperStore
 
 
 class GetCategoriesFn(Protocol):
@@ -100,6 +101,7 @@ def register_update_from_url_routes(
     extract_pdf_metadata: ExtractPdfMetadataFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
+    paper_store: PaperStore,
 ) -> None:
     def _load_reading_list() -> list[str]:
         try:
@@ -245,10 +247,13 @@ def register_update_from_url_routes(
             if not paper:
                 return jsonify({"success": False, "error": "创建论文对象失败"}), 500
 
-            save_paper_metadata(file_path, paper)
-            _add_to_reading_list(paper.id)
+            registered_paper = paper_store.upsert(
+                paper, category_id=category_id, category_path=category_path
+            )
+            save_paper_metadata(file_path, registered_paper)
+            _add_to_reading_list(registered_paper.id)
 
-            return jsonify({"success": True, "paper": paper.to_dict()})
+            return jsonify({"success": True, "paper": registered_paper.to_dict()})
 
         except Exception as exc:  # noqa: BLE001
             print(f"从 arXiv 导入失败: {exc}")

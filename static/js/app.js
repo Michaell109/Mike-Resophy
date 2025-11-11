@@ -3621,11 +3621,19 @@ async function pollAnalysisStatus(taskId, paperId) {
             if (response.ok && result.success) {
                 if (result.status === 'completed') {
                     updateAnalysisStatus(paperId, 'completed');
+                    const paper = papers.find(p => p.id === paperId);
+                    if (paper && result.result && result.result.success) {
+                        paper.has_analysis_result = true;
+                        paper.analysis_result_path = result.result.result_file;
+                    }
                     isAnalyzing = false;
                     stopAnalysisLogPolling(taskId);
                     showMessage('解读完成，可以查看结果', 'success');
-                    // 更新显示（不重新加载整个列表，避免闪烁）
-                    updatePaperStatusDisplay(paperId);
+                    renderPapersList();
+                    renderRecentIfNoCategory();
+                    if (currentPaperId === paperId) {
+                        loadPaperInfo(paperId);
+                    }
                     processAnalysisQueue(); // 继续处理队列
                 } else if (result.status === 'failed' || result.status === 'cancelled') {
                     updateAnalysisStatus(paperId, 'error');

@@ -11,6 +11,7 @@ from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 
 from core.base_paper import Paper
+from core.paper_store import PaperStore
 
 
 class GetCategoriesFn(Protocol):
@@ -63,6 +64,7 @@ def register_upload_from_pdf_routes(
     fetch_arxiv_abstract: FetchArxivAbstractFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
+    paper_store: PaperStore,
 ) -> None:
     def _load_reading_list() -> list[str]:
         try:
@@ -200,6 +202,9 @@ def register_upload_from_pdf_routes(
         if not paper:
             return jsonify({"success": False, "error": "创建论文对象失败"}), 500
 
-        save_paper_metadata(file_path, paper)
-        _add_to_reading_list(paper.id)
-        return jsonify({"success": True, "paper": paper.to_dict()})
+        registered_paper = paper_store.upsert(
+            paper, category_id=category_id, category_path=category_path
+        )
+        save_paper_metadata(file_path, registered_paper)
+        _add_to_reading_list(registered_paper.id)
+        return jsonify({"success": True, "paper": registered_paper.to_dict()})

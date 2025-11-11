@@ -5,11 +5,12 @@ import subprocess
 import threading
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from flask import jsonify, request, send_file
 
 from agent_tools.summary_pdf import AnalysisDependencies, analyze_paper_task
+from core.base_paper import Paper
 
 CategoryPath = List[str]
 
@@ -21,7 +22,7 @@ def register_agent_summary_routes(
     analysis_tasks_lock: threading.Lock,
     get_categories: Callable[[], dict],
     get_category_path: Callable[[dict, str], CategoryPath | None],
-    get_papers_in_category: Callable[[CategoryPath], List],
+    get_papers_in_category: Callable[[str, CategoryPath], List[Paper]],
     save_paper_metadata: Callable[[str, Any], None],
 ) -> None:
     @app.route("/api/paper/analyze", methods=["POST"])
@@ -66,7 +67,7 @@ def register_agent_summary_routes(
             def search_paper_recursive(node):
                 category_path = get_category_path(categories, node["id"])
                 if category_path:
-                    papers = get_papers_in_category(category_path)
+                    papers = get_papers_in_category(node["id"], category_path)
                     for paper in papers:
                         if paper.id == paper_id:
                             return paper, category_path
@@ -231,7 +232,7 @@ def register_agent_summary_routes(
         def search_paper_recursive(node):
             category_path = get_category_path(categories, node["id"])
             if category_path:
-                papers = get_papers_in_category(category_path)
+                papers = get_papers_in_category(node["id"], category_path)
                 for paper in papers:
                     if paper.id == paper_id:
                         return paper, category_path
@@ -299,7 +300,7 @@ def register_agent_summary_routes(
         def search_paper_recursive(node):
             category_path = get_category_path(categories, node["id"])
             if category_path:
-                papers = get_papers_in_category(category_path)
+                papers = get_papers_in_category(node["id"], category_path)
                 for paper in papers:
                     if paper.id == paper_id:
                         return paper, category_path

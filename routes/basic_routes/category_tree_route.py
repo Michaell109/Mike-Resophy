@@ -32,7 +32,7 @@ class GetCategoryPathFn(Protocol):
 
 
 class GetPapersInCategoryFn(Protocol):
-    def __call__(self, category_path: List[str]) -> List[Any]: ...
+    def __call__(self, category_id: str, category_path: List[str]) -> List[Any]: ...
 
 
 class AddPdfCountsFn(Protocol):
