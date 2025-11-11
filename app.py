@@ -32,7 +32,6 @@ GENERAL_SETTINGS_FILE = os.path.join(BASE_DIR, "general_settings.json")
 
 # 默认通用设置
 DEFAULT_GENERAL_SETTINGS = {
-    "reading_list_auto_remove_minutes": 5,
     "reading_list_max_items": 100,
 }
 
