@@ -2577,9 +2577,21 @@ function getTranslationSettings() {
 
 // ========== General 设置 ==========
 async function saveGeneralSettings() {
-    const minutes = parseInt(document.getElementById('reading-list-auto-remove-minutes').value, 10);
+    const minutesInput = document.getElementById('reading-list-auto-remove-minutes');
+    const maxItemsInput = document.getElementById('reading-list-max-items');
+
+    const minutes = parseInt(minutesInput?.value ?? '', 10);
+    const maxItems = parseInt(maxItemsInput?.value ?? '', 10);
+
     if (isNaN(minutes) || minutes < 1) {
-        showMessage('请输入有效的分钟数（≥1）', 'error');
+        showMessage('请输入有效的待读移除阈值（分钟，≥1）', 'error');
+        minutesInput?.focus();
+        return;
+    }
+
+    if (isNaN(maxItems) || maxItems < 1) {
+        showMessage('请输入有效的待读列表显示数量（≥1）', 'error');
+        maxItemsInput?.focus();
         return;
     }
     
@@ -2590,7 +2602,8 @@ async function saveGeneralSettings() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                reading_list_auto_remove_minutes: minutes
+                reading_list_auto_remove_minutes: minutes,
+                reading_list_max_items: maxItems
             })
         });
         
@@ -2612,8 +2625,12 @@ async function loadGeneralSettings() {
         if (response.ok) {
             const settings = await response.json();
             const input = document.getElementById('reading-list-auto-remove-minutes');
+            const maxItemsInput = document.getElementById('reading-list-max-items');
             if (input) {
-                input.value = settings.reading_list_auto_remove_minutes || 5;
+                input.value = settings.reading_list_auto_remove_minutes ?? 5;
+            }
+            if (maxItemsInput) {
+                maxItemsInput.value = settings.reading_list_max_items ?? 100;
             }
         }
     } catch (error) {

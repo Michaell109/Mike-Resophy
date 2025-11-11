@@ -156,6 +156,11 @@
                             <input type="number" id="reading-list-auto-remove-minutes" min="1" max="1440" placeholder="默认 5" />
                             <small style="color:#666;">当论文的阅读PDF时间 + 阅读AI解读时间（一次性）超过此阈值时，自动从待读列表移除</small>
                         </div>
+                        <div class="form-group">
+                            <label for="reading-list-max-items">待读列表最多显示数量</label>
+                            <input type="number" id="reading-list-max-items" min="1" max="500" placeholder="默认 100" />
+                            <small style="color:#666;">限制待读列表一次展示的论文数量</small>
+                        </div>
                         <div class="form-actions">
                             <button class="btn btn-primary" onclick="saveGeneralSettings()"><i class="fas fa-save"></i> 保存</button>
                         </div>
