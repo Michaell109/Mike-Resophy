@@ -111,6 +111,56 @@ const uploadZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
 const loading = document.getElementById('loading');
 
+// 保存当前视图状态
+function saveCurrentViewState() {
+    const state = {
+        viewMode: currentViewMode,
+        categoryId: currentCategoryId,
+        tabName: document.querySelector('.nav-tab.active')?.dataset.tab || 'paper'
+    };
+    sessionStorage.setItem('currentViewState', JSON.stringify(state));
+}
+
+// 恢复上次视图状态
+function restoreViewState() {
+    try {
+        const saved = sessionStorage.getItem('currentViewState');
+        if (saved) {
+            const state = JSON.parse(saved);
+            
+            // 恢复标签页
+            if (state.tabName === 'setting') {
+                switchTab('setting');
+                return;
+            }
+            
+            // 恢复视图模式
+            if (state.viewMode === 'translating') {
+                showTranslatingPapers();
+            } else if (state.viewMode === 'analyzing') {
+                showAnalyzingPapers();
+            } else if (state.viewMode === 'reading-list') {
+                showReadingList();
+            } else if (state.viewMode === 'category' && state.categoryId) {
+                // 恢复分类选择
+                const categoryItem = document.querySelector(`.category-item[data-category-id="${state.categoryId}"]`);
+                if (categoryItem) {
+                    categoryItem.click();
+                } else {
+                    renderRecentIfNoCategory();
+                }
+            } else {
+                renderRecentIfNoCategory();
+            }
+        } else {
+            renderRecentIfNoCategory();
+        }
+    } catch (e) {
+        console.error('恢复视图状态失败:', e);
+        renderRecentIfNoCategory();
+    }
+}
+
 // 初始化应用
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
@@ -131,7 +181,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (analysisQueue.length > 0 && !isAnalyzing) {
         processAnalysisQueue();
     }
-    renderRecentIfNoCategory();
+    // 恢复上次视图状态
+    restoreViewState();
     updateTaskIndicator();
     updateReadingListCount();
 });
@@ -459,6 +510,7 @@ async function loadPapers(categoryId) {
     try {
         currentViewMode = 'category';
         currentCategoryId = categoryId;
+        saveCurrentViewState();
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 如果点击了分类，选中它
@@ -491,6 +543,7 @@ async function showTranslatingPapers() {
     try {
         currentViewMode = 'translating';
         currentCategoryId = null; // 清除分类选中
+        saveCurrentViewState();
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 更新标题
@@ -556,6 +609,7 @@ async function showReadingList() {
     try {
         currentViewMode = 'reading-list';
         currentCategoryId = null; // 清除分类选中
+        saveCurrentViewState();
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 更新标题
@@ -681,6 +735,7 @@ async function showAnalyzingPapers() {
     try {
         currentViewMode = 'analyzing';
         currentCategoryId = null; // 清除分类选中
+        saveCurrentViewState();
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 更新标题
@@ -2488,6 +2543,7 @@ function setupNavigation() {
     const btnShowTranslating = document.getElementById('btn-show-translating');
     if (btnShowTranslating) {
         btnShowTranslating.addEventListener('click', () => {
+            switchTab('paper');
             showTranslatingPapers();
         });
     }
@@ -2496,6 +2552,7 @@ function setupNavigation() {
     const btnShowAnalyzing = document.getElementById('btn-show-analyzing');
     if (btnShowAnalyzing) {
         btnShowAnalyzing.addEventListener('click', () => {
+            switchTab('paper');
             showAnalyzingPapers();
         });
     }
@@ -2504,6 +2561,7 @@ function setupNavigation() {
     const btnShowReadingList = document.getElementById('btn-show-reading-list');
     if (btnShowReadingList) {
         btnShowReadingList.addEventListener('click', () => {
+            switchTab('paper');
             showReadingList();
         });
     }
@@ -2526,11 +2584,12 @@ function switchTab(tabName) {
     if (tabName === 'paper') {
         paperView.style.display = 'flex';
         settingView.style.display = 'none';
-        renderRecentIfNoCategory();
+        // 不调用 renderRecentIfNoCategory，让调用者决定显示什么
     } else if (tabName === 'setting') {
         paperView.style.display = 'none';
         settingView.style.display = 'block';
     }
+    saveCurrentViewState();
 }
 
 // 保存翻译设置
