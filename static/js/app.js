@@ -408,10 +408,10 @@ function createCategoryElement(category, level = 0) {
     const hasChildren = category.children && category.children.length > 0;
     
     div.innerHTML = `
-        ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span style="width: 16px; margin-right: 5px;"></span>'}
-        <i class="fas fa-folder" style="margin-right: 8px; color: #ffc107;"></i>
+        ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span class="category-toggle-placeholder"></span>'}
+        <i class="fas fa-folder" style="margin-right: 6px; color: #ffc107; font-size: 12px;"></i>
         <span class="category-name">${category.name}</span>
-        <span class="pdf-count">(${category.pdf_count || 0})</span>
+        <span class="pdf-count">${category.pdf_count || 0}</span>
     `;
 
     // 点击事件
@@ -490,9 +490,11 @@ function toggleCategoryChildren(element, category) {
     const children = element.querySelector('.category-children');
     
     if (children) {
-        const isCollapsed = children.classList.contains('collapsed');
         children.classList.toggle('collapsed');
-        toggle.classList.toggle('expanded', !isCollapsed);
+        const isExpanded = !children.classList.contains('collapsed');
+        if (toggle) {
+            toggle.classList.toggle('expanded', isExpanded);
+        }
     }
 }
 
@@ -716,9 +718,6 @@ async function addToReadingList(paperId, event) {
 // 从待读列表移除论文
 async function removeFromReadingList(paperId, event) {
     if (event) event.stopPropagation();
-    if (!confirm('确定要从待读列表移除这篇论文吗？')) {
-        return;
-    }
     try {
         const response = await fetch(`/api/reading-list/${paperId}/remove`, {
             method: 'POST'
@@ -810,69 +809,62 @@ async function showAnalyzingPapers() {
     }
 }
 
-// 生成论文项的HTML（可复用）
+// 生成论文项的HTML（表格布局）
 function generatePaperItemHTML(paper, showCheckbox = false) {
     const isSelected = selectedPaperIds.has(paper.id);
-    return `
-        <div class="paper-icon">
-            <i class="fas fa-file-pdf"></i>
-        </div>
-        <div class="paper-details">
-            ${showCheckbox && isMultiSelectMode ? `<label class="paper-checkbox"><input type="checkbox" ${isSelected ? 'checked' : ''} data-check="1" /></label>` : ''}
-            <div class="paper-title">${paper.title || paper.filename}</div>
-                <div class="paper-meta">
-                上传时间: ${new Date(paper.upload_date).toLocaleDateString()}
-                ${paper.arxiv_published_date ? ` | arXiv: ${new Date(paper.arxiv_published_date).toLocaleDateString()}` : ''}
-                    ${getTranslationStatusText(paper.id)}
-                    <span class="analysis-status">${getAnalysisStatusText(paper.id)}</span>
-                    ${getTotalReadTimeText(paper)}
-            </div>
-            ${paper.has_chinese_version ? `
-            <div class="chinese-version-btn-container" style="margin-top: 5px;">
-                <button class="chinese-version-btn" onclick="openChineseVersion('${paper.id}', event)" title="查看中文版PDF">
-                    <i class="fas fa-language"></i> 查看中文版
-                </button>
-            </div>
-            ` : ''}
-            ${paper.has_analysis_result ? `
-            <div class="chinese-version-btn-container" style="margin-top: 5px;">
-                <button class="chinese-version-btn" onclick="viewAnalysisResult('${paper.id}', event)" title="查看 AI 解读" style="background: #6f42c1; color: white; border-color: #6f42c1;">
-                    <i class="fas fa-brain"></i> 查看 AI 解读
-                </button>
-            </div>
-            ` : ''}
-        </div>
-        <div class="paper-actions">
-            ${translationStatus[paper.id] && translationStatus[paper.id].status === 'translating' ? `
-            <button class="paper-action-btn log" title="查看翻译日志" onclick="showTranslationLogs('${paper.id}', event)">
-                <i class="fas fa-terminal"></i>
-            </button>
-            ` : ''}
-            ${analysisStatus[paper.id] && analysisStatus[paper.id].status === 'analyzing' ? `
-            <button class="paper-action-btn log" title="查看解读日志" onclick="showAnalysisLogs('${paper.id}', event)">
-                <i class="fas fa-terminal"></i>
-            </button>
-            ` : ''}
-            <button class="paper-action-btn analyze" title="${paper.has_analysis_result ? '重新解读' : 'AI解读'}" onclick="requestAnalysis('${paper.id}', event)">
-                <i class="fas fa-brain"></i>
-            </button>
-            <button class="paper-action-btn translate" title="${paper.has_chinese_version ? '重新翻译' : '翻译为中文'}" onclick="requestTranslation('${paper.id}', event)">
-                <i class="fas fa-language"></i>
-            </button>
-            <button class="paper-action-btn move" title="移动到其他目录" onclick="openMovePaperPicker('${paper.id}', event)">
-                <i class="fas fa-arrow-right"></i>
-            </button>
-            ${currentViewMode === 'reading-list' ? `
-            <button class="paper-action-btn" title="从待读列表移除" onclick="removeFromReadingList('${paper.id}', event)" style="background: #ff9800; color: white;">
-                <i class="fas fa-times-circle"></i>
-            </button>
-            ` : (currentViewMode === 'category' && !readingListPaperIds.has(paper.id)) ? `
-            <button class="paper-action-btn" title="添加到待读列表" onclick="addToReadingList('${paper.id}', event)" style="background: #9c27b0; color: white;">
-                <i class="fas fa-book-open"></i>
-            </button>
-            ` : ''}
+    
+    // 图标列
+    const iconCol = `
+        <div class="paper-col-icon">
+            ${showCheckbox && isMultiSelectMode ? `<input type="checkbox" ${isSelected ? 'checked' : ''} data-check="1" style="margin-right: 6px;" />` : ''}
+            <i class="fas fa-file-pdf" style="color: #dc3545; font-size: 16px;"></i>
         </div>
     `;
+    
+    // 标题列
+    const titleCol = `
+        <div class="paper-col-title" title="${paper.title || paper.filename}">
+            ${paper.title || paper.filename}
+        </div>
+    `;
+    
+    // 日期列
+    const uploadDate = new Date(paper.upload_date).toLocaleDateString();
+    const arxivDate = paper.arxiv_published_date ? new Date(paper.arxiv_published_date).toLocaleDateString() : null;
+    const dateCol = `
+        <div class="paper-col-date">
+            ${uploadDate}${arxivDate ? '<br>arXiv: ' + arxivDate : ''}
+        </div>
+    `;
+    
+    // AI翻译列
+    const tStatus = translationStatus[paper.id];
+    let translateCol = '';
+    if (tStatus && tStatus.status === 'translating') {
+        translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> 翻译中...<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="停止翻译"><i class="fas fa-times"></i></button></span></div>`;
+    } else if (tStatus && tStatus.status === 'queued') {
+        translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-clock"></i> 队列中<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="取消队列"><i class="fas fa-times"></i></button></span></div>`;
+    } else if (paper.has_chinese_version) {
+        translateCol = `<div class="paper-col-action"><button class="paper-col-btn view chinese" onclick="openChineseVersion('${paper.id}', event)"><i class="fas fa-language"></i> 中文版</button></div>`;
+    } else {
+        translateCol = `<div class="paper-col-action"><button class="paper-col-btn translate icon-only" onclick="requestTranslation('${paper.id}', event)" title="AI翻译"><i class="fas fa-language"></i></button></div>`;
+    }
+    
+    // AI解读列
+    const aStatus = analysisStatus[paper.id];
+    let analyzeCol = '';
+    if (aStatus && aStatus.status === 'analyzing') {
+        const step = aStatus.step === 'pdf2md' ? 'PDF解析中...' : 'LLM解读中...';
+        analyzeCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> ${step}<button class="paper-action-stop" onclick="cancelAnalysis('${paper.id}', event)" title="停止解读"><i class="fas fa-times"></i></button></span></div>`;
+    } else if (aStatus && aStatus.status === 'queued') {
+        analyzeCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-clock"></i> 队列中<button class="paper-action-stop" onclick="cancelAnalysis('${paper.id}', event)" title="取消队列"><i class="fas fa-times"></i></button></span></div>`;
+    } else if (paper.has_analysis_result) {
+        analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn view analysis" onclick="viewAnalysisResult('${paper.id}', event)"><i class="fas fa-brain"></i> AI解读</button></div>`;
+    } else {
+        analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paper.id}', event)" title="AI解读"><i class="fas fa-brain"></i></button></div>`;
+    }
+    
+    return iconCol + titleCol + dateCol + translateCol + analyzeCol;
 }
 
 // 渲染论文列表
@@ -902,7 +894,20 @@ function renderPapersList() {
     // 将当前排序保存，便于 shift 选择
     window.__currentSortedPapers = sortedPapers.map(p=>p.id);
 
-    papersList.innerHTML = '';
+    // 添加表头
+    papersList.innerHTML = `
+        <div class="paper-header">
+            <div class="paper-header-col"></div>
+            <div class="paper-header-col">标题<div class="paper-header-resizer" data-col="1"></div></div>
+            <div class="paper-header-col">日期<div class="paper-header-resizer" data-col="2"></div></div>
+            <div class="paper-header-col">AI 翻译<div class="paper-header-resizer" data-col="3"></div></div>
+            <div class="paper-header-col">AI 解读</div>
+        </div>
+    `;
+    
+    // 添加列宽调整功能
+    setupColumnResizing();
+    
     sortedPapers.forEach(paper => {
         const div = document.createElement('div');
         const isSelected = selectedPaperIds.has(paper.id);
@@ -1618,6 +1623,24 @@ function showContextMenu(e, categoryId) {
 
 // 设置论文右键菜单
 function setupPaperContextMenu() {
+    document.getElementById('paper-translate').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        requestTranslation(paperId);
+        paperContextMenu.style.display = 'none';
+    });
+    
+    document.getElementById('paper-analyze').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        requestAnalysis(paperId);
+        paperContextMenu.style.display = 'none';
+    });
+    
+    document.getElementById('paper-move').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        openMovePaperPicker(paperId);
+        paperContextMenu.style.display = 'none';
+    });
+    
     document.getElementById('paper-delete').addEventListener('click', () => {
         const paperId = paperContextMenu.dataset.paperId;
         deletePaper(paperId);
@@ -2045,22 +2068,6 @@ function escapeRegExp(s) {
 async function deletePaper(paperId, event = null) {
     if (event) {
         event.stopPropagation();
-    }
-    
-    // 获取论文信息用于确认
-    let paperTitle = '该论文';
-    try {
-        const response = await fetch(`/api/paper/${paperId}`);
-        if (response.ok) {
-            const paper = await response.json();
-            paperTitle = paper.title || paper.filename || '该论文';
-        }
-    } catch (error) {
-        console.error('获取论文信息失败:', error);
-    }
-    
-    if (!confirm(`确定要删除 "${paperTitle}" 吗？\n\n此操作将永久删除论文文件，无法恢复。`)) {
-        return;
     }
     
     try {
@@ -2491,7 +2498,6 @@ async function onBatchMove() {
 
 async function onBatchDelete() {
     if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
-    if (!confirm(`确定要删除选中的 ${selectedPaperIds.size} 篇论文吗？此操作不可恢复。`)) return;
     const ids = Array.from(selectedPaperIds);
     // 乐观更新：先从前端移除
     papers = papers.filter(p => !selectedPaperIds.has(p.id));
@@ -2832,80 +2838,54 @@ function renderTaskTooltip() {
     tooltip.innerHTML = parts.length ? parts.join('') : '<div class="tt-item" style="color:#888;">暂无进行中的任务</div>';
 }
 
-async function renderRecentIfNoCategory() {
+async function renderAllPapers() {
     if (currentCategoryId) return;
     try {
-        const { recentCount } = getHabitSettings();
-        const saved = JSON.parse(localStorage.getItem('recentPapers') || '[]');
-        const top = saved.slice(0, Math.max(1, recentCount || 10));
-        if (!top.length) {
+        // 从后端获取所有论文
+        const response = await fetch('/api/papers/all');
+        if (!response.ok) {
             papersList.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-file-pdf"></i>
-                    <p>选择左侧分类查看 PDF 文件</p>
-                    <p style="font-size:12px; margin-top:6px; color:#666;">最近阅读为空时显示此提示</p>
+                    <p>加载论文失败</p>
                 </div>`;
             return;
         }
-        // 并行获取详情
-        const details = await Promise.all(top.map(async (it) => {
-            try {
-                const resp = await fetch(`/api/paper/${it.paperId}`);
-                if (!resp.ok) return null;
-                const data = await resp.json();
-                return data;
-            } catch { return null; }
-        }));
-        const valid = details.filter(Boolean);
-        if (!valid.length) {
+        
+        papers = await response.json();
+        
+        if (!papers.length) {
             papersList.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-file-pdf"></i>
-                    <p>选择左侧分类查看 PDF 文件</p>
+                    <p>暂无论文</p>
+                    <p style="font-size:12px; margin-top:6px; color:#666;">请上传或导入论文</p>
                 </div>`;
+            document.getElementById('sort-controls').style.display = 'none';
             return;
         }
-        // 渲染列表（与分类中的论文项一致的样式与操作）
-        papersList.innerHTML = '';
-        const header = document.createElement('div');
-        header.className = 'content-subheader';
-        header.innerHTML = `<strong>最近阅读</strong> · 显示 ${valid.length} 篇`;
-        papersList.appendChild(header);
-
-        valid.forEach(paper => {
-            const div = document.createElement('div');
-            div.className = 'paper-item';
-            div.dataset.paperId = paper.id;
-            div.innerHTML = generatePaperItemHTML(paper, false);
-
-            // 添加右键菜单
-            div.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                showPaperContextMenu(e, paper.id);
-            });
-
-            // 点击/双击行为与分类列表一致
-            div.addEventListener('click', (e) => {
-                if (draggedPaper) { e.preventDefault(); return; }
-                if (isMultiSelectMode) {
-                    handleMultiSelectClick(e, paper.id);
-                } else {
-                    selectPaper(paper.id);
-                }
-            });
-            div.addEventListener('dblclick', (e) => {
-                e.preventDefault();
-                openPDFViewer(paper.id);
-            });
-
-            // 启用拖拽到分类
-            setupPaperDrag(div, paper);
-
-            papersList.appendChild(div);
-        });
+        
+        // 更新标题
+        currentCategoryTitle.textContent = `所有论文 (${papers.length} 篇)`;
+        
+        // 确保待读列表ID集合已更新
+        await updateReadingListCount();
+        
+        // 使用标准的渲染函数，支持排序
+        renderPapersList();
     } catch (e) {
-        console.error('渲染最近阅读失败', e);
+        console.error('渲染所有论文失败', e);
+        papersList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-file-pdf"></i>
+                <p>加载论文失败</p>
+            </div>`;
     }
+}
+
+// 保留旧函数名作为别名，以便不破坏现有调用
+async function renderRecentIfNoCategory() {
+    await renderAllPapers();
 }
 
 // 请求翻译
@@ -4342,5 +4322,128 @@ function applyMarkdownStyles() {
         }
     `;
     document.head.appendChild(style);
+}
+
+// 列宽调整功能
+function setupColumnResizing() {
+    const resizers = document.querySelectorAll('.paper-header-resizer');
+    resizers.forEach(resizer => {
+        let startX, startWidth, col, colIndex;
+        
+        resizer.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            startX = e.pageX;
+            colIndex = parseInt(resizer.dataset.col);
+            
+            // 获取表头和所有行
+            const header = document.querySelector('.paper-header');
+            const items = document.querySelectorAll('.paper-item');
+            
+            // 获取当前列宽
+            const style = window.getComputedStyle(header);
+            const cols = style.gridTemplateColumns.split(' ');
+            startWidth = parseFloat(cols[colIndex]);
+            
+            resizer.classList.add('resizing');
+            
+            const onMouseMove = (e) => {
+                const diff = e.pageX - startX;
+                const newWidth = Math.max(60, startWidth + diff); // 最小60px
+                
+                // 更新网格模板
+                cols[colIndex] = newWidth + 'px';
+                const newTemplate = cols.join(' ');
+                header.style.gridTemplateColumns = newTemplate;
+                items.forEach(item => {
+                    item.style.gridTemplateColumns = newTemplate;
+                });
+            };
+            
+            const onMouseUp = () => {
+                resizer.classList.remove('resizing');
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
+}
+
+// 取消翻译
+function cancelTranslation(paperId, event) {
+    if (event) event.stopPropagation();
+    
+    const status = translationStatus[paperId];
+    if (!status) return;
+    
+    // 从队列中移除
+    const queueIndex = translationQueue.indexOf(paperId);
+    if (queueIndex > -1) {
+        translationQueue.splice(queueIndex, 1);
+    }
+    
+    // 如果正在翻译，停止任务
+    if (status.taskId) {
+        fetch(`/api/paper/${paperId}/translation/cancel`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('已取消翻译', 'success');
+                }
+            })
+            .catch(err => console.error('取消翻译失败:', err));
+    }
+    
+    // 清理状态
+    delete translationStatus[paperId];
+    saveQueuesToStorage();
+    updateTaskIndicator();
+    
+    // 刷新显示
+    if (currentCategoryId) {
+        updatePaperStatusDisplay(paperId);
+    } else {
+        renderAllPapers();
+    }
+}
+
+// 取消解读
+function cancelAnalysis(paperId, event) {
+    if (event) event.stopPropagation();
+    
+    const status = analysisStatus[paperId];
+    if (!status) return;
+    
+    // 从队列中移除
+    const queueIndex = analysisQueue.indexOf(paperId);
+    if (queueIndex > -1) {
+        analysisQueue.splice(queueIndex, 1);
+    }
+    
+    // 如果正在解读，停止任务
+    if (status.taskId) {
+        fetch(`/api/paper/${paperId}/analysis/cancel`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('已取消解读', 'success');
+                }
+            })
+            .catch(err => console.error('取消解读失败:', err));
+    }
+    
+    // 清理状态
+    delete analysisStatus[paperId];
+    saveQueuesToStorage();
+    updateTaskIndicator();
+    
+    // 刷新显示
+    if (currentCategoryId) {
+        updatePaperStatusDisplay(paperId);
+    } else {
+        renderAllPapers();
+    }
 }
 

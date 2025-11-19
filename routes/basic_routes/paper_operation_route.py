@@ -141,6 +141,18 @@ def register_paper_operation_routes(
                 seen.add(pid)
         return collected
 
+    @app.route("/api/papers/all")
+    def api_all_papers():
+        """获取所有论文，按上传日期降序排列"""
+        all_papers = paper_store.iter_all()
+        # 按上传日期降序排序（最新的在前）
+        sorted_papers = sorted(
+            all_papers,
+            key=lambda p: p.upload_date or "",
+            reverse=True
+        )
+        return jsonify([paper.to_dict() for paper in sorted_papers])
+
     @app.route("/api/papers/<category_id>")
     def api_papers(category_id: str):
         categories = get_categories()
