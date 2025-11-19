@@ -169,8 +169,15 @@ register_agent_translate_routes(
 def pdf_viewer(paper_id):
     """PDF阅读器页面"""
     use_chinese = request.args.get("chinese", "false").lower() == "true"
+    paper_title = None
+    paper = paper_store.get(paper_id)
+    if paper:
+        paper_title = paper.title or paper.filename or paper.original_filename
     return render_template(
-        "pdf_viewer.html", paper_id=paper_id, use_chinese=use_chinese
+        "pdf_viewer.html",
+        paper_id=paper_id,
+        use_chinese=use_chinese,
+        paper_title=paper_title,
     )
 
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF 阅读器</title>
+    <title>{{ paper_title or 'PDF 阅读器' }}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body {
@@ -94,14 +94,14 @@
         }
     </style>
 </head>
-<body>
+<body data-use-chinese="{{ 'true' if use_chinese else 'false' }}">
     <div class="header">
         <div>
             <button id="back-btn" class="btn btn-secondary" title="关闭当前标签页 (Ctrl+W)">
                 <i class="fas fa-times"></i> 关闭
             </button>
         </div>
-        <h3 id="pdf-title">PDF 阅读器</h3>
+        <h3 id="pdf-title">{{ paper_title or 'PDF 阅读器' }}</h3>
         <div>
             <a href="/api/paper/{{ paper_id }}/file" class="btn btn-secondary" download>
                 <i class="fas fa-download"></i> 下载
@@ -129,8 +129,12 @@
                 const response = await fetch('/api/paper/{{ paper_id }}');
                 if (response.ok) {
                     const paper = await response.json();
-                    document.getElementById('pdf-title').textContent = 
-                        paper.title || paper.filename || 'PDF 阅读器';
+                    const resolvedTitle = paper.title || paper.filename || 'PDF 阅读器';
+                    const titleEl = document.getElementById('pdf-title');
+                    if (titleEl) {
+                        titleEl.textContent = resolvedTitle;
+                    }
+                    document.title = resolvedTitle;
                 }
             } catch (error) {
                 console.error('加载论文信息失败:', error);
@@ -142,8 +146,8 @@
             const iframe = document.getElementById('pdf-iframe');
             const loading = document.getElementById('loading');
             
-            // 检查是否使用中文版
-            const useChinese = {{ 'true' if use_chinese else 'false' }};
+            // 检查是否使用中文版（从 data 属性读取，避免内联模板干扰 JS 解析）
+            const useChinese = (document.body.getAttribute('data-use-chinese') === 'true');
             let pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/file';
             
             if (useChinese) {

@@ -118,52 +118,63 @@ function saveCurrentViewState() {
         categoryId: currentCategoryId,
         tabName: document.querySelector('.nav-tab.active')?.dataset.tab || 'paper'
     };
-    sessionStorage.setItem('currentViewState', JSON.stringify(state));
+    try {
+        sessionStorage.setItem('currentViewState', JSON.stringify(state));
+    } catch (e) {
+        console.error('保存当前视图状态失败:', e);
+    }
 }
 
 // 恢复上次视图状态
-function restoreViewState() {
+async function restoreViewState() {
     try {
         const saved = sessionStorage.getItem('currentViewState');
         if (saved) {
             const state = JSON.parse(saved);
-            
-            // 恢复标签页
+
             if (state.tabName === 'setting') {
                 switchTab('setting');
                 return;
             }
-            
-            // 恢复视图模式
+
+            switchTab('paper');
+
             if (state.viewMode === 'translating') {
-                showTranslatingPapers();
-            } else if (state.viewMode === 'analyzing') {
-                showAnalyzingPapers();
-            } else if (state.viewMode === 'reading-list') {
-                showReadingList();
-            } else if (state.viewMode === 'category' && state.categoryId) {
-                // 恢复分类选择
+                await showTranslatingPapers();
+                return;
+            }
+            if (state.viewMode === 'analyzing') {
+                await showAnalyzingPapers();
+                return;
+            }
+            if (state.viewMode === 'reading-list') {
+                await showReadingList();
+                return;
+            }
+            if (state.viewMode === 'category' && state.categoryId) {
                 const categoryItem = document.querySelector(`.category-item[data-category-id="${state.categoryId}"]`);
                 if (categoryItem) {
                     categoryItem.click();
-                } else {
-                    renderRecentIfNoCategory();
+                    return;
                 }
-            } else {
-                renderRecentIfNoCategory();
             }
-        } else {
-            renderRecentIfNoCategory();
+
+            await renderRecentIfNoCategory();
+            return;
         }
+
+        switchTab('paper');
+        await renderRecentIfNoCategory();
     } catch (e) {
         console.error('恢复视图状态失败:', e);
-        renderRecentIfNoCategory();
+        switchTab('paper');
+        await renderRecentIfNoCategory();
     }
 }
 
 // 初始化应用
-document.addEventListener('DOMContentLoaded', function() {
-    loadCategories();
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadCategories();
     setupEventListeners();
     setupNavigation();
     loadTranslationSettings();
@@ -173,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 先恢复队列状态，再恢复运行中的任务
     restoreQueuesFromStorage();
     cleanupCompletedQueues();
-    restoreActiveTasks();
+    await restoreActiveTasks();
     // 恢复队列后，继续处理队列
     if (translationQueue.length > 0 && !isTranslating) {
         processTranslationQueue();
@@ -182,7 +193,7 @@ document.addEventListener('DOMContentLoaded', function() {
         processAnalysisQueue();
     }
     // 恢复上次视图状态
-    restoreViewState();
+    await restoreViewState();
     updateTaskIndicator();
     updateReadingListCount();
 });
@@ -3437,35 +3448,39 @@ function getAnalysisSettings() {
 // 恢复进行中的任务状态（页面刷新/重新打开后）
 async function restoreActiveTasks() {
     try {
-        // 先清空所有状态，只保留后端确认的活跃任务
+        // 先从本地队列恢复排队状态（这些队列在刷新前可能尚未提交到后端）
+        const queuedTranslateIds = Array.isArray(translationQueue) ? [...translationQueue] : [];
+        const queuedAnalyzeIds = Array.isArray(analysisQueue) ? [...analysisQueue] : [];
+
         translationStatus = {};
         analysisStatus = {};
-        translationQueue = [];
-        analysisQueue = [];
-        
-        // 翻译任务
+
+        queuedTranslateIds.forEach((pid) => {
+            translationStatus[pid] = { status: 'queued', taskId: translationStatus[pid]?.taskId || null };
+        });
+        queuedAnalyzeIds.forEach((pid) => {
+            analysisStatus[pid] = { status: 'queued', taskId: analysisStatus[pid]?.taskId || null };
+        });
+
+        // 翻译任务（从后端合并活跃任务）
         const tRes = await fetch('/api/paper/translate/active');
         const tJson = await tRes.json();
         if (tRes.ok && tJson.success && Array.isArray(tJson.tasks)) {
             let hasRunningTranslation = false;
             for (const t of tJson.tasks) {
                 const paperId = t.paper_id;
-                // 验证任务是否真的存在
                 try {
                     const logRes = await fetch(`/api/paper/translate/${t.task_id}/logs`);
                     if (logRes.ok) {
                         const logData = await logRes.json();
                         if (logData.success && (logData.status === 'running' || logData.status === 'queued')) {
-                            // 任务存在且活跃，恢复状态
                             translationStatus[paperId] = {
                                 status: t.status === 'running' ? 'translating' : 'queued',
-                                taskId: t.task_id
+                                taskId: t.task_id,
                             };
-                            // 如果排队中，加入队列
                             if (t.status === 'queued' && !translationQueue.includes(paperId)) {
                                 translationQueue.push(paperId);
                             }
-                            // 如果正在运行，设置全局标志并启动轮询
                             if (t.status === 'running') {
                                 hasRunningTranslation = true;
                                 startLogPolling(t.task_id, paperId);
@@ -3476,34 +3491,29 @@ async function restoreActiveTasks() {
                     console.error(`验证翻译任务 ${t.task_id} 失败:`, e);
                 }
             }
-            // 设置全局翻译标志
             isTranslating = hasRunningTranslation;
         }
 
-        // 解读任务
+        // 解读任务（从后端合并活跃任务）
         const aRes = await fetch('/api/paper/analyze/active');
         const aJson = await aRes.json();
         if (aRes.ok && aJson.success && Array.isArray(aJson.tasks)) {
             let hasRunningAnalysis = false;
             for (const a of aJson.tasks) {
                 const paperId = a.paper_id;
-                // 验证任务是否真的存在
                 try {
                     const logRes = await fetch(`/api/paper/analyze/${a.task_id}/logs`);
                     if (logRes.ok) {
                         const logData = await logRes.json();
                         if (logData.success && (logData.status === 'running' || logData.status === 'queued')) {
-                            // 任务存在且活跃，恢复状态
                             analysisStatus[paperId] = {
                                 status: a.status === 'running' ? 'analyzing' : 'queued',
                                 taskId: a.task_id,
-                                step: a.step || null
+                                step: a.step || null,
                             };
-                            // 如果排队中，加入队列
                             if (a.status === 'queued' && !analysisQueue.includes(paperId)) {
                                 analysisQueue.push(paperId);
                             }
-                            // 如果正在运行，设置全局标志并启动轮询
                             if (a.status === 'running') {
                                 hasRunningAnalysis = true;
                                 startAnalysisLogPolling(a.task_id, paperId);
@@ -3514,15 +3524,14 @@ async function restoreActiveTasks() {
                     console.error(`验证解读任务 ${a.task_id} 失败:`, e);
                 }
             }
-            // 设置全局解读标志
             isAnalyzing = hasRunningAnalysis;
         }
-        
-        // 保存清理后的队列状态
+
+        // 持久化并更新指示器
         saveQueuesToStorage();
         updateTaskIndicator();
 
-        // 刷新状态显示
+        // 刷新当前视图
         if (currentCategoryId) {
             loadPapers(currentCategoryId);
         } else {
