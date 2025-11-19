@@ -277,6 +277,10 @@ fileInput.addEventListener('change', handleFileSelect);
     // 右键菜单
     setupContextMenu();
     setupPaperContextMenu();
+    
+    // 面板调整
+    setupSidebarResizing();
+    setupInfoPanelResizing();
 
     // 点击空白处关闭菜单
     document.addEventListener('click', (e) => {
@@ -4324,38 +4328,121 @@ function applyMarkdownStyles() {
     document.head.appendChild(style);
 }
 
+// 左侧分类栏宽度调整功能
+function setupSidebarResizing() {
+    const resizer = document.getElementById('sidebar-resizer');
+    const sidebar = document.querySelector('.sidebar');
+    
+    if (!resizer || !sidebar) return;
+    
+    resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const startX = e.pageX;
+        const startWidth = sidebar.offsetWidth;
+        
+        resizer.classList.add('resizing');
+        
+        const onMouseMove = (e) => {
+            e.preventDefault();
+            // 向右拖是正数，向左拖是负数
+            const diff = e.pageX - startX;
+            const newWidth = Math.max(200, Math.min(window.innerWidth * 0.5, startWidth + diff));
+            
+            requestAnimationFrame(() => {
+                sidebar.style.width = newWidth + 'px';
+            });
+        };
+        
+        const onMouseUp = () => {
+            resizer.classList.remove('resizing');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
+
+// 右侧面板宽度调整功能
+function setupInfoPanelResizing() {
+    const resizer = document.getElementById('info-panel-resizer');
+    const panel = document.getElementById('info-panel');
+    
+    if (!resizer || !panel) return;
+    
+    resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const startX = e.pageX;
+        const startWidth = panel.offsetWidth;
+        
+        resizer.classList.add('resizing');
+        
+        const onMouseMove = (e) => {
+            e.preventDefault();
+            // 向左拖是正数，向右拖是负数
+            const diff = startX - e.pageX;
+            const newWidth = Math.max(280, Math.min(window.innerWidth * 0.7, startWidth + diff));
+            
+            requestAnimationFrame(() => {
+                panel.style.width = newWidth + 'px';
+            });
+        };
+        
+        const onMouseUp = () => {
+            resizer.classList.remove('resizing');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
+
 // 列宽调整功能
 function setupColumnResizing() {
     const resizers = document.querySelectorAll('.paper-header-resizer');
+    const header = document.querySelector('.paper-header');
+    
     resizers.forEach(resizer => {
-        let startX, startWidth, col, colIndex;
-        
         resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
             e.stopPropagation();
-            startX = e.pageX;
-            colIndex = parseInt(resizer.dataset.col);
             
-            // 获取表头和所有行
-            const header = document.querySelector('.paper-header');
-            const items = document.querySelectorAll('.paper-item');
+            const startX = e.pageX;
+            const colIndex = parseInt(resizer.dataset.col);
             
-            // 获取当前列宽
+            // 获取当前网格模板
             const style = window.getComputedStyle(header);
             const cols = style.gridTemplateColumns.split(' ');
-            startWidth = parseFloat(cols[colIndex]);
+            const startWidth = parseFloat(cols[colIndex]);
             
             resizer.classList.add('resizing');
             
+            // 缓存所有需要更新的元素
+            const items = Array.from(document.querySelectorAll('.paper-item'));
+            
             const onMouseMove = (e) => {
+                e.preventDefault();
                 const diff = e.pageX - startX;
-                const newWidth = Math.max(60, startWidth + diff); // 最小60px
+                const newWidth = Math.max(60, startWidth + diff);
                 
-                // 更新网格模板
+                // 直接更新，不使用中间变量
                 cols[colIndex] = newWidth + 'px';
                 const newTemplate = cols.join(' ');
-                header.style.gridTemplateColumns = newTemplate;
-                items.forEach(item => {
-                    item.style.gridTemplateColumns = newTemplate;
+                
+                // 使用 requestAnimationFrame 优化性能
+                requestAnimationFrame(() => {
+                    header.style.gridTemplateColumns = newTemplate;
+                    // 批量更新所有行
+                    items.forEach(item => {
+                        item.style.gridTemplateColumns = newTemplate;
+                    });
                 });
             };
             
