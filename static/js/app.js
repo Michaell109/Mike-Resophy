@@ -1649,12 +1649,6 @@ function setupPaperContextMenu() {
         paperContextMenu.style.display = 'none';
     });
     
-    document.getElementById('paper-move').addEventListener('click', () => {
-        const paperId = paperContextMenu.dataset.paperId;
-        openMovePaperPicker(paperId);
-        paperContextMenu.style.display = 'none';
-    });
-    
     document.getElementById('paper-delete').addEventListener('click', () => {
         const paperId = paperContextMenu.dataset.paperId;
         deletePaper(paperId);
@@ -1744,14 +1738,45 @@ function setupPaperDrag(paperElement, paper) {
     paperElement.addEventListener('dragstart', (e) => {
         console.log('开始拖拽论文:', paper.title || paper.filename);
         draggedPaper = paper;
-        paperElement.classList.add('dragging');
+        
+        // 延迟添加dragging类，避免影响拖拽图像
+        setTimeout(() => {
+            paperElement.classList.add('dragging');
+        }, 0);
         
         // 设置拖拽数据
         e.dataTransfer.setData('text/plain', paper.id);
         e.dataTransfer.effectAllowed = 'move';
         
-        // 设置拖拽图像
-        e.dataTransfer.setDragImage(paperElement, 0, 0);
+        // 创建自定义拖拽图像（半透明的论文条）
+        const dragImage = paperElement.cloneNode(true);
+        dragImage.style.position = 'absolute';
+        dragImage.style.top = '-9999px';
+        dragImage.style.left = '-9999px';
+        dragImage.style.width = paperElement.offsetWidth + 'px';
+        dragImage.style.opacity = '0.7';
+        dragImage.style.background = 'white';
+        dragImage.style.border = '2px solid #007bff';
+        dragImage.style.borderRadius = '4px';
+        dragImage.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+        dragImage.style.padding = '6px 10px';
+        dragImage.style.pointerEvents = 'none';
+        document.body.appendChild(dragImage);
+        
+        // 计算鼠标相对于元素的位置（从左上角开始）
+        const rect = paperElement.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+        
+        // 使用克隆的元素作为拖拽图像，偏移量为鼠标点击位置
+        e.dataTransfer.setDragImage(dragImage, offsetX, offsetY);
+        
+        // 拖拽结束后移除克隆的元素
+        setTimeout(() => {
+            if (document.body.contains(dragImage)) {
+                document.body.removeChild(dragImage);
+            }
+        }, 0);
     });
     
     paperElement.addEventListener('dragend', (e) => {
@@ -1774,38 +1799,50 @@ function setupPaperDrag(paperElement, paper) {
 
 // 设置分类拖拽目标功能
 function setupCategoryDropTarget(categoryElement, category) {
-    const container = categoryElement.closest('.category-container') || categoryElement;
+    const container = categoryElement.closest('.category-container');
 
     function onDragOver(e) {
-        if (!draggedPaper) return;
-        
+        // 必须preventDefault才能允许drop
         e.preventDefault();
+        e.stopPropagation();
+        
+        if (!draggedPaper) {
+            return;
+        }
+        
         e.dataTransfer.dropEffect = 'move';
         
         // 添加拖拽悬停样式
         categoryElement.classList.add('drag-over');
         
         // 如果有子分类且未展开，设置自动展开
-        const children = container.querySelector('.category-children');
-        const toggle = container.querySelector('.category-toggle');
-        
-        if (children && children.classList.contains('collapsed') && toggle) {
-            // 清除之前的定时器
-            if (dragExpandTimer) {
-                clearTimeout(dragExpandTimer);
-            }
+        if (container) {
+            const children = container.querySelector('.category-children');
+            const toggle = categoryElement.querySelector('.category-toggle');
             
-            // 设置新的展开定时器
-            dragExpandTimer = setTimeout(() => {
-                console.log('自动展开分类:', category.name);
-                toggle.classList.add('expanded');
-                children.classList.remove('collapsed');
-                expandedCategories.add(category.id);
-            }, 800); // 800ms 后自动展开
+            if (children && children.classList.contains('collapsed') && toggle) {
+                // 清除之前的定时器
+                if (dragExpandTimer) {
+                    clearTimeout(dragExpandTimer);
+                }
+                
+                // 设置新的展开定时器
+                dragExpandTimer = setTimeout(() => {
+                    console.log('自动展开分类:', category.name);
+                    toggle.classList.add('expanded');
+                    children.classList.remove('collapsed');
+                    expandedCategories.add(category.id);
+                }, 800); // 800ms 后自动展开
+            }
         }
     }
 
-    categoryElement.addEventListener('dragenter', onDragOver);
+    categoryElement.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDragOver(e);
+    });
+    
     categoryElement.addEventListener('dragover', onDragOver);
     
     categoryElement.addEventListener('dragleave', (e) => {
@@ -1828,10 +1865,16 @@ function setupCategoryDropTarget(categoryElement, category) {
     });
     
     categoryElement.addEventListener('drop', (e) => {
-        if (!draggedPaper) return;
-        
-        console.log('放置论文到分类:', category.name);
         e.preventDefault();
+        e.stopPropagation();
+        
+        if (!draggedPaper) {
+            console.log('drop时没有拖拽的论文');
+            return;
+        }
+        
+        console.log('放置论文到分类:', category.name, '论文:', draggedPaper.title || draggedPaper.filename);
+        
         categoryElement.classList.remove('drag-over');
         categoryElement.classList.add('drag-target');
         
@@ -1867,7 +1910,8 @@ async function movePaper(paperId, targetCategoryId) {
         const result = await response.json();
         
         if (result.success) {
-            showMessage('论文移动成功', 'success');
+            // 移动成功，不显示提示
+            console.log('论文移动成功');
             
             // 更新本地数据
             await updateCategoriesData();
