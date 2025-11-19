@@ -440,6 +440,8 @@ body {
 .batch-toolbar .btn:hover { background: #f5f5f5; }
 .batch-toolbar .btn-danger { background: #dc3545; color: #fff; border-color: #dc3545; }
 .batch-toolbar .btn-danger:hover { background: #c82333; }
+.batch-toolbar .btn-secondary { background: #6c757d; color: #fff; border-color: #6c757d; }
+.batch-toolbar .btn-secondary:hover { background: #545b62; }
 .batch-left { color: #8a6d3b; font-weight: 500; }
 
 #toggle-multiselect.active { background: #17a2b8; }

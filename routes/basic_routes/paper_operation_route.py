@@ -201,6 +201,8 @@ def register_paper_operation_routes(
 
             source_file_path = paper_obj.file_path
             source_json_path = get_paper_json_path(source_file_path)
+            source_dir = os.path.dirname(source_file_path)
+            source_base_name = os.path.splitext(os.path.basename(source_file_path))[0]
 
             os.makedirs(target_folder, exist_ok=True)
 
@@ -209,6 +211,7 @@ def register_paper_operation_routes(
 
             counter = 1
             original_filename = paper_obj.filename
+            original_base_name = os.path.splitext(original_filename)[0]
             while os.path.exists(target_file_path):
                 name, ext = os.path.splitext(original_filename)
                 new_filename = f"{name}_{counter}{ext}"
@@ -216,17 +219,102 @@ def register_paper_operation_routes(
                 target_json_path = get_paper_json_path(target_file_path)
                 counter += 1
 
+            # 确定最终的base_name（可能因重名而改变）
+            final_base_name = os.path.splitext(os.path.basename(target_file_path))[0]
+
+            # 移动PDF主文件
             if os.path.exists(source_file_path):
                 shutil.move(source_file_path, target_file_path)
                 print(f"已移动PDF文件: {source_file_path} -> {target_file_path}")
 
+            # 移动JSON文件
             if os.path.exists(source_json_path):
                 shutil.move(source_json_path, target_json_path)
                 print(f"已移动JSON文件: {source_json_path} -> {target_json_path}")
 
+            # 移动中文翻译文件
+            zh_dual_source = os.path.join(source_dir, f"{source_base_name}.zh.dual.pdf")
+            zh_mono_source = os.path.join(source_dir, f"{source_base_name}.zh.mono.pdf")
+            translate_log_source = os.path.join(
+                source_dir, f"{source_base_name}.translate.log"
+            )
+
+            zh_dual_target = os.path.join(target_folder, f"{final_base_name}.zh.dual.pdf")
+            zh_mono_target = os.path.join(target_folder, f"{final_base_name}.zh.mono.pdf")
+            translate_log_target = os.path.join(
+                target_folder, f"{final_base_name}.translate.log"
+            )
+
+            if os.path.exists(zh_dual_source):
+                shutil.move(zh_dual_source, zh_dual_target)
+                print(f"已移动中文翻译: {zh_dual_source} -> {zh_dual_target}")
+                # 更新Paper对象中的中文版本路径
+                paper_obj.chinese_version_path = zh_dual_target
+
+            if os.path.exists(zh_mono_source):
+                shutil.move(zh_mono_source, zh_mono_target)
+                print(f"已移动中文翻译(mono): {zh_mono_source} -> {zh_mono_target}")
+
+            if os.path.exists(translate_log_source):
+                shutil.move(translate_log_source, translate_log_target)
+                print(f"已移动翻译日志: {translate_log_source} -> {translate_log_target}")
+
+            # 移动AI解读输出目录
+            source_outputs_dir = os.path.join(source_dir, "outputs")
+            target_outputs_dir = os.path.join(target_folder, "outputs")
+
+            if os.path.exists(source_outputs_dir):
+                os.makedirs(target_outputs_dir, exist_ok=True)
+
+                for item in os.listdir(source_outputs_dir):
+                    item_path = os.path.join(source_outputs_dir, item)
+                    # 检查是否是当前论文的输出目录
+                    if os.path.isdir(item_path) and source_base_name in item:
+                        # 重命名输出目录以匹配新的文件名
+                        if source_base_name != final_base_name:
+                            new_item_name = item.replace(source_base_name, final_base_name)
+                        else:
+                            new_item_name = item
+
+                        target_item_path = os.path.join(target_outputs_dir, new_item_name)
+
+                        # 如果目标已存在，添加计数器
+                        item_counter = 1
+                        while os.path.exists(target_item_path):
+                            new_item_name = f"{item}_{item_counter}"
+                            target_item_path = os.path.join(
+                                target_outputs_dir, new_item_name
+                            )
+                            item_counter += 1
+
+                        shutil.move(item_path, target_item_path)
+                        print(f"已移动AI解读输出: {item_path} -> {target_item_path}")
+
+                        # 更新Paper对象中的解读结果路径
+                        if (
+                            paper_obj.analysis_result_path
+                            and paper_obj.analysis_result_path.startswith(item_path)
+                        ):
+                            relative_path = os.path.relpath(
+                                paper_obj.analysis_result_path, item_path
+                            )
+                            new_result_path = os.path.join(target_item_path, relative_path)
+                            paper_obj.analysis_result_path = new_result_path
+                            print(f"已更新解读结果路径: {new_result_path}")
+
+                # 清理空的源outputs目录
+                try:
+                    if not os.listdir(source_outputs_dir):
+                        os.rmdir(source_outputs_dir)
+                        print(f"已删除空的源outputs目录: {source_outputs_dir}")
+                except Exception:
+                    pass
+
+            # 更新Paper对象的基本信息
             paper_obj.filename = os.path.basename(target_file_path)
             paper_obj.file_path = target_file_path
 
+            # 保存更新后的元数据
             save_paper_metadata(target_file_path, paper_obj)
             paper_store.update_category(
                 paper_id,

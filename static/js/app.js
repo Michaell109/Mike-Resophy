@@ -107,6 +107,7 @@ const paperInfo = document.getElementById('paper-info');
 const currentCategoryTitle = document.getElementById('current-category');
 const modal = document.getElementById('modal');
 const contextMenu = document.getElementById('context-menu');
+const paperContextMenu = document.getElementById('paper-context-menu');
 const uploadZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
 const loading = document.getElementById('loading');
@@ -275,10 +276,12 @@ fileInput.addEventListener('change', handleFileSelect);
 
     // 右键菜单
     setupContextMenu();
+    setupPaperContextMenu();
 
     // 点击空白处关闭菜单
     document.addEventListener('click', (e) => {
         contextMenu.style.display = 'none';
+        paperContextMenu.style.display = 'none';
         // 多选状态下，点击主要区域空白退出
         if (isMultiSelectMode) {
             const main = document.querySelector('.main-content');
@@ -839,7 +842,6 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
             </div>
             ` : ''}
         </div>
-        ${paper.starred ? '<div class="paper-star-icon"><i class="fas fa-star"></i></div>' : ''}
         <div class="paper-actions">
             ${translationStatus[paper.id] && translationStatus[paper.id].status === 'translating' ? `
             <button class="paper-action-btn log" title="查看翻译日志" onclick="showTranslationLogs('${paper.id}', event)">
@@ -857,17 +859,8 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
             <button class="paper-action-btn translate" title="${paper.has_chinese_version ? '重新翻译' : '翻译为中文'}" onclick="requestTranslation('${paper.id}', event)">
                 <i class="fas fa-language"></i>
             </button>
-            <button class="paper-action-btn star ${paper.starred ? 'starred' : ''}" title="${paper.starred ? '取消点赞' : '点赞论文'}" onclick="toggleStar('${paper.id}', event)">
-                <i class="fas fa-star"></i>
-            </button>
-            <button class="paper-action-btn edit" title="编辑信息" onclick="editPaper('${paper.id}', event)">
-                <i class="fas fa-edit"></i>
-            </button>
             <button class="paper-action-btn move" title="移动到其他目录" onclick="openMovePaperPicker('${paper.id}', event)">
                 <i class="fas fa-arrow-right"></i>
-            </button>
-            <button class="paper-action-btn" title="删除论文" onclick="deletePaper('${paper.id}', event)">
-                <i class="fas fa-trash"></i>
             </button>
             ${currentViewMode === 'reading-list' ? `
             <button class="paper-action-btn" title="从待读列表移除" onclick="removeFromReadingList('${paper.id}', event)" style="background: #ff9800; color: white;">
@@ -913,7 +906,7 @@ function renderPapersList() {
     sortedPapers.forEach(paper => {
         const div = document.createElement('div');
         const isSelected = selectedPaperIds.has(paper.id);
-        div.className = `paper-item${paper.starred ? ' starred' : ''}${isSelected ? ' multi-selected' : ''}`;
+        div.className = `paper-item${isSelected ? ' multi-selected' : ''}`;
         div.dataset.paperId = paper.id;
         div.innerHTML = generatePaperItemHTML(paper, true);
 
@@ -924,6 +917,12 @@ function renderPapersList() {
             } else {
                 selectPaper(paper.id);
             }
+        });
+
+        // 添加右键菜单
+        div.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showPaperContextMenu(e, paper.id);
         });
 
         // 双击打开 PDF 阅读器
@@ -1617,6 +1616,23 @@ function showContextMenu(e, categoryId) {
     contextMenu.style.top = e.pageY + 'px';
 }
 
+// 设置论文右键菜单
+function setupPaperContextMenu() {
+    document.getElementById('paper-delete').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        deletePaper(paperId);
+        paperContextMenu.style.display = 'none';
+    });
+}
+
+// 显示论文右键菜单
+function showPaperContextMenu(e, paperId) {
+    paperContextMenu.dataset.paperId = paperId;
+    paperContextMenu.style.display = 'block';
+    paperContextMenu.style.left = e.pageX + 'px';
+    paperContextMenu.style.top = e.pageY + 'px';
+}
+
 // 查找分类
 function findCategoryById(node, id) {
     if (node.id === id) {
@@ -2026,8 +2042,10 @@ function escapeRegExp(s) {
 }
 
 // 删除论文
-async function deletePaper(paperId, event) {
-    event.stopPropagation();
+async function deletePaper(paperId, event = null) {
+    if (event) {
+        event.stopPropagation();
+    }
     
     // 获取论文信息用于确认
     let paperTitle = '该论文';
@@ -2856,9 +2874,15 @@ async function renderRecentIfNoCategory() {
 
         valid.forEach(paper => {
             const div = document.createElement('div');
-            div.className = `paper-item${paper.starred ? ' starred' : ''}`;
+            div.className = 'paper-item';
             div.dataset.paperId = paper.id;
             div.innerHTML = generatePaperItemHTML(paper, false);
+
+            // 添加右键菜单
+            div.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showPaperContextMenu(e, paper.id);
+            });
 
             // 点击/双击行为与分类列表一致
             div.addEventListener('click', (e) => {
