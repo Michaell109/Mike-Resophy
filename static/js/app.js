@@ -868,7 +868,16 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paper.id}', event)" title="AI解读"><i class="fas fa-brain"></i></button></div>`;
     }
     
-    return iconCol + titleCol + dateCol + translateCol + analyzeCol;
+    // 待读列
+    const isInReadingList = readingListPaperIds.has(paper.id);
+    let readingCol = '';
+    if (isInReadingList) {
+        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading in-list icon-only" onclick="removeFromReadingList('${paper.id}', event)" title="移出待读列表"><i class="fas fa-times"></i></button></div>`;
+    } else {
+        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="addToReadingList('${paper.id}', event)" title="加入待读列表"><i class="fas fa-book-open"></i></button></div>`;
+    }
+    
+    return iconCol + titleCol + dateCol + translateCol + analyzeCol + readingCol;
 }
 
 // 渲染论文列表
@@ -905,7 +914,8 @@ function renderPapersList() {
             <div class="paper-header-col">标题<div class="paper-header-resizer" data-col="1"></div></div>
             <div class="paper-header-col">日期<div class="paper-header-resizer" data-col="2"></div></div>
             <div class="paper-header-col">AI 翻译<div class="paper-header-resizer" data-col="3"></div></div>
-            <div class="paper-header-col">AI 解读</div>
+            <div class="paper-header-col">AI 解读<div class="paper-header-resizer" data-col="4"></div></div>
+            <div class="paper-header-col">待读</div>
         </div>
     `;
     
@@ -3596,6 +3606,13 @@ async function requestAnalysis(paperId, event) {
     updateAnalysisStatus(paperId, 'queued', queuePosition);
     saveQueuesToStorage();
     
+    // 立即更新显示
+    if (currentCategoryId) {
+        renderPapersList();
+    } else {
+        renderAllPapers();
+    }
+    
     // 处理队列
     processAnalysisQueue();
     updateTaskIndicator();
@@ -4201,10 +4218,8 @@ async function viewAnalysisResult(paperId, event) {
         paperInfoEl.innerHTML = `
             <div class="paper-info-toolbar">
                 <div style="font-weight:600;">AI 解读</div>
-                <div>
-                    <button class="btn" onclick="closeAnalysisView()"><i class="fas fa-times"></i> 关闭</button>
-                </div>
             </div>
+            <button class="analysis-close-btn" onclick="closeAnalysisView()" title="关闭"><i class="fas fa-times"></i></button>
             <div class="paper-info-content markdown-viewer">${htmlContent}</div>
         `;
 
@@ -4225,7 +4240,11 @@ async function viewAnalysisResult(paperId, event) {
 
 function closeAnalysisView() {
     const panel = document.querySelector('.info-panel');
-    if (panel) panel.classList.remove('wide');
+    if (panel) {
+        panel.classList.remove('wide');
+        // 清除内联样式，恢复默认宽度（通过CSS类控制）
+        panel.style.width = '';
+    }
     // 还原当前论文信息
     if (currentPaperId) {
         loadPaperInfo(currentPaperId);
@@ -4472,15 +4491,26 @@ function cancelTranslation(paperId, event) {
     }
     
     // 如果正在翻译，停止任务
-    if (status.taskId) {
-        fetch(`/api/paper/${paperId}/translation/cancel`, { method: 'POST' })
+    if (status.taskId && status.status === 'translating') {
+        fetch(`/api/paper/translate/${status.taskId}/cancel`, { method: 'POST' })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     showMessage('已取消翻译', 'success');
+                    // 如果当前正在翻译的是这个任务，重置翻译标志
+                    if (isTranslating) {
+                        isTranslating = false;
+                        // 继续处理队列中的下一个任务
+                        processTranslationQueue();
+                    }
+                } else {
+                    showMessage(data.error || '取消翻译失败', 'error');
                 }
             })
-            .catch(err => console.error('取消翻译失败:', err));
+            .catch(err => {
+                console.error('取消翻译失败:', err);
+                showMessage('取消翻译失败', 'error');
+            });
     }
     
     // 清理状态
@@ -4510,15 +4540,26 @@ function cancelAnalysis(paperId, event) {
     }
     
     // 如果正在解读，停止任务
-    if (status.taskId) {
-        fetch(`/api/paper/${paperId}/analysis/cancel`, { method: 'POST' })
+    if (status.taskId && status.status === 'analyzing') {
+        fetch(`/api/paper/analyze/${status.taskId}/cancel`, { method: 'POST' })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     showMessage('已取消解读', 'success');
+                    // 如果当前正在解读的是这个任务，重置解读标志
+                    if (isAnalyzing) {
+                        isAnalyzing = false;
+                        // 继续处理队列中的下一个任务
+                        processAnalysisQueue();
+                    }
+                } else {
+                    showMessage(data.error || '取消解读失败', 'error');
                 }
             })
-            .catch(err => console.error('取消解读失败:', err));
+            .catch(err => {
+                console.error('取消解读失败:', err);
+                showMessage('取消解读失败', 'error');
+            });
     }
     
     // 清理状态

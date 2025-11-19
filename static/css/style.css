@@ -491,7 +491,7 @@ body {
 
 .paper-item {
     display: grid;
-    grid-template-columns: 40px 1fr 180px 120px 120px;
+    grid-template-columns: 40px 1fr 180px 120px 120px 80px;
     align-items: center;
     padding: 6px 0;
     margin: 0;
@@ -512,7 +512,7 @@ body {
 
 .paper-header {
     display: grid;
-    grid-template-columns: 40px 1fr 180px 120px 120px;
+    grid-template-columns: 40px 1fr 180px 120px 120px 80px;
     align-items: center;
     padding: 8px 0;
     background: #f5f7fa;
@@ -671,39 +671,47 @@ body {
 }
 
 .paper-col-btn.translate {
-    background: #4caf50;
-    color: white;
+    background: #f5f5f5;
+    color: #999;
+    border: 1px solid #ddd;
 }
 
 .paper-col-btn.translate:hover {
-    background: #45a049;
+    background: #e8e8e8;
+    border-color: #ccc;
 }
 
 .paper-col-btn.analyze {
-    background: #6f42c1;
-    color: white;
+    background: #f5f5f5;
+    color: #999;
+    border: 1px solid #ddd;
 }
 
 .paper-col-btn.analyze:hover {
-    background: #5a359d;
+    background: #e8e8e8;
+    border-color: #ccc;
 }
 
 .paper-col-btn.view.chinese {
-    background: #4caf50;
-    color: white;
+    background: #fff8e1;
+    color: #9a7b00;
+    border: 1px solid #ffe08a;
 }
 
 .paper-col-btn.view.chinese:hover {
-    background: #45a049;
+    background: #fff3c4;
+    border-color: #ffd54f;
 }
 
 .paper-col-btn.view.analysis {
-    background: #6f42c1;
-    color: white;
+    background: #e7f3ff;
+    color: #0b61c8;
+    border: 1px solid #9cc7ff;
 }
 
 .paper-col-btn.view.analysis:hover {
-    background: #5a359d;
+    background: #d0e7ff;
+    border-color: #6bb3ff;
 }
 
 .paper-col-btn.icon-only {
@@ -711,9 +719,31 @@ body {
     min-width: 28px;
 }
 
+.paper-col-btn.reading {
+    background: #f3e5f5;
+    color: #7b1fa2;
+    border: 1px solid #ce93d8;
+}
+
+.paper-col-btn.reading:hover {
+    background: #e1bee7;
+    border-color: #ba68c8;
+}
+
+.paper-col-btn.reading.in-list {
+    background: #9c27b0;
+    color: #fff;
+    border-color: #7b1fa2;
+}
+
+.paper-col-btn.reading.in-list:hover {
+    background: #7b1fa2;
+    border-color: #6a1b9a;
+}
+
 .paper-col-btn i {
     font-size: 10px;
-    color: #333;
+    color: inherit;
 }
 
 .paper-action-btn.star.starred i {
@@ -1190,6 +1220,32 @@ mark { background: #fff59d; }
 }
 
 .paper-info-toolbar .btn:hover { background: #efefef; }
+
+.analysis-close-btn {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #dc3545;
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.4);
+    z-index: 1000;
+    transition: all 0.2s;
+}
+
+.analysis-close-btn:hover {
+    background: #c82333;
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.6);
+    transform: scale(1.1);
+}
 
 .paper-info-content.markdown-viewer {
     padding: 16px;
