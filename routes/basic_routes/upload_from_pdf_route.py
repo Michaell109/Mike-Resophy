@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Protocol
@@ -10,6 +11,7 @@ from typing import Any, Callable, Dict, Optional, Protocol
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 
+from basic_tools.arxiv_client import search_arxiv_by_title_enhanced
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -35,8 +37,10 @@ class ExtractPdfMetadataFn(Protocol):
     def __call__(self, file_path: str) -> Dict[str, Optional[str]]: ...
 
 
-class FetchArxivAbstractFn(Protocol):
-    def __call__(self, arxiv_id: str) -> Optional[Dict[str, Any]]: ...
+class SearchArxivByTitleFn(Protocol):
+    def __call__(
+        self, title: str, max_results: int = 5
+    ) -> Optional[list[Dict[str, Any]]]: ...
 
 
 def _clean_filename(text: Optional[str]) -> Optional[str]:
@@ -61,7 +65,7 @@ def register_upload_from_pdf_routes(
     get_category_path: GetCategoryPathFn,
     create_category_folder: CreateCategoryFolderFn,
     extract_pdf_metadata: ExtractPdfMetadataFn,
-    fetch_arxiv_abstract: FetchArxivAbstractFn,
+    search_arxiv_by_title: SearchArxivByTitleFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
     paper_store: PaperStore,
@@ -88,6 +92,116 @@ def register_upload_from_pdf_routes(
             paper_ids.append(paper_id)
             _save_reading_list(paper_ids)
 
+    def _process_pdf_metadata_background(
+        paper_id: str,
+        file_path: str,
+        original_filename: str,
+        category_id: str,
+        category_path: list[str],
+        category_folder: str,
+    ):
+        """后台处理：提取元数据、arXiv 搜索、重命名文件"""
+        try:
+            print(f"[后台] 开始处理PDF元数据: {file_path}")
+
+            # 步骤1: 提取 PDF 元数据（获取标题）
+            metadata = extract_pdf_metadata(file_path)
+
+            # 步骤2: 通过标题搜索 arXiv
+            arxiv_id = None
+            arxiv_published_date = None
+
+            if metadata.get("title"):
+                print(f"[后台] 通过标题搜索 arXiv: {metadata['title'][:50]}...")
+                search_results = search_arxiv_by_title_enhanced(
+                    metadata["title"], max_results=1
+                )
+
+                if search_results and len(search_results) > 0:
+                    best_match = search_results[0]
+                    print(f"[后台] 找到匹配论文: {best_match.get('title')[:50]}...")
+
+                    # 使用 arXiv 完整数据更新
+                    metadata.update(
+                        {
+                            "title": best_match.get("title", metadata.get("title")),
+                            "authors": best_match.get(
+                                "authors", metadata.get("authors", "")
+                            ),
+                            "abstract": best_match.get(
+                                "abstract", metadata.get("abstract", "")
+                            ),
+                            "summary": best_match.get("summary", ""),
+                            "year": best_match.get("year", metadata.get("year", "")),
+                            "bibtex": best_match.get("bibtex", ""),
+                        }
+                    )
+                    arxiv_id = best_match.get("arxiv_id", "")
+                    arxiv_published_date = best_match.get("published_date")
+                else:
+                    print("[后台] 未在 arXiv 找到匹配，使用 PDF 提取信息")
+            else:
+                print("[后台] 无法提取标题，跳过 arXiv 搜索")
+
+            # 步骤3: 根据标题重命名文件
+            current_filename = os.path.basename(file_path)
+            new_filename = current_filename
+            new_file_path = file_path
+
+            if metadata.get("title"):
+                clean_title = _clean_filename(metadata["title"])
+                if clean_title:
+                    new_filename = f"{clean_title}.pdf"
+                    new_file_path = os.path.join(category_folder, new_filename)
+
+                    counter = 1
+                    original_new_filename = new_filename
+                    while os.path.exists(new_file_path):
+                        name, ext = os.path.splitext(original_new_filename)
+                        new_filename = f"{name}_{counter}{ext}"
+                        new_file_path = os.path.join(category_folder, new_filename)
+                        counter += 1
+
+                    try:
+                        os.rename(file_path, new_file_path)
+                        print(f"[后台] 文件已重命名为: {new_filename}")
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[后台] 重命名文件失败: {exc}")
+                        new_file_path = file_path
+                        new_filename = current_filename
+
+            # 步骤4: 更新 Paper 对象
+            paper = paper_store.get(paper_id)
+            if paper:
+                paper.filename = new_filename
+                paper.file_path = new_file_path
+                paper.title = metadata.get("title") or paper.title
+                paper.authors = metadata.get("authors", "")
+                paper.arxiv_id = arxiv_id
+                paper.arxiv_published_date = arxiv_published_date
+                paper.affiliation = metadata.get("affiliation", "")
+                paper.year = metadata.get("year", "")
+                paper.abstract = metadata.get("abstract", "")
+                paper.summary = metadata.get("summary", "")
+                paper.bibtex = metadata.get("bibtex", "")
+                paper.keywords = metadata.get("keywords", "")
+                paper.subject = metadata.get("subject", "")
+
+                # 保存更新后的 paper
+                paper_store.upsert(
+                    paper, category_id=category_id, category_path=category_path
+                )
+                save_paper_metadata(new_file_path, paper)
+                print(f"[后台] 论文元数据处理完成: {new_filename}")
+            else:
+                print(f"[后台] 警告: 找不到 paper {paper_id}")
+
+        except Exception as exc:  # noqa: BLE001
+            print(f"[后台] 处理PDF元数据失败: {exc}")
+            import traceback
+
+            traceback.print_exc()
+
     @app.route("/api/upload", methods=["POST"])
     def api_upload():
         if "file" not in request.files:
@@ -112,6 +226,7 @@ def register_upload_from_pdf_routes(
         filename = secure_filename(file.filename)
         file_path = os.path.join(category_folder, filename)
 
+        # 处理文件名冲突
         counter = 1
         original_filename = filename
         while os.path.exists(file_path):
@@ -120,76 +235,30 @@ def register_upload_from_pdf_routes(
             file_path = os.path.join(category_folder, filename)
             counter += 1
 
+        # 立即保存文件
         file.save(file_path)
+        print(f"文件已保存: {file_path}")
 
-        print(f"正在提取PDF元数据: {file_path}")
-        metadata: Dict[str, Any] = {}
-        client_metadata_raw = request.form.get("metadata")
-        if client_metadata_raw:
-            try:
-                metadata = json.loads(client_metadata_raw)
-            except Exception as exc:  # noqa: BLE001
-                print(f"解析前端metadata失败，将回退服务端提取: {exc}")
-                metadata = {}
-
-        server_md = extract_pdf_metadata(file_path)
-        for key, value in server_md.items():
-            if key == "abstract":
-                continue
-            if not metadata.get(key):
-                metadata[key] = value
-
-        arxiv_id = (metadata.get("arxiv_id") or "").strip()
-        arxiv_published_date = None
-        if arxiv_id:
-            arxiv_info = fetch_arxiv_abstract(arxiv_id)
-            if arxiv_info:
-                if "abstract" in arxiv_info:
-                    metadata["abstract"] = arxiv_info["abstract"]
-                if "published_date" in arxiv_info:
-                    arxiv_published_date = arxiv_info["published_date"]
-            else:
-                metadata["abstract"] = metadata.get("abstract") or ""
-
-        new_filename = filename
-        if metadata.get("title"):
-            clean_title = _clean_filename(metadata["title"])
-            if clean_title:
-                new_filename = f"{clean_title}.pdf"
-                new_file_path = os.path.join(category_folder, new_filename)
-
-                counter = 1
-                original_new_filename = new_filename
-                while os.path.exists(new_file_path):
-                    name, ext = os.path.splitext(original_new_filename)
-                    new_filename = f"{name}_{counter}{ext}"
-                    new_file_path = os.path.join(category_folder, new_filename)
-                    counter += 1
-
-                try:
-                    os.rename(file_path, new_file_path)
-                    file_path = new_file_path
-                    filename = new_filename
-                    print(f"文件已重命名为: {filename}")
-                except Exception as exc:  # noqa: BLE001
-                    print(f"重命名文件失败: {exc}")
-
+        # 创建占位符 Paper 对象（使用原始文件名）
+        paper_id = str(uuid.uuid4())
         paper_info = {
-            "id": str(uuid.uuid4()),
+            "id": paper_id,
             "filename": filename,
             "original_filename": file.filename,
             "file_path": file_path,
             "upload_date": datetime.now().isoformat(),
-            "title": metadata.get("title") or os.path.splitext(file.filename)[0],
-            "authors": metadata.get("authors") or "",
-            "arxiv_id": arxiv_id,
-            "arxiv_published_date": arxiv_published_date,
-            "affiliation": metadata.get("affiliation") or "",
-            "year": metadata.get("year") or "",
+            "title": os.path.splitext(file.filename)[0],  # 临时使用文件名作为标题
+            "authors": "",
+            "arxiv_id": None,
+            "arxiv_published_date": None,
+            "affiliation": "",
+            "year": "",
             "journal": "",
-            "abstract": metadata.get("abstract") or "",
-            "keywords": metadata.get("keywords") or "",
-            "subject": metadata.get("subject") or "",
+            "abstract": "",
+            "summary": "",
+            "bibtex": "",
+            "keywords": "",
+            "subject": "",
             "notes": "",
             "starred": False,
             "read_time": 0,
@@ -202,9 +271,27 @@ def register_upload_from_pdf_routes(
         if not paper:
             return jsonify({"success": False, "error": "创建论文对象失败"}), 500
 
+        # 立即注册 paper（让用户看到）
         registered_paper = paper_store.upsert(
             paper, category_id=category_id, category_path=category_path
         )
         save_paper_metadata(file_path, registered_paper)
         _add_to_reading_list(registered_paper.id)
+
+        # 启动后台线程处理元数据
+        thread = threading.Thread(
+            target=_process_pdf_metadata_background,
+            args=(
+                paper_id,
+                file_path,
+                file.filename,
+                category_id,
+                category_path,
+                category_folder,
+            ),
+            daemon=True,
+        )
+        thread.start()
+
+        print(f"[立即返回] 论文已添加，后台处理中: {filename}")
         return jsonify({"success": True, "paper": registered_paper.to_dict()})

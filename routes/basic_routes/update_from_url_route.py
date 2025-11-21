@@ -7,10 +7,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional, Protocol
 
+import requests
 from flask import Flask, jsonify, request
 
-import requests
-
+from basic_tools.arxiv_client import fetch_arxiv_by_id_enhanced
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -30,10 +30,6 @@ class GetCategoryPathFn(Protocol):
 
 class CreateCategoryFolderFn(Protocol):
     def __call__(self, category_path: list[str]) -> str: ...
-
-
-class FetchArxivAbstractFn(Protocol):
-    def __call__(self, arxiv_id: str) -> Optional[Dict[str, Any]]: ...
 
 
 class ExtractPdfMetadataFn(Protocol):
@@ -97,7 +93,6 @@ def register_update_from_url_routes(
     get_categories: GetCategoriesFn,
     get_category_path: GetCategoryPathFn,
     create_category_folder: CreateCategoryFolderFn,
-    fetch_arxiv_abstract: FetchArxivAbstractFn,
     extract_pdf_metadata: ExtractPdfMetadataFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
@@ -176,26 +171,28 @@ def register_update_from_url_routes(
 
             print(f"PDF 已保存到: {file_path}")
 
-            metadata: Dict[str, Any] = {}
-            arxiv_info = fetch_arxiv_abstract(arxiv_id)
+            # 从 arXiv 下载的论文，使用增强版 API 获取完整信息
+            metadata: Dict[str, Any] = {"arxiv_id": arxiv_id}
+            arxiv_info = fetch_arxiv_by_id_enhanced(arxiv_id)
+
             if arxiv_info:
-                if "title" in arxiv_info:
-                    metadata["title"] = arxiv_info["title"]
-                if "authors" in arxiv_info:
-                    metadata["authors"] = arxiv_info["authors"]
-                if "abstract" in arxiv_info:
-                    metadata["abstract"] = arxiv_info["abstract"]
-                if "published_date" in arxiv_info:
-                    metadata["arxiv_published_date"] = arxiv_info["published_date"]
-
-            metadata["arxiv_id"] = arxiv_id
-
-            server_md = extract_pdf_metadata(file_path)
-            for key, value in server_md.items():
-                if key == "abstract":
-                    continue
-                if not metadata.get(key):
-                    metadata[key] = value
+                metadata.update(
+                    {
+                        "title": arxiv_info.get("title", ""),
+                        "authors": arxiv_info.get("authors", ""),
+                        "abstract": arxiv_info.get("abstract", ""),
+                        "summary": arxiv_info.get("summary", ""),  # 新增
+                        "bibtex": arxiv_info.get("bibtex", ""),  # 新增
+                        "year": arxiv_info.get("year", ""),
+                        "arxiv_published_date": arxiv_info.get("published_date"),
+                    }
+                )
+                print(f"成功从 arXiv API 获取论文信息: {metadata.get('title')}")
+            else:
+                print(f"警告: 无法从 arXiv API 获取信息，使用 PDF 提取作为降级方案")
+                # 降级：如果 API 失败，使用 PDF 提取
+                server_md = extract_pdf_metadata(file_path)
+                metadata.update(server_md)
 
             new_filename = filename
             if metadata.get("title"):
@@ -226,17 +223,19 @@ def register_update_from_url_routes(
                 "original_filename": filename,
                 "file_path": file_path,
                 "upload_date": datetime.now().isoformat(),
-                "title": metadata.get("title") or arxiv_id,
-                "authors": metadata.get("authors") or "",
+                "title": metadata.get("title", arxiv_id),
+                "authors": metadata.get("authors", ""),
                 "arxiv_id": arxiv_id,
                 "arxiv_published_date": metadata.get("arxiv_published_date"),
-                "affiliation": metadata.get("affiliation") or "",
-                "year": metadata.get("year") or "",
+                "affiliation": metadata.get("affiliation", ""),
+                "year": metadata.get("year", ""),
                 "journal": "",
-                "abstract": metadata.get("abstract") or "",
-                "keywords": metadata.get("keywords") or "",
-                "subject": metadata.get("subject") or "",
-                "notes": "",
+                "abstract": metadata.get("abstract", ""),
+                "summary": metadata.get("summary", ""),  # 新增
+                "bibtex": metadata.get("bibtex", ""),  # 新增
+                "keywords": metadata.get("keywords", ""),
+                "subject": metadata.get("subject", ""),
+                "notes": "",  # 用户备注
                 "starred": False,
                 "read_time": 0,
                 "translation_time": 0,

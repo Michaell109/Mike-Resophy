@@ -8,7 +8,7 @@ from functools import partial
 from flask import Flask, jsonify, render_template, request
 
 from basic_tools import category_manager, paper_repository
-from basic_tools.arxiv_client import fetch_arxiv_abstract
+from basic_tools.arxiv_client import search_arxiv_by_title_enhanced
 from basic_tools.pdf_extractor import extract_pdf_metadata
 from core.paper_store import paper_store
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
@@ -182,7 +182,7 @@ def register_routes():
         get_category_path=get_category_path,
         create_category_folder=create_category_folder,
         extract_pdf_metadata=extract_pdf_metadata,
-        fetch_arxiv_abstract=fetch_arxiv_abstract,
+        search_arxiv_by_title=search_arxiv_by_title_enhanced,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
         paper_store=paper_store,
@@ -193,7 +193,6 @@ def register_routes():
         get_categories=get_categories,
         get_category_path=get_category_path,
         create_category_folder=create_category_folder,
-        fetch_arxiv_abstract=fetch_arxiv_abstract,
         extract_pdf_metadata=extract_pdf_metadata,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,

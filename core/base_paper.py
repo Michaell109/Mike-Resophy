@@ -49,7 +49,9 @@ class Paper:
     abstract: str = ""
     keywords: str = ""
     subject: str = ""
-    notes: str = ""
+    summary: str = ""  # arXiv summary (保留原始格式)
+    bibtex: str = ""  # BibTeX 引用
+    notes: str = ""  # 用户备注
     starred: bool = False
     has_chinese_version: bool = False
     chinese_version_path: Optional[str] = None

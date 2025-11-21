@@ -989,74 +989,128 @@ async function loadPaperInfo(paperId) {
     }
 }
 
-// 渲染论文信息
+// 渲染论文信息（重构版：紧凑+折叠）
 function renderPaperInfo(paper) {
+    // 辅助函数：截断文本
+    const truncateText = (text, maxLines = 3) => {
+        if (!text) return '';
+        const lines = text.split('\n');
+        if (lines.length <= maxLines) return text;
+        return lines.slice(0, maxLines).join('\n') + '...';
+    };
+    
+    // 辅助函数：创建折叠区域
+    const createCollapsible = (label, content, field, multiline = false, defaultExpanded = false, editable = true) => {
+        if (!content) return '';
+        const truncated = multiline ? truncateText(content, 3) : content;
+        const needsCollapse = multiline && content.split('\n').length > 3;
+        const collapsedClass = needsCollapse && !defaultExpanded ? 'collapsed' : '';
+        const editableClass = editable ? 'editable' : '';
+        const editableAttr = editable ? 'contenteditable="true"' : '';
+        
+        return `
+            <div class="info-section compact ${collapsedClass}" data-field="${field}">
+                <div class="info-header" onclick="toggleInfoSection(this)">
+                    <span class="info-label">${label}</span>
+                    ${needsCollapse ? '<i class="fas fa-chevron-down toggle-icon"></i>' : ''}
+                </div>
+                <div class="info-content">
+                    <div class="info-value ${editableClass}" data-field="${field}" ${editableAttr}
+                         style="${multiline ? 'white-space: pre-wrap;' : ''}">${content || ''}</div>
+                </div>
+            </div>
+        `;
+    };
+    
     paperInfo.innerHTML = `
-        <div class="info-section">
-            <div class="info-label">标题</div>
-            <div class="info-value editable" data-field="title" contenteditable="true">${paper.title || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">作者</div>
-            <div class="info-value editable" data-field="authors" contenteditable="true">${paper.authors || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">单位/机构</div>
-            <div class="info-value editable" data-field="affiliation" contenteditable="true">${paper.affiliation || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">年份</div>
-            <div class="info-value editable" data-field="year" contenteditable="true">${paper.year || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">期刊/会议</div>
-            <div class="info-value editable" data-field="journal" contenteditable="true">${paper.journal || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">关键词</div>
-            <div class="info-value editable" data-field="keywords" contenteditable="true">${paper.keywords || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">摘要</div>
-            <div class="info-value editable" data-field="abstract" contenteditable="true" style="min-height: 100px;">${paper.abstract || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">笔记</div>
-            <div class="info-value editable" data-field="notes" contenteditable="true" style="min-height: 80px;">${paper.notes || ''}</div>
-        </div>
-        <div class="info-section">
-            <div class="info-label">文件信息</div>
-            <div class="info-value">
-                <strong>文件名:</strong> ${paper.filename}<br>
-                <strong>上传时间:</strong> ${new Date(paper.upload_date).toLocaleString()}
-                ${paper.arxiv_published_date ? `<br><strong>arXiv 发布时间:</strong> ${new Date(paper.arxiv_published_date).toLocaleString()}` : ''}
+        <div class="paper-info-container compact-mode">
+            <!-- 基本信息 -->
+            ${createCollapsible('标题', paper.title, 'title', false, true)}
+            ${createCollapsible('作者', paper.authors, 'authors', false, true)}
+            ${createCollapsible('单位', paper.affiliation, 'affiliation', true)}
+            
+            <!-- 时间信息 -->
+            <div class="info-section compact">
+                <div class="info-header">
+                    <span class="info-label">时间</span>
+                </div>
+                <div class="info-content">
+                    <div class="info-value compact-text">
+                        ${paper.year ? `<span><i class="fas fa-calendar"></i> ${paper.year}</span>` : ''}
+                        ${paper.arxiv_published_date ? `<span><i class="fas fa-clock"></i> ${new Date(paper.arxiv_published_date).toLocaleDateString()}</span>` : ''}
+                    </div>
+                </div>
             </div>
-        </div>
-        ${paper.has_chinese_version ? `
-        <div class="info-section">
-            <div class="info-label">中文版本</div>
-            <div class="info-value">
-                <button class="btn btn-primary" onclick="openChineseVersion('${paper.id}')">
-                    <i class="fas fa-language"></i> 打开中文版本 PDF
-                </button>
+            
+            <!-- 摘要 -->
+            ${createCollapsible('摘要 (Abstract)', paper.abstract, 'abstract', true)}
+            
+            <!-- BibTeX -->
+            ${paper.bibtex ? `
+            <div class="info-section compact collapsed" data-field="bibtex">
+                <div class="info-header" onclick="toggleInfoSection(this)">
+                    <span class="info-label">BibTeX</span>
+                    <button class="btn-icon" onclick="event.stopPropagation(); copyBibtex('${paper.id}')" title="复制">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                    <i class="fas fa-chevron-down toggle-icon"></i>
+                </div>
+                <div class="info-content">
+                    <pre class="bibtex-content" id="bibtex-${paper.id}">${paper.bibtex || ''}</pre>
+                </div>
             </div>
+            ` : ''}
+            
+            <!-- 备注 -->
+            ${createCollapsible('备注', paper.notes || '', 'notes', true)}
+            
+            <!-- 中文版本 -->
+            ${paper.has_chinese_version ? `
+            <div class="info-section compact">
+                <div class="info-content">
+                    <button class="btn btn-primary btn-block" onclick="openChineseVersion('${paper.id}')">
+                        <i class="fas fa-language"></i> 打开中文版本
+                    </button>
+                </div>
+            </div>
+            ` : ''}
         </div>
-        ` : ''}
     `;
 
-    // 添加编辑事件监听器
+    // 添加编辑事件监听器（只针对可编辑字段）
     paperInfo.querySelectorAll('.editable').forEach(element => {
         element.addEventListener('blur', () => {
             savePaperField(paper.id, element.dataset.field, element.textContent);
         });
         
         element.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey && element.dataset.field !== 'abstract' && element.dataset.field !== 'notes') {
+            const isMultiline = ['abstract', 'notes'].includes(element.dataset.field);
+            if (e.key === 'Enter' && !e.shiftKey && !isMultiline) {
                 e.preventDefault();
                 element.blur();
             }
         });
     });
+}
+
+// 切换信息区域折叠状态
+function toggleInfoSection(header) {
+    const section = header.closest('.info-section');
+    section.classList.toggle('collapsed');
+}
+
+// 复制 BibTeX
+function copyBibtex(paperId) {
+    const bibtexElem = document.getElementById(`bibtex-${paperId}`);
+    if (bibtexElem) {
+        const text = bibtexElem.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            showMessage('BibTeX 已复制到剪贴板', 'success', 2000);
+        }).catch(err => {
+            console.error('复制失败:', err);
+            showMessage('复制失败', 'error');
+        });
+    }
 }
 
 // 保存论文字段
@@ -1221,48 +1275,118 @@ async function uploadFile(file, categoryId) {
     formData.append('file', file);
     formData.append('category_id', categoryId);
 
-    // 前端用 PDF.js 解析元数据
+    // 不再前端解析，全部交给后端处理（使用字体大小 + arXiv 搜索）
+    // 这样更准确，且不阻塞用户操作
+    
     try {
-        const meta = await parsePdfWithPdfjs(file, { maxPages: 8 });
-        // 从文件名自动识别 arXiv ID（例如 2510.09608v1.pdf 或 2510.09608.pdf）
-        const arxivId = extractArxivIdFromName(file.name);
-        if (arxivId) {
-            meta.arxiv_id = arxivId;
-        }
-        if (meta) {
-            formData.append('metadata', JSON.stringify(meta));
-        }
-    } catch (err) {
-        console.warn('解析PDF元数据失败（忽略继续上传）:', err);
-    }
-
-    try {
-        showLoading(true);
-        const response = await fetch('/api/upload', {
+        // 异步上传，完全静默处理，不显示任何提示
+        fetch('/api/upload', {
             method: 'POST',
             body: formData
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            showMessage(`文件 ${file.name} 上传成功`, 'success');
-            // 如果上传到当前选中的分类，刷新列表
-            if (currentCategoryId === categoryId) {
-                loadPapers(currentCategoryId);
+        }).then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                // 静默刷新，不显示成功提示
+                // 如果上传到当前选中的分类，立即刷新列表（显示占位符）
+                if (currentCategoryId === categoryId) {
+                    loadPapers(currentCategoryId);
+                }
+                // 同步更新分类计数和待读列表计数
+                updateCategoriesData();
+                renderCategoryTreeWithState();
+                updateReadingListCount();
+                
+                // 启动后台轮询，检查元数据是否更新完成
+                if (result.paper && result.paper.id) {
+                    // 传入初始标题（文件名），用于检测变化
+                    const initialTitle = result.paper.title || '';
+                    startPollingPaperUpdate(result.paper.id, categoryId, initialTitle);
+                }
+            } else {
+                // 只在失败时显示错误
+                showMessage(`上传失败: ${result.error}`, 'error');
             }
-            // 同步更新分类计数和待读列表计数
-            await updateCategoriesData();
-            renderCategoryTreeWithState();
-            updateReadingListCount();
-        } else {
-            showMessage(`上传失败: ${result.error}`, 'error');
-        }
+        }).catch(error => {
+            console.error('上传文件失败:', error);
+            showMessage(`${file.name} 上传失败`, 'error');
+        });
+        
+        // 立即返回，不阻塞用户操作
+        return;
+        
     } catch (error) {
-        console.error('上传文件失败:', error);
+        console.error('上传请求失败:', error);
         showMessage('上传失败', 'error');
-    } finally {
-        showLoading(false);
     }
+}
+
+// 轮询检查论文更新（用于后台元数据处理）
+function startPollingPaperUpdate(paperId, categoryId, initialTitle, maxAttempts = 20) {
+    let attempts = 0;
+    let previousTitle = initialTitle; // 初始文件名
+    
+    console.log(`[轮询] 开始轮询论文更新: ${paperId}, 初始标题: ${initialTitle}`);
+    
+    const checkUpdate = async () => {
+        try {
+            attempts++;
+            
+            // 获取论文最新信息
+            const response = await fetch(`/api/paper/${paperId}`);
+            if (!response.ok) {
+                console.log(`[轮询] 论文 ${paperId} 不存在或已删除`);
+                return; // 停止轮询
+            }
+            
+            const paper = await response.json();
+            const currentTitle = paper.title || '';
+            
+            console.log(`[轮询] 第 ${attempts} 次检查: "${currentTitle}"`);
+            
+            // 检查标题是否已更新（不再是初始文件名）
+            if (currentTitle !== previousTitle) {
+                console.log(`[轮询] ✅ 检测到论文更新!`);
+                console.log(`[轮询]    原标题: ${previousTitle}`);
+                console.log(`[轮询]    新标题: ${currentTitle}`);
+                
+                // 如果当前还在同一个分类，刷新列表
+                if (currentCategoryId === categoryId) {
+                    console.log(`[轮询] 刷新论文列表...`);
+                    await loadPapers(currentCategoryId);
+                    
+                    // 如果当前选中的就是这个论文，刷新详情
+                    if (currentPaperId === paperId) {
+                        console.log(`[轮询] 刷新论文详情...`);
+                        renderPaperInfo(paper);
+                    }
+                }
+                
+                // 更新分类树（文件名可能变了）
+                await updateCategoriesData();
+                renderCategoryTreeWithState();
+                
+                console.log(`[轮询] 更新完成，停止轮询`);
+                return; // 更新完成，停止轮询
+            }
+            
+            // 如果还没达到最大尝试次数，继续轮询
+            if (attempts < maxAttempts) {
+                setTimeout(checkUpdate, 2000); // 2秒后再次检查
+            } else {
+                console.log(`[轮询] ⚠️ 已达到最大尝试次数 (${maxAttempts})，停止轮询`);
+            }
+            
+        } catch (error) {
+            console.error('[轮询] ❌ 检查更新失败:', error);
+            // 出错也继续尝试
+            if (attempts < maxAttempts) {
+                setTimeout(checkUpdate, 2000);
+            }
+        }
+    };
+    
+    // 延迟3秒后开始第一次检查（给后台处理一些时间）
+    setTimeout(checkUpdate, 3000);
 }
 
 // 用 PDF.js 解析文件元数据
@@ -1685,8 +1809,8 @@ function showLoading(show) {
     loading.style.display = show ? 'flex' : 'none';
 }
 
-// 显示消息
-function showMessage(message, type = 'info') {
+// 显示消息（支持自定义持续时间）
+function showMessage(message, type = 'info', duration = 3000) {
     // 创建消息元素
     const messageDiv = document.createElement('div');
     messageDiv.className = `message message-${type}`;
@@ -1720,7 +1844,7 @@ function showMessage(message, type = 'info') {
     // 添加到页面
     document.body.appendChild(messageDiv);
     
-    // 3秒后自动移除
+    // 指定时间后自动移除
     setTimeout(() => {
         messageDiv.style.animation = 'slideOut 0.3s ease-out';
         setTimeout(() => {
@@ -1728,7 +1852,7 @@ function showMessage(message, type = 'info') {
                 messageDiv.parentNode.removeChild(messageDiv);
             }
         }, 300);
-    }, 3000);
+    }, duration);
 }
 
 // 设置论文拖拽功能
