@@ -23,7 +23,10 @@ def preprocess_pdf_text(text: str) -> str:
 
 def extract_title_by_fontsize(pdf_path: str) -> Optional[str]:
     """
-    通过字体大小提取标题（最准确的方法）
+    通过字体大小提取标题（增强版，带位置过滤）
+    
+    优先过滤掉 arXiv 侧边栏和页眉页脚的噪声文本，
+    然后从剩余文本中找最大字号的作为标题。
     
     Args:
         pdf_path: PDF 文件路径
@@ -37,45 +40,70 @@ def extract_title_by_fontsize(pdf_path: str) -> Optional[str]:
             return None
             
         page = doc[0]  # 只看第一页
+        rect = page.rect
+        page_width = rect.width
+        page_height = rect.height
+        
         blocks = page.get_text("dict")["blocks"]
         
-        max_size = 0
-        title_spans = []
-        
-        # 遍历所有文本块，找最大字号的文字
+        # 收集所有的文本片段 (size, text, bbox)
+        all_spans = []
         for block in blocks:
             if "lines" not in block:
                 continue
-            
             for line in block["lines"]:
                 for span in line["spans"]:
-                    size = span["size"]
                     text = span["text"].strip()
-                    
-                    if not text or len(text) < 3:
+                    if not text:
                         continue
-                    
-                    # 跳过明显不是标题的内容
-                    if re.match(r'^[\d\s\.\-]+$', text):  # 纯数字/符号
-                        continue
-                    if text.lower() in ['arxiv', 'preprint', 'abstract', 'introduction']:
-                        continue
-                    
-                    # 发现更大的字体，重置标题
-                    if size > max_size:
-                        max_size = size
-                        title_spans = [text]
-                    # 字体一样大，追加（处理多行标题）
-                    elif abs(size - max_size) < 0.5:  # 允许微小差异
-                        title_spans.append(text)
+                    # 保存: (字体大小, 文本内容, 边界框)
+                    all_spans.append((span["size"], text, span["bbox"]))
+        
+        # 按字体大小从大到小排序，如果大小相同按垂直位置排序
+        all_spans.sort(key=lambda x: (-x[0], x[2][1]))
+        
+        if not all_spans:
+            doc.close()
+            return None
+        
+        # 寻找真正的标题（过滤噪声）
+        title_candidates = []
+        target_size = 0
+        
+        for size, text, bbox in all_spans:
+            # 1. 内容过滤
+            if re.search(r"arxiv:\d{4}\.\d+", text, re.IGNORECASE):
+                continue
+            if len(text) < 5:  # 标题一般不会短于5个字符
+                continue
+            if re.match(r'^[\d\s\.\-]+$', text):  # 纯数字/符号
+                continue
+            if text.lower() in ['arxiv', 'preprint', 'abstract', 'introduction']:
+                continue
+            
+            # 2. 位置过滤
+            # arXiv 左侧边栏通常在页面宽度的 15% 以内，过滤掉
+            if bbox[2] < page_width * 0.15:
+                continue
+            
+            # 3. 确定标题
+            if target_size == 0:
+                target_size = size
+                title_candidates.append(text)
+            # 字体一样大（处理多行标题）
+            elif abs(size - target_size) < 0.5:
+                title_candidates.append(text)
+            # 字体明显变小，标题部分结束
+            else:
+                break
         
         doc.close()
         
-        if not title_spans:
+        if not title_candidates:
             return None
         
         # 拼接并清理标题
-        title = " ".join(title_spans)
+        title = " ".join(title_candidates)
         title = re.sub(r'\s+', ' ', title).strip()
         
         # 长度检查
@@ -240,7 +268,13 @@ def extract_abstract_from_text(text: str) -> Optional[str]:
 def extract_pdf_metadata(file_path: str) -> Dict[str, Optional[str]]:
     """
     Extract metadata fields from a PDF file.
-    优先使用字体大小提取标题，然后从文本内容补充其他信息。
+    
+    标题提取逻辑：
+    1. 优先使用 PDF metadata 中的 /Title
+    2. 如果没有，使用字体大小 + 位置过滤提取标题
+    3. 如果还是失败，使用文本分析方法
+    
+    其他字段从 PDF metadata 和文本内容中补充。
     """
     metadata: Dict[str, Optional[str]] = {
         "title": None,
@@ -252,23 +286,17 @@ def extract_pdf_metadata(file_path: str) -> Dict[str, Optional[str]]:
         "abstract": None,
     }
     try:
-        # 优先：使用字体大小提取标题（最准确）
-        title_from_font = extract_title_by_fontsize(file_path)
-        if title_from_font:
-            metadata["title"] = title_from_font
-            print(f"通过字体大小提取到标题: {title_from_font[:50]}...")
-        
-        # 然后使用 PyPDF2 提取其他元数据
+        # 第一步：从 PDF metadata 提取基本信息
         with open(file_path, "rb") as file:
             pdf_reader = PyPDF2.PdfReader(file)
             if pdf_reader.metadata:
                 meta = pdf_reader.metadata
                 
-                # 如果字体提取失败，尝试从元数据获取
-                if not metadata["title"]:
-                    title = meta.get("/Title")
-                    if title and title.strip():
-                        metadata["title"] = title.strip()
+                # 优先使用 metadata 中的标题
+                title_from_meta = meta.get("/Title")
+                if title_from_meta and title_from_meta.strip() and len(title_from_meta.strip()) > 5:
+                    metadata["title"] = title_from_meta.strip()
+                    print(f"[PDF Metadata] 标题: {metadata['title'][:50]}...")
                 
                 author = meta.get("/Author")
                 if author and author.strip():
@@ -286,12 +314,21 @@ def extract_pdf_metadata(file_path: str) -> Dict[str, Optional[str]]:
                         year = int(year_match.group(1))
                         if 1900 <= year <= 2030:
                             metadata["year"] = str(year)
-            
-            # 提取文本内容补充缺失信息
+        
+        # 第二步：如果 metadata 没有标题，使用字体大小提取
+        if not metadata["title"]:
+            title_from_font = extract_title_by_fontsize(file_path)
+            if title_from_font:
+                metadata["title"] = title_from_font
+                print(f"[字体提取] 标题: {title_from_font[:50]}...")
+        
+        # 第三步：提取文本内容补充缺失信息
+        with open(file_path, "rb") as file:
+            pdf_reader = PyPDF2.PdfReader(file)
             if len(pdf_reader.pages) > 0:
                 try:
                     full_text = ""
-                    pages_to_extract = min(3, len(pdf_reader.pages))  # 只提取前3页，加快速度
+                    pages_to_extract = min(3, len(pdf_reader.pages))
                     for i in range(pages_to_extract):
                         page = pdf_reader.pages[i]
                         page_text = page.extract_text()
@@ -304,6 +341,8 @@ def extract_pdf_metadata(file_path: str) -> Dict[str, Optional[str]]:
                         # 降级：如果前面都没提取到标题，用文本方法
                         if not metadata["title"]:
                             metadata["title"] = extract_title_from_text(full_text)
+                            if metadata["title"]:
+                                print(f"[文本提取] 标题: {metadata['title'][:50]}...")
                         
                         if not metadata["authors"]:
                             metadata["authors"] = extract_authors_from_text(full_text)

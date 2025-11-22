@@ -169,6 +169,8 @@ def register_routes():
         save_paper_metadata=save_paper_metadata,
         get_paper_json_path=get_paper_json_path,
         delete_paper_files=delete_paper_files,
+        extract_pdf_metadata=extract_pdf_metadata,
+        search_arxiv_by_title=search_arxiv_by_title_enhanced,
         reading_list_file=READING_LIST_FILE,
         upload_folder=UPLOAD_FOLDER,
         general_settings_file=GENERAL_SETTINGS_FILE,

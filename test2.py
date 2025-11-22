@@ -71,6 +71,6 @@ def get_title_robust(pdf_path):
 
 
 # --- 测试 ---
-pdf_path = "RexThinker_ICLR.pdf"
+pdf_path = "papers/Agent/Trading/TradingAgents Multi-Agents LLM Financial Trading Framework.pdf"
 title = get_title_robust(pdf_path)
 print(f"提取的标题: {title}")

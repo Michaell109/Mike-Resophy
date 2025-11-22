@@ -1298,9 +1298,15 @@ async function uploadFile(file, categoryId) {
                 
                 // 启动后台轮询，检查元数据是否更新完成
                 if (result.paper && result.paper.id) {
-                    // 传入初始标题（文件名），用于检测变化
-                    const initialTitle = result.paper.title || '';
-                    startPollingPaperUpdate(result.paper.id, categoryId, initialTitle);
+                    // 使用占位符 paper 数据作为初始快照
+                    const initialSnapshot = {
+                        title: result.paper.title || '',
+                        authors: result.paper.authors || '',
+                        abstract: result.paper.abstract || '',
+                        bibtex: result.paper.bibtex || '',
+                        arxiv_id: result.paper.arxiv_id || '',
+                    };
+                    startPollingPaperUpdate(result.paper.id, categoryId, initialSnapshot);
                 }
             } else {
                 // 只在失败时显示错误
@@ -1321,11 +1327,33 @@ async function uploadFile(file, categoryId) {
 }
 
 // 轮询检查论文更新（用于后台元数据处理）
-function startPollingPaperUpdate(paperId, categoryId, initialTitle, maxAttempts = 20) {
+// initialSnapshot 可以是初始快照对象或初始标题字符串（向后兼容）
+function startPollingPaperUpdate(paperId, categoryId, initialSnapshotOrTitle, maxAttempts = 20) {
     let attempts = 0;
-    let previousTitle = initialTitle; // 初始文件名
+    let previousSnapshot = null; // 保存初始快照用于比较
     
-    console.log(`[轮询] 开始轮询论文更新: ${paperId}, 初始标题: ${initialTitle}`);
+    // 处理参数：如果是字符串，转换为快照对象；如果是对象，直接使用
+    if (typeof initialSnapshotOrTitle === 'string') {
+        // 向后兼容：如果传入的是字符串（标题），创建快照对象
+        previousSnapshot = {
+            title: initialSnapshotOrTitle || '',
+            authors: '',
+            abstract: '',
+            bibtex: '',
+            arxiv_id: '',
+        };
+        console.log(`[轮询] 开始轮询论文更新: ${paperId}, 初始标题: ${initialSnapshotOrTitle}`);
+    } else {
+        // 如果传入的是快照对象，直接使用
+        previousSnapshot = initialSnapshotOrTitle || {
+            title: '',
+            authors: '',
+            abstract: '',
+            bibtex: '',
+            arxiv_id: '',
+        };
+        console.log(`[轮询] 开始轮询论文更新: ${paperId}, 初始快照: title="${previousSnapshot.title}"`);
+    }
     
     const checkUpdate = async () => {
         try {
@@ -1341,13 +1369,39 @@ function startPollingPaperUpdate(paperId, categoryId, initialTitle, maxAttempts 
             const paper = await response.json();
             const currentTitle = paper.title || '';
             
-            console.log(`[轮询] 第 ${attempts} 次检查: "${currentTitle}"`);
+            // 创建当前快照用于比较
+            const currentSnapshot = {
+                title: paper.title || '',
+                authors: paper.authors || '',
+                abstract: paper.abstract || '',
+                bibtex: paper.bibtex || '',
+                arxiv_id: paper.arxiv_id || '',
+            };
             
-            // 检查标题是否已更新（不再是初始文件名）
-            if (currentTitle !== previousTitle) {
+            // 检查关键字段是否有变化（不仅仅是 title）
+            const hasChanged = 
+                currentSnapshot.title !== previousSnapshot.title ||
+                currentSnapshot.authors !== previousSnapshot.authors ||
+                currentSnapshot.abstract !== previousSnapshot.abstract ||
+                currentSnapshot.bibtex !== previousSnapshot.bibtex ||
+                currentSnapshot.arxiv_id !== previousSnapshot.arxiv_id;
+            
+            console.log(`[轮询] 第 ${attempts} 次检查: title="${currentTitle}"`);
+            
+            if (hasChanged) {
                 console.log(`[轮询] ✅ 检测到论文更新!`);
-                console.log(`[轮询]    原标题: ${previousTitle}`);
-                console.log(`[轮询]    新标题: ${currentTitle}`);
+                if (currentSnapshot.title !== previousSnapshot.title) {
+                    console.log(`[轮询]    标题: "${previousSnapshot.title}" → "${currentSnapshot.title}"`);
+                }
+                if (currentSnapshot.authors !== previousSnapshot.authors) {
+                    console.log(`[轮询]    作者: "${previousSnapshot.authors}" → "${currentSnapshot.authors}"`);
+                }
+                if (currentSnapshot.abstract !== previousSnapshot.abstract) {
+                    console.log(`[轮询]    摘要: 已更新`);
+                }
+                if (currentSnapshot.bibtex !== previousSnapshot.bibtex) {
+                    console.log(`[轮询]    BibTeX: 已更新`);
+                }
                 
                 // 如果当前还在同一个分类，刷新列表
                 if (currentCategoryId === categoryId) {
@@ -1357,6 +1411,12 @@ function startPollingPaperUpdate(paperId, categoryId, initialTitle, maxAttempts 
                     // 如果当前选中的就是这个论文，刷新详情
                     if (currentPaperId === paperId) {
                         console.log(`[轮询] 刷新论文详情...`);
+                        renderPaperInfo(paper);
+                    }
+                } else {
+                    // 即使不在当前分类，如果选中了这个论文，也要刷新详情
+                    if (currentPaperId === paperId) {
+                        console.log(`[轮询] 刷新论文详情（跨分类）...`);
                         renderPaperInfo(paper);
                     }
                 }
@@ -1385,8 +1445,9 @@ function startPollingPaperUpdate(paperId, categoryId, initialTitle, maxAttempts 
         }
     };
     
-    // 延迟3秒后开始第一次检查（给后台处理一些时间）
-    setTimeout(checkUpdate, 3000);
+    // 延迟1秒后开始第一次检查（给后台处理一些时间，但不要太长）
+    // 对于上传场景，后台可能很快完成，所以延迟不要太长
+    setTimeout(checkUpdate, 1000);
 }
 
 // 用 PDF.js 解析文件元数据
@@ -1761,6 +1822,12 @@ function showContextMenu(e, categoryId) {
 
 // 设置论文右键菜单
 function setupPaperContextMenu() {
+    document.getElementById('paper-refresh-metadata').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        refreshPaperMetadata(paperId);
+        paperContextMenu.style.display = 'none';
+    });
+    
     document.getElementById('paper-translate').addEventListener('click', () => {
         const paperId = paperContextMenu.dataset.paperId;
         requestTranslation(paperId);
@@ -2247,6 +2314,39 @@ function escapeRegExp(s) {
 }
 
 // 删除论文
+// 重新抓取 PDF 元数据
+async function refreshPaperMetadata(paperId) {
+    try {
+        const paper = papers.find(p => p.id === paperId);
+        if (!paper) {
+            showMessage('论文未找到', 'error');
+            return;
+        }
+        
+        showMessage('正在重新抓取元数据...', 'info', 2000);
+        
+        const response = await fetch(`/api/paper/${paperId}/refresh-metadata`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            showMessage('元数据抓取成功，正在更新...', 'success', 2000);
+            
+            // 启动轮询检测更新
+            const initialTitle = paper.title;
+            startPollingPaperUpdate(paperId, currentCategoryId, initialTitle);
+            
+        } else {
+            const error = await response.json();
+            showMessage(`抓取失败: ${error.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('重新抓取元数据失败:', error);
+        showMessage('抓取失败，请稍后重试', 'error');
+    }
+}
+
 async function deletePaper(paperId, event = null) {
     if (event) {
         event.stopPropagation();
@@ -2395,12 +2495,36 @@ async function editPaper(paperId, event) {
                 });
                 
                 if (updateResponse.ok) {
+                    const result = await updateResponse.json();
                     showMessage('论文信息更新成功', 'success');
                     hideModal();
                     
-                    // 刷新当前分类的论文列表
-                    if (currentCategoryId) {
-                        loadPapers(currentCategoryId);
+                    // 如果标题被修改，后台会自动重新抓取，启动轮询
+                    if (result.auto_refresh_triggered && updatedPaper.title) {
+                        console.log('[自动重抓] 标题已修改，后台正在重新抓取 arXiv 信息...');
+                        
+                        // 先刷新一次列表，显示用户手动更新的内容
+                        if (currentCategoryId) {
+                            await loadPapers(currentCategoryId);
+                            // 如果当前选中的就是这个论文，刷新详情
+                            if (currentPaperId === paperId) {
+                                const paperResponse = await fetch(`/api/paper/${paperId}`);
+                                if (paperResponse.ok) {
+                                    const updatedPaperData = await paperResponse.json();
+                                    renderPaperInfo(updatedPaperData);
+                                }
+                            }
+                        }
+                        
+                        // 延迟启动轮询，给后台一些处理时间，并传入更新后的 title
+                        setTimeout(() => {
+                            startPollingPaperUpdate(paperId, currentCategoryId, updatedPaper.title, 15);
+                        }, 2000);
+                    } else {
+                        // 刷新当前分类的论文列表
+                        if (currentCategoryId) {
+                            loadPapers(currentCategoryId);
+                        }
                     }
                 } else {
                     const error = await updateResponse.json();

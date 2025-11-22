@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
 
@@ -61,6 +63,16 @@ class RemoveFromReadingListFn(Protocol):
     def __call__(self, paper_id: str) -> None: ...
 
 
+class ExtractPdfMetadataFn(Protocol):
+    def __call__(self, file_path: str) -> Dict[str, Optional[str]]: ...
+
+
+class SearchArxivByTitleFn(Protocol):
+    def __call__(
+        self, title: str, max_results: int = 1
+    ) -> Optional[List[Dict[str, Any]]]: ...
+
+
 def register_paper_operation_routes(
     app: Flask,
     *,
@@ -72,6 +84,8 @@ def register_paper_operation_routes(
     save_paper_metadata: SavePaperMetadataFn,
     get_paper_json_path: GetPaperJsonPathFn,
     delete_paper_files: DeletePaperFilesFn,
+    extract_pdf_metadata: ExtractPdfMetadataFn,
+    search_arxiv_by_title: SearchArxivByTitleFn,
     reading_list_file: str,
     upload_folder: str,
     general_settings_file: str,
@@ -419,18 +433,75 @@ def register_paper_operation_routes(
             if not result:
                 return jsonify({"error": "Paper not found"}), 404
 
-            paper, _, _ = result
+            paper, category_path, category_id = result
+            
+            # 检查用户是否手动修改了 title
+            old_title = paper.title
+            title_changed = False
+            if "title" in data and data["title"] != old_title:
+                title_changed = True
+                new_title = data["title"]
+                print(f"[标题更新] 用户修改标题: '{old_title}' → '{new_title}'")
+            
             paper.update_from_dict(data)
             paper.extra["updated_date"] = datetime.now().isoformat()
 
             if paper.file_path:
                 save_paper_metadata(paper.file_path, paper)
 
+            # 如果用户修改了 title，在后台自动重新抓取
+            if title_changed and new_title:
+                def _auto_refresh_on_title_change():
+                    try:
+                        print(f"[自动重抓] 标题已修改，开始重新抓取: {new_title}")
+                        
+                        # 搜索 arXiv
+                        search_results = search_arxiv_by_title(new_title, max_results=1)
+                        
+                        if search_results and len(search_results) > 0:
+                            best_match = search_results[0]
+                            print(f"[自动重抓] 找到匹配: {best_match.get('title')[:50]}...")
+                            
+                            # 只更新 arXiv 相关信息，不修改用户手动设置的 title
+                            paper_obj = paper_store.get(paper_id)
+                            if paper_obj:
+                                # 更新除 title 外的所有字段
+                                paper_obj.authors = best_match.get("authors", "")
+                                paper_obj.affiliation = best_match.get("affiliation", "")
+                                paper_obj.abstract = best_match.get("abstract", "")
+                                paper_obj.year = best_match.get("year", "")
+                                paper_obj.bibtex = best_match.get("bibtex", "")
+                                paper_obj.arxiv_id = best_match.get("arxiv_id", "")
+                                paper_obj.arxiv_published_date = best_match.get("published_date")
+                                paper_obj.summary = best_match.get("summary", "")
+                                paper_obj.extra["auto_refreshed_date"] = datetime.now().isoformat()
+                                
+                                # 保存更新
+                                paper_store.upsert(
+                                    paper_obj, category_id=category_id, category_path=category_path
+                                )
+                                if paper_obj.file_path:
+                                    save_paper_metadata(paper_obj.file_path, paper_obj)
+                                
+                                print(f"[自动重抓] 完成：已更新作者、单位、摘要等信息")
+                            else:
+                                print(f"[自动重抓] 警告: 找不到 paper {paper_id}")
+                        else:
+                            print(f"[自动重抓] 未找到匹配，保持用户输入的信息不变")
+                    
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[自动重抓] 失败: {exc}")
+                
+                # 启动后台线程
+                thread = threading.Thread(target=_auto_refresh_on_title_change, daemon=True)
+                thread.start()
+
             return jsonify(
                 {
                     "success": True,
                     "message": "Paper updated successfully",
                     "paper": paper.to_dict(),
+                    "auto_refresh_triggered": title_changed,
                 }
             )
 
@@ -467,3 +538,154 @@ def register_paper_operation_routes(
 
         remove_from_reading_list(paper_id)
         return jsonify({"success": True})
+
+    @app.route("/api/paper/<paper_id>/refresh-metadata", methods=["POST"])
+    def api_refresh_paper_metadata(paper_id: str):
+        """重新抓取 PDF 元数据"""
+        try:
+            result = find_paper(paper_id)
+            if not result:
+                return jsonify({"success": False, "error": "Paper not found"}), 404
+
+            paper, category_path, category_id = result
+            file_path = paper.file_path
+
+            if not file_path or not os.path.exists(file_path):
+                return jsonify({"success": False, "error": "PDF file not found"}), 404
+
+            # 启动后台线程处理
+            def _refresh_metadata_async():
+                try:
+                    print(f"[重新抓取] 开始处理: {file_path}")
+
+                    # 步骤1: 提取 PDF 元数据
+                    metadata = extract_pdf_metadata(file_path)
+
+                    # 步骤2: 通过标题搜索 arXiv
+                    arxiv_id = None
+                    arxiv_published_date = None
+
+                    if metadata.get("title"):
+                        print(f"[重新抓取] 标题: {metadata['title'][:50]}...")
+                        search_results = search_arxiv_by_title(
+                            metadata["title"], max_results=1
+                        )
+
+                        if search_results and len(search_results) > 0:
+                            best_match = search_results[0]
+                            print(f"[重新抓取] 找到匹配: {best_match.get('title')[:50]}...")
+
+                            # 使用 arXiv 完整数据更新
+                            metadata.update(
+                                {
+                                    "title": best_match.get("title", metadata.get("title")),
+                                    "authors": best_match.get(
+                                        "authors", metadata.get("authors", "")
+                                    ),
+                                    "abstract": best_match.get(
+                                        "abstract", metadata.get("abstract", "")
+                                    ),
+                                    "summary": best_match.get("summary", ""),
+                                    "year": best_match.get("year", metadata.get("year", "")),
+                                    "bibtex": best_match.get("bibtex", ""),
+                                }
+                            )
+                            arxiv_id = best_match.get("arxiv_id", "")
+                            arxiv_published_date = best_match.get("published_date")
+                        else:
+                            print("[重新抓取] 未在 arXiv 找到匹配")
+                    else:
+                        print("[重新抓取] 无法提取标题")
+
+                    # 步骤3: 根据新标题重命名文件（如果标题改变）
+                    current_filename = os.path.basename(file_path)
+                    new_filename = current_filename
+                    new_file_path = file_path
+                    category_folder = os.path.dirname(file_path)
+
+                    if metadata.get("title"):
+                        def _clean_filename(text: Optional[str]) -> Optional[str]:
+                            if not text:
+                                return None
+                            cleaned = text
+                            cleaned = re.sub(r'[<>:"/\\|?*]', "", cleaned)
+                            cleaned = re.sub(r"\s+", " ", cleaned)
+                            cleaned = cleaned.strip()
+                            return cleaned[:200] if cleaned else None
+
+                        clean_title = _clean_filename(metadata["title"])
+                        if clean_title and clean_title != os.path.splitext(current_filename)[0]:
+                            new_filename = f"{clean_title}.pdf"
+                            new_file_path = os.path.join(category_folder, new_filename)
+
+                            counter = 1
+                            original_new_filename = new_filename
+                            while os.path.exists(new_file_path) and new_file_path != file_path:
+                                name, ext = os.path.splitext(original_new_filename)
+                                new_filename = f"{name}_{counter}{ext}"
+                                new_file_path = os.path.join(category_folder, new_filename)
+                                counter += 1
+
+                            # 重命名文件
+                            if new_file_path != file_path:
+                                try:
+                                    # 同时移动 JSON 文件
+                                    old_json_path = get_paper_json_path(file_path)
+                                    new_json_path = get_paper_json_path(new_file_path)
+
+                                    os.rename(file_path, new_file_path)
+                                    print(f"[重新抓取] 文件已重命名: {new_filename}")
+
+                                    if os.path.exists(old_json_path):
+                                        os.rename(old_json_path, new_json_path)
+                                        print(f"[重新抓取] JSON 文件已重命名")
+
+                                except Exception as exc:  # noqa: BLE001
+                                    print(f"[重新抓取] 重命名失败: {exc}")
+                                    new_file_path = file_path
+                                    new_filename = current_filename
+
+                    # 步骤4: 更新 Paper 对象
+                    paper_obj = paper_store.get(paper_id)
+                    if paper_obj:
+                        paper_obj.filename = new_filename
+                        paper_obj.file_path = new_file_path
+                        paper_obj.title = metadata.get("title") or paper_obj.title
+                        paper_obj.authors = metadata.get("authors", "")
+                        paper_obj.arxiv_id = arxiv_id
+                        paper_obj.arxiv_published_date = arxiv_published_date
+                        paper_obj.affiliation = metadata.get("affiliation", "")
+                        paper_obj.year = metadata.get("year", "")
+                        paper_obj.abstract = metadata.get("abstract", "")
+                        paper_obj.summary = metadata.get("summary", "")
+                        paper_obj.bibtex = metadata.get("bibtex", "")
+                        paper_obj.keywords = metadata.get("keywords", "")
+                        paper_obj.subject = metadata.get("subject", "")
+                        paper_obj.extra["updated_date"] = datetime.now().isoformat()
+
+                        # 保存更新
+                        paper_store.upsert(
+                            paper_obj, category_id=category_id, category_path=category_path
+                        )
+                        save_paper_metadata(new_file_path, paper_obj)
+                        print(f"[重新抓取] 完成: {new_filename}")
+                    else:
+                        print(f"[重新抓取] 警告: 找不到 paper {paper_id}")
+
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[重新抓取] 失败: {exc}")
+
+            thread = threading.Thread(target=_refresh_metadata_async, daemon=True)
+            thread.start()
+
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "元数据抓取已启动，将在后台处理",
+                    "paper_id": paper_id,
+                }
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            print(f"启动重新抓取失败: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500
