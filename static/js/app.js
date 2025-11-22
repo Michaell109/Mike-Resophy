@@ -925,7 +925,9 @@ function renderPapersList() {
     sortedPapers.forEach(paper => {
         const div = document.createElement('div');
         const isSelected = selectedPaperIds.has(paper.id);
-        div.className = `paper-item${isSelected ? ' multi-selected' : ''}`;
+        // 如果当前选中的论文是这篇，添加 selected 类
+        const isCurrentSelected = currentPaperId === paper.id;
+        div.className = `paper-item${isSelected ? ' multi-selected' : ''}${isCurrentSelected ? ' selected' : ''}`;
         div.dataset.paperId = paper.id;
         div.innerHTML = generatePaperItemHTML(paper, true);
 
@@ -959,18 +961,26 @@ function renderPapersList() {
 
 // 选择论文
 function selectPaper(paperId) {
+    // 先设置 currentPaperId，这样 renderPapersList 会自动选中
+    currentPaperId = paperId;
+    
     // 移除之前的选中状态
     document.querySelectorAll('.paper-item.selected').forEach(item => {
         item.classList.remove('selected');
     });
 
     // 添加选中状态
-    const paperElement = document.querySelector(`[data-paper-id="${paperId}"]`);
+    const paperElement = document.querySelector(`.paper-item[data-paper-id="${paperId}"]`);
     if (paperElement) {
         paperElement.classList.add('selected');
+    } else {
+        // 如果元素不存在，可能是列表还没渲染完成
+        // 触发一次重新渲染（如果列表已存在）
+        if (papers.length > 0) {
+            renderPapersList();
+        }
     }
 
-    currentPaperId = paperId;
     loadPaperInfo(paperId);
     markPaperViewed(paperId);
 }
@@ -2346,7 +2356,9 @@ function renderSearchResults(panel, q, results) {
         const fields = (r.matched_fields||[]).map(f=>`<span class="search-field-tag">${f}</span>`).join('');
         const authors = r.authors ? `<div class="search-meta">${hi(r.authors)}</div>` : '';
         const abs = r.abstract ? `<div class="search-meta">${hi(r.abstract.slice(0,200))}...</div>` : '';
-        return `<div class="search-item" data-paper-id="${r.id}">
+        // 添加 category_id 属性，用于点击时切换分类
+        const categoryId = r.category_id || '';
+        return `<div class="search-item" data-paper-id="${r.id}" data-category-id="${categoryId}">
             <div class="search-title">${hi(r.title || r.filename || '')} ${fields}</div>
             ${authors}
             ${abs}
@@ -2354,10 +2366,62 @@ function renderSearchResults(panel, q, results) {
     }).join('');
     panel.style.display = 'block';
     panel.querySelectorAll('.search-item').forEach(item => {
-        item.addEventListener('click', () => {
+        item.addEventListener('click', async () => {
             const pid = item.getAttribute('data-paper-id');
-            openPDFViewer(pid);
+            const categoryId = item.getAttribute('data-category-id');
+            
+            // 隐藏搜索结果面板
             panel.style.display = 'none';
+            
+            // 如果论文有分类信息，先切换到那个分类
+            if (categoryId && categoryId !== 'null' && categoryId !== 'undefined') {
+                try {
+                    // 获取分类信息
+                    const categories = await fetch('/api/categories').then(r => r.json());
+                    const category = findCategoryById(categories, categoryId);
+                    
+                    if (category) {
+                        // 先设置 currentPaperId，这样 renderPapersList 会自动选中
+                        currentPaperId = pid;
+                        
+                        // 切换到该分类
+                        selectCategory(categoryId, category.name);
+                        
+                        // 等待论文列表加载完成后再选中论文
+                        // 使用轮询等待论文列表加载
+                        let attempts = 0;
+                        const maxAttempts = 30; // 最多等待 3 秒
+                        const checkAndSelect = setInterval(() => {
+                            attempts++;
+                            const paperItem = document.querySelector(`.paper-item[data-paper-id="${pid}"]`);
+                            if (paperItem || attempts >= maxAttempts) {
+                                clearInterval(checkAndSelect);
+                                if (paperItem) {
+                                    // 确保选中状态
+                                    selectPaper(pid);
+                                    // 滚动到论文项
+                                    setTimeout(() => {
+                                        paperItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }, 100);
+                                } else {
+                                    // 如果找不到，直接尝试选中（可能论文已经在列表中）
+                                    selectPaper(pid);
+                                }
+                            }
+                        }, 100);
+                    } else {
+                        // 找不到分类，直接尝试选中论文
+                        selectPaper(pid);
+                    }
+                } catch (error) {
+                    console.error('切换分类失败:', error);
+                    // 失败时直接尝试选中论文
+                    selectPaper(pid);
+                }
+            } else {
+                // 没有分类信息，直接尝试选中论文
+                selectPaper(pid);
+            }
         });
     });
 }
