@@ -5,7 +5,8 @@ import shutil
 import uuid
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
+from io import BytesIO
 
 
 class GetCategoriesFn(Protocol):
@@ -50,6 +51,10 @@ class GetCategoryPdfCountFn(Protocol):
     ) -> int: ...
 
 
+class PaperStore(Protocol):
+    def list_by_category(self, category_id: str) -> List[Any]: ...
+
+
 def register_category_routes(
     app: Flask,
     *,
@@ -60,6 +65,7 @@ def register_category_routes(
     get_papers_in_category: GetPapersInCategoryFn,
     add_pdf_counts_to_categories: AddPdfCountsFn,
     get_category_pdf_count: GetCategoryPdfCountFn,
+    paper_store: PaperStore,
     upload_folder: str,
 ) -> None:
     @app.route("/api/categories")
@@ -147,3 +153,85 @@ def register_category_routes(
             return jsonify({"success": True})
 
         return jsonify({"success": False, "error": "Category not found"}), 404
+
+    @app.route("/api/categories/<category_id>/export-bibtex", methods=["GET"])
+    def api_export_category_bibtex(category_id: str):
+        """
+        导出分类及其所有子分类下所有论文的 BibTeX
+        
+        递归遍历分类树，收集所有论文的 BibTeX，合并成一个 .bib 文件
+        """
+        try:
+            categories = get_categories()
+            category_node = find_category_node(categories, category_id)
+            
+            if not category_node:
+                return jsonify({"error": "Category not found"}), 404
+            
+            # 递归收集所有论文的 BibTeX
+            def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
+                """递归收集分类及其子分类下的所有论文"""
+                papers = []
+                
+                # 获取当前分类的论文
+                node_path = get_category_path(categories, node["id"])
+                if node_path:
+                    node_papers = get_papers_in_category(node["id"], node_path)
+                    papers.extend(node_papers)
+                
+                # 递归处理子分类
+                for child in node.get("children", []):
+                    papers.extend(collect_papers_recursive(child))
+                
+                return papers
+            
+            all_papers = collect_papers_recursive(category_node)
+            
+            if not all_papers:
+                return jsonify({"error": "该分类下没有论文"}), 404
+            
+            # 收集所有 BibTeX
+            bibtex_entries = []
+            for paper in all_papers:
+                # paper 可能是 Paper 对象或字典
+                if hasattr(paper, 'bibtex'):
+                    bibtex = paper.bibtex
+                elif isinstance(paper, dict):
+                    bibtex = paper.get("bibtex", "")
+                else:
+                    bibtex = ""
+                
+                if bibtex and bibtex.strip():
+                    bibtex_entries.append(bibtex.strip())
+            
+            if not bibtex_entries:
+                return jsonify({"error": "该分类下的论文都没有 BibTeX"}), 404
+            
+            # 合并所有 BibTeX 条目
+            bibtex_content = "\n\n".join(bibtex_entries)
+            
+            # 生成文件名（使用分类名称）
+            category_name = category_node.get("name", "export")
+            # 清理文件名（移除特殊字符）
+            safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in category_name)
+            safe_name = safe_name.strip().replace(' ', '_')
+            filename = f"{safe_name}_bibtex.bib"
+            
+            # 创建文件对象
+            bibtex_bytes = bibtex_content.encode('utf-8')
+            bibtex_file = BytesIO(bibtex_bytes)
+            
+            print(f"[导出 BibTeX] 分类: {category_name}, 论文数: {len(all_papers)}, BibTeX 条目数: {len(bibtex_entries)}")
+            
+            return send_file(
+                bibtex_file,
+                mimetype='application/x-bibtex',
+                as_attachment=True,
+                download_name=filename
+            )
+            
+        except Exception as exc:
+            print(f"导出 BibTeX 失败: {exc}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": f"导出失败: {str(exc)}"}), 500

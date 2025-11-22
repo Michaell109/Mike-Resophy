@@ -141,6 +141,7 @@ def register_routes():
         get_papers_in_category=get_papers_in_category,
         add_pdf_counts_to_categories=add_pdf_counts_to_categories,
         get_category_pdf_count=get_category_pdf_count,
+        paper_store=paper_store,
         upload_folder=UPLOAD_FOLDER,
     )
 

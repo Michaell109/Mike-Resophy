@@ -1749,6 +1749,53 @@ async function renameCategory(categoryId, newName) {
 }
 
 // 删除分类
+// 导出分类的 BibTeX
+async function exportCategoryBibtex(categoryId) {
+    try {
+        showMessage('正在导出 BibTeX...', 'info', 2000);
+        
+        const response = await fetch(`/api/categories/${categoryId}/export-bibtex`, {
+            method: 'GET'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            showMessage(`导出失败: ${error.error}`, 'error');
+            return;
+        }
+        
+        // 获取文件名（从 Content-Disposition 头或使用默认名称）
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'export.bib';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        // 获取文件内容
+        const blob = await response.blob();
+        
+        // 创建下载链接
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 清理
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showMessage('BibTeX 导出成功', 'success');
+    } catch (error) {
+        console.error('导出 BibTeX 失败:', error);
+        showMessage('导出失败，请稍后重试', 'error');
+    }
+}
+
 async function deleteCategory(categoryId) {
     try {
         const response = await fetch(`/api/categories/${categoryId}`, {
@@ -1797,6 +1844,12 @@ function setupContextMenu() {
     document.getElementById('add-subcategory').addEventListener('click', () => {
         const categoryId = contextMenu.dataset.categoryId;
         showAddCategoryModal(categoryId);
+        contextMenu.style.display = 'none';
+    });
+
+    document.getElementById('export-bibtex').addEventListener('click', () => {
+        const categoryId = contextMenu.dataset.categoryId;
+        exportCategoryBibtex(categoryId);
         contextMenu.style.display = 'none';
     });
 
