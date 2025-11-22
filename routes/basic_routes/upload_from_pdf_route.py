@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional, Protocol
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 
-from basic_tools.arxiv_client import search_arxiv_by_title_enhanced
+from basic_tools.upload_paper import process_uploaded_pdf
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -33,14 +33,8 @@ class CreateCategoryFolderFn(Protocol):
     def __call__(self, category_path: list[str]) -> str: ...
 
 
-class ExtractPdfMetadataFn(Protocol):
-    def __call__(self, file_path: str) -> Dict[str, Optional[str]]: ...
-
-
-class SearchArxivByTitleFn(Protocol):
-    def __call__(
-        self, title: str, max_results: int = 5
-    ) -> Optional[list[Dict[str, Any]]]: ...
+class SavePaperMetadataFn(Protocol):
+    def __call__(self, pdf_path: str, paper: Paper) -> None: ...
 
 
 def _clean_filename(text: Optional[str]) -> Optional[str]:
@@ -54,18 +48,12 @@ def _clean_filename(text: Optional[str]) -> Optional[str]:
     return cleaned or None
 
 
-class SavePaperMetadataFn(Protocol):
-    def __call__(self, pdf_path: str, paper: Paper) -> None: ...
-
-
 def register_upload_from_pdf_routes(
     app: Flask,
     *,
     get_categories: GetCategoriesFn,
     get_category_path: GetCategoryPathFn,
     create_category_folder: CreateCategoryFolderFn,
-    extract_pdf_metadata: ExtractPdfMetadataFn,
-    search_arxiv_by_title: SearchArxivByTitleFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
     paper_store: PaperStore,
@@ -100,56 +88,24 @@ def register_upload_from_pdf_routes(
         category_path: list[str],
         category_folder: str,
     ):
-        """后台处理：提取元数据、arXiv 搜索、重命名文件"""
+        """后台处理：使用新的统一接口处理 PDF 上传"""
         try:
             print(f"[后台] 开始处理PDF元数据: {file_path}")
 
-            # 步骤1: 提取 PDF 元数据（获取标题）
-            metadata = extract_pdf_metadata(file_path)
+            # 使用新的统一接口处理 PDF
+            paper_info = process_uploaded_pdf(file_path, original_filename)
 
-            # 步骤2: 通过标题搜索 arXiv
-            arxiv_id = None
-            arxiv_published_date = None
+            if not paper_info:
+                print("[后台] 无法获取论文信息，保持原始文件名")
+                paper_info = {}
 
-            if metadata.get("title"):
-                print(f"[后台] 通过标题搜索 arXiv: {metadata['title'][:50]}...")
-                search_results = search_arxiv_by_title_enhanced(
-                    metadata["title"], max_results=1
-                )
-
-                if search_results and len(search_results) > 0:
-                    best_match = search_results[0]
-                    print(f"[后台] 找到匹配论文: {best_match.get('title')[:50]}...")
-
-                    # 使用 arXiv 完整数据更新
-                    metadata.update(
-                        {
-                            "title": best_match.get("title", metadata.get("title")),
-                            "authors": best_match.get(
-                                "authors", metadata.get("authors", "")
-                            ),
-                            "abstract": best_match.get(
-                                "abstract", metadata.get("abstract", "")
-                            ),
-                            "summary": best_match.get("summary", ""),
-                            "year": best_match.get("year", metadata.get("year", "")),
-                            "bibtex": best_match.get("bibtex", ""),
-                        }
-                    )
-                    arxiv_id = best_match.get("arxiv_id", "")
-                    arxiv_published_date = best_match.get("published_date")
-                else:
-                    print("[后台] 未在 arXiv 找到匹配，使用 PDF 提取信息")
-            else:
-                print("[后台] 无法提取标题，跳过 arXiv 搜索")
-
-            # 步骤3: 根据标题重命名文件
+            # 根据标题重命名文件
             current_filename = os.path.basename(file_path)
             new_filename = current_filename
             new_file_path = file_path
 
-            if metadata.get("title"):
-                clean_title = _clean_filename(metadata["title"])
+            if paper_info.get("title"):
+                clean_title = _clean_filename(paper_info["title"])
                 if clean_title:
                     new_filename = f"{clean_title}.pdf"
                     new_file_path = os.path.join(category_folder, new_filename)
@@ -170,22 +126,22 @@ def register_upload_from_pdf_routes(
                         new_file_path = file_path
                         new_filename = current_filename
 
-            # 步骤4: 更新 Paper 对象
+            # 更新 Paper 对象
             paper = paper_store.get(paper_id)
             if paper:
                 paper.filename = new_filename
                 paper.file_path = new_file_path
-                paper.title = metadata.get("title") or paper.title
-                paper.authors = metadata.get("authors", "")
-                paper.arxiv_id = arxiv_id
-                paper.arxiv_published_date = arxiv_published_date
-                paper.affiliation = metadata.get("affiliation", "")
-                paper.year = metadata.get("year", "")
-                paper.abstract = metadata.get("abstract", "")
-                paper.summary = metadata.get("summary", "")
-                paper.bibtex = metadata.get("bibtex", "")
-                paper.keywords = metadata.get("keywords", "")
-                paper.subject = metadata.get("subject", "")
+                paper.title = paper_info.get("title") or paper.title
+                paper.authors = paper_info.get("authors", "")
+                paper.arxiv_id = paper_info.get("arxiv_id")
+                paper.arxiv_published_date = paper_info.get("published_date")
+                paper.affiliation = paper_info.get("affiliation", "")
+                paper.year = paper_info.get("year", "")
+                paper.abstract = paper_info.get("abstract", "")
+                paper.summary = paper_info.get("summary", "")
+                paper.bibtex = paper_info.get("bibtex", "")
+                paper.keywords = paper_info.get("keywords", "")
+                paper.subject = paper_info.get("subject", "")
 
                 # 保存更新后的 paper
                 paper_store.upsert(

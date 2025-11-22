@@ -8,8 +8,6 @@ from functools import partial
 from flask import Flask, jsonify, render_template, request
 
 from basic_tools import category_manager, paper_repository
-from basic_tools.arxiv_client import search_arxiv_by_title_enhanced
-from basic_tools.pdf_extractor import extract_pdf_metadata
 from core.paper_store import paper_store
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
@@ -169,8 +167,8 @@ def register_routes():
         save_paper_metadata=save_paper_metadata,
         get_paper_json_path=get_paper_json_path,
         delete_paper_files=delete_paper_files,
-        extract_pdf_metadata=extract_pdf_metadata,
-        search_arxiv_by_title=search_arxiv_by_title_enhanced,
+        extract_pdf_metadata=None,  # 不再需要，使用新的 upload_paper 模块
+        search_arxiv_by_title=None,  # 不再需要，使用新的 upload_paper 模块
         reading_list_file=READING_LIST_FILE,
         upload_folder=UPLOAD_FOLDER,
         general_settings_file=GENERAL_SETTINGS_FILE,
@@ -183,8 +181,6 @@ def register_routes():
         get_categories=get_categories,
         get_category_path=get_category_path,
         create_category_folder=create_category_folder,
-        extract_pdf_metadata=extract_pdf_metadata,
-        search_arxiv_by_title=search_arxiv_by_title_enhanced,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
         paper_store=paper_store,
@@ -195,7 +191,6 @@ def register_routes():
         get_categories=get_categories,
         get_category_path=get_category_path,
         create_category_folder=create_category_folder,
-        extract_pdf_metadata=extract_pdf_metadata,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
         paper_store=paper_store,

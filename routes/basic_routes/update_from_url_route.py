@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Protocol
 import requests
 from flask import Flask, jsonify, request
 
-from basic_tools.arxiv_client import fetch_arxiv_by_id_enhanced
+from basic_tools.upload_paper import fetch_paper_by_arxiv_id
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -32,23 +32,18 @@ class CreateCategoryFolderFn(Protocol):
     def __call__(self, category_path: list[str]) -> str: ...
 
 
-class ExtractPdfMetadataFn(Protocol):
-    def __call__(self, file_path: str) -> Dict[str, Optional[str]]: ...
-
-
 class SavePaperMetadataFn(Protocol):
     def __call__(self, pdf_path: str, paper: Paper) -> None: ...
 
 
-_ARXIV_ID_PATTERNS = [
-    r"arxiv\.org/pdf/([\d.]+(?:v\d+)?)",
-    r"arxiv\.org/abs/([\d.]+(?:v\d+)?)",
-    r"^([\d.]+(?:v\d+)?)$",
-]
-
-
 def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
-    for pattern in _ARXIV_ID_PATTERNS:
+    """从 URL 中提取 arXiv ID"""
+    patterns = [
+        r"arxiv\.org/pdf/([\d.]+(?:v\d+)?)",
+        r"arxiv\.org/abs/([\d.]+(?:v\d+)?)",
+        r"^([\d.]+(?:v\d+)?)$",
+    ]
+    for pattern in patterns:
         match = re.search(pattern, url, re.IGNORECASE)
         if match:
             arxiv_id = match.group(1)
@@ -93,7 +88,6 @@ def register_update_from_url_routes(
     get_categories: GetCategoriesFn,
     get_category_path: GetCategoryPathFn,
     create_category_folder: CreateCategoryFolderFn,
-    extract_pdf_metadata: ExtractPdfMetadataFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
     paper_store: PaperStore,
@@ -171,28 +165,17 @@ def register_update_from_url_routes(
 
             print(f"PDF 已保存到: {file_path}")
 
-            # 从 arXiv 下载的论文，使用增强版 API 获取完整信息
-            metadata: Dict[str, Any] = {"arxiv_id": arxiv_id}
-            arxiv_info = fetch_arxiv_by_id_enhanced(arxiv_id)
+            # 使用新的统一接口获取论文信息
+            paper_info = fetch_paper_by_arxiv_id(arxiv_id)
 
-            if arxiv_info:
-                metadata.update(
-                    {
-                        "title": arxiv_info.get("title", ""),
-                        "authors": arxiv_info.get("authors", ""),
-                        "abstract": arxiv_info.get("abstract", ""),
-                        "summary": arxiv_info.get("summary", ""),  # 新增
-                        "bibtex": arxiv_info.get("bibtex", ""),  # 新增
-                        "year": arxiv_info.get("year", ""),
-                        "arxiv_published_date": arxiv_info.get("published_date"),
-                    }
-                )
-                print(f"成功从 arXiv API 获取论文信息: {metadata.get('title')}")
+            if not paper_info:
+                print(f"警告: 无法从 arXiv API 获取信息")
+                paper_info = {"arxiv_id": arxiv_id}
             else:
-                print(f"警告: 无法从 arXiv API 获取信息，使用 PDF 提取作为降级方案")
-                # 降级：如果 API 失败，使用 PDF 提取
-                server_md = extract_pdf_metadata(file_path)
-                metadata.update(server_md)
+                print(f"成功从 arXiv API 获取论文信息: {paper_info.get('title')}")
+
+            # 统一使用 paper_info 作为 metadata
+            metadata = paper_info
 
             new_filename = filename
             if metadata.get("title"):
