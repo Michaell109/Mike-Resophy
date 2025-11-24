@@ -21,7 +21,10 @@ from routes.basic_routes.upload_from_pdf_route import register_upload_from_pdf_r
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")
 parser.add_argument(
-    "--papers-dir", type=str, default=None, help="论文存储目录路径（默认: ./papers）"
+    "--papers-dir",
+    type=str,
+    default="./leizhang_papers",
+    help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
     "--host",
@@ -30,7 +33,7 @@ parser.add_argument(
     help="服务器监听地址（默认: 192.168.81.138）",
 )
 parser.add_argument(
-    "--port", type=int, default=5005, help="服务器监听端口（默认: 5005）"
+    "--port", type=int, default=4005, help="服务器监听端口（默认: 5005）"
 )
 parser.add_argument("--debug", action="store_true", help="启用调试模式")
 
@@ -42,7 +45,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = None  # 将在 main 中设置
 CATEGORIES_FILE = None  # 将在 main 中设置
 READING_LIST_FILE = None  # 将在 main 中设置
-GENERAL_SETTINGS_FILE = os.path.join(BASE_DIR, "general_settings.json")
+GENERAL_SETTINGS_FILE = None  # 将在 main 中设置
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
 
 # 默认通用设置
@@ -70,7 +73,7 @@ scan_papers_in_directory = paper_repository.scan_papers_in_directory
 
 def init_app(papers_dir=None):
     """初始化应用配置和目录"""
-    global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE
+    global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE, GENERAL_SETTINGS_FILE
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
     # 设置论文目录
@@ -83,10 +86,10 @@ def init_app(papers_dir=None):
     else:
         UPLOAD_FOLDER = os.path.join(BASE_DIR, "papers")
 
-    # 配置文件与论文目录同级
-    papers_parent_dir = os.path.dirname(UPLOAD_FOLDER)
-    CATEGORIES_FILE = os.path.join(papers_parent_dir, "categories.json")
-    READING_LIST_FILE = os.path.join(papers_parent_dir, "reading_list.json")
+    # 配置文件都放在论文目录下
+    CATEGORIES_FILE = os.path.join(UPLOAD_FOLDER, "categories.json")
+    READING_LIST_FILE = os.path.join(UPLOAD_FOLDER, "reading_list.json")
+    GENERAL_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "general_settings.json")
 
     # 确保必要的目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -95,6 +98,11 @@ def init_app(papers_dir=None):
     if not os.path.exists(READING_LIST_FILE):
         with open(READING_LIST_FILE, "w", encoding="utf-8") as f:
             json.dump({"papers": []}, f, ensure_ascii=False, indent=2)
+
+    # 初始化通用设置文件
+    if not os.path.exists(GENERAL_SETTINGS_FILE):
+        with open(GENERAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_GENERAL_SETTINGS, f, ensure_ascii=False, indent=2)
 
     # 基础工具函数绑定
     init_categories = partial(category_manager.init_categories, CATEGORIES_FILE)
@@ -110,6 +118,7 @@ def init_app(papers_dir=None):
     print(f"论文目录: {UPLOAD_FOLDER}")
     print(f"分类配置: {CATEGORIES_FILE}")
     print(f"待读列表: {READING_LIST_FILE}")
+    print(f"通用设置: {GENERAL_SETTINGS_FILE}")
 
 
 # 翻译任务管理

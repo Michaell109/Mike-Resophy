@@ -4,6 +4,14 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Optional
 
+# 空的默认分类结构（只有 root，没有子分类）
+EMPTY_CATEGORIES: Dict[str, Any] = {
+    "id": "root",
+    "name": "Root",
+    "children": [],
+}
+
+# 保留旧的默认分类（用于向后兼容，如果需要）
 DEFAULT_CATEGORIES: Dict[str, Any] = {
     "id": "root",
     "name": "Root",
@@ -24,8 +32,10 @@ def init_categories(
     categories_file: str, default: Optional[Dict[str, Any]] = None
 ) -> None:
     if not os.path.exists(categories_file):
+        # 如果没有指定 default，使用空的分类结构
+        categories_to_save = default if default is not None else EMPTY_CATEGORIES
         with open(categories_file, "w", encoding="utf-8") as f:
-            json.dump(default or DEFAULT_CATEGORIES, f, ensure_ascii=False, indent=2)
+            json.dump(categories_to_save, f, ensure_ascii=False, indent=2)
 
 
 def get_categories(categories_file: str) -> Dict[str, Any]:

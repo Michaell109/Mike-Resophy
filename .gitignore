@@ -4,3 +4,4 @@ vllm_server/MinerU2.5-2509-1.2B/
 vllm_server/Qwen3-14B/
 papers/
 vllm_server/MinerU/
+vllm_server/Embedding_server/
