@@ -108,13 +108,54 @@
         // 记录阅读时间
         let readStartTime = null;
         let readTimeInterval = null;
+        let lastRecordedSeconds = 0; // 记录上次已记录的秒数
+        
+        // 记录每日阅读时间到 localStorage（以秒为单位存储，显示时转换为分钟）
+        function recordDailyReadingTime(seconds) {
+            if (seconds <= 0) return;
+            
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const key = 'dailyReadingData';
+            
+            try {
+                let data = {};
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    data = JSON.parse(saved);
+                }
+                
+                // 累加今天的阅读时间（秒转分钟，向上取整确保短时间也能记录）
+                const minutes = Math.ceil(seconds / 60);
+                data[today] = (data[today] || 0) + minutes;
+                
+                // 只保留过去 400 天的数据
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - 400);
+                const cutoffStr = cutoffDate.toISOString().split('T')[0];
+                
+                Object.keys(data).forEach(date => {
+                    if (date < cutoffStr) {
+                        delete data[date];
+                    }
+                });
+                
+                localStorage.setItem(key, JSON.stringify(data));
+                console.log(`记录每日阅读时间: ${minutes} 分钟 (${seconds}秒)`);
+            } catch (e) {
+                console.error('记录每日阅读时间失败:', e);
+            }
+        }
         
         function startReadingTimer() {
             readStartTime = Date.now();
+            lastRecordedSeconds = 0;
+            console.log('开始记录阅读时间');
+            
             // 每30秒记录一次阅读时间
             readTimeInterval = setInterval(function() {
                 if (readStartTime) {
                     const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                    
                     // 发送到后端记录
                     fetch(`/api/paper/${paperId}/analysis-view-time`, {
                         method: 'POST',
@@ -125,6 +166,13 @@
                             view_time: elapsed
                         })
                     }).catch(err => console.error('记录阅读时间失败:', err));
+                    
+                    // 记录增量到每日阅读数据（每30秒记录一次）
+                    const incrementSeconds = elapsed - lastRecordedSeconds;
+                    if (incrementSeconds > 0) {
+                        recordDailyReadingTime(incrementSeconds);
+                        lastRecordedSeconds = elapsed;
+                    }
                 }
             }, 30000); // 每30秒记录一次
         }
@@ -132,7 +180,9 @@
         function stopReadingTimer() {
             if (readStartTime) {
                 const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
-                // 最后一次记录
+                console.log('停止记录阅读时间, 总时长:', elapsed, '秒');
+                
+                // 最后一次记录到后端
                 fetch(`/api/paper/${paperId}/analysis-view-time`, {
                     method: 'POST',
                     headers: {
@@ -142,7 +192,15 @@
                         view_time: elapsed
                     })
                 }).catch(err => console.error('记录阅读时间失败:', err));
+                
+                // 记录剩余增量到每日阅读数据
+                const incrementSeconds = elapsed - lastRecordedSeconds;
+                if (incrementSeconds > 0) {
+                    recordDailyReadingTime(incrementSeconds);
+                }
+                
                 readStartTime = null;
+                lastRecordedSeconds = 0;
             }
             if (readTimeInterval) {
                 clearInterval(readTimeInterval);

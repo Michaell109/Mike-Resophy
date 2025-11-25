@@ -139,91 +139,277 @@
     </div>
 
     <!-- Setting 界面 -->
-    <div class="container setting-view" id="setting-view" style="display: none;">
-        <div class="setting-layout">
-            <div class="setting-nav">
-                <div class="setting-nav-title"><i class="fas fa-sliders-h"></i> Settings</div>
-                <button class="setting-nav-item active" data-setting="general"><i class="fas fa-cog"></i> General</button>
-                <button class="setting-nav-item" data-setting="habit"><i class="fas fa-clock"></i> Habit</button>
-                <button class="setting-nav-item" data-setting="translation"><i class="fas fa-language"></i> Translation</button>
-                <button class="setting-nav-item" data-setting="analysis"><i class="fas fa-brain"></i> AI 解读</button>
+    <div class="setting-view" id="setting-view" style="display: none;">
+        <!-- 左侧导航 -->
+        <div class="setting-sidebar">
+            <div class="setting-sidebar-header">
+                <div class="setting-user-avatar">
+                    <i class="fas fa-user-graduate"></i>
+                </div>
+                <div class="setting-user-info">
+                    <span class="setting-user-name">Paper Reader</span>
+                    <span class="setting-user-stats" id="setting-total-stats">0 篇论文 · 0h 阅读</span>
+                </div>
             </div>
-            <div class="setting-panels">
-                <!-- General -->
-                <div class="setting-panel" id="setting-panel-general" style="display:block;">
-                    <h3><i class="fas fa-cog"></i> General</h3>
-                    <div class="setting-form">
-                        <div class="form-group">
-                            <label for="reading-list-max-items">待读列表最多显示数量</label>
-                            <input type="number" id="reading-list-max-items" min="1" max="500" placeholder="默认 100" />
-                            <small style="color:#666;">限制待读列表一次展示的论文数量</small>
+            <nav class="setting-sidebar-nav">
+                <button class="setting-nav-item active" data-setting="overview">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Overview</span>
+                </button>
+                <button class="setting-nav-item" data-setting="general">
+                    <i class="fas fa-cog"></i>
+                    <span>General</span>
+                </button>
+                <button class="setting-nav-item" data-setting="translation">
+                    <i class="fas fa-language"></i>
+                    <span>Translation</span>
+                </button>
+                <button class="setting-nav-item" data-setting="analysis">
+                    <i class="fas fa-brain"></i>
+                    <span>AI Analysis</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- 主内容区 -->
+        <div class="setting-main">
+            <!-- Overview Panel - 默认显示 -->
+            <div class="setting-panel" id="setting-panel-overview" style="display:block;">
+                <div class="overview-header">
+                    <h2>Reading Activity</h2>
+                    <p class="overview-subtitle">过去一年的论文阅读记录</p>
+                </div>
+                
+                <!-- 统计卡片 -->
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-icon papers"><i class="fas fa-file-pdf"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-total-papers">0</span>
+                            <span class="stat-label">总论文数</span>
                         </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" onclick="saveGeneralSettings()"><i class="fas fa-save"></i> 保存</button>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon time"><i class="fas fa-clock"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-total-time">0h</span>
+                            <span class="stat-label">总阅读时长</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon streak"><i class="fas fa-fire"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-current-streak">0</span>
+                            <span class="stat-label">连续阅读天数</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon best"><i class="fas fa-trophy"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-value" id="stat-best-streak">0</span>
+                            <span class="stat-label">最长连续天数</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Habit -->
-                <div class="setting-panel" id="setting-panel-habit" style="display:none;">
-                    <h3><i class="fas fa-clock"></i> Habit</h3>
-                    <div class="setting-form">
-                        <div class="form-group">
-                            <label for="habit-recent-count">最近阅读显示数量</label>
-                            <input type="number" id="habit-recent-count" min="1" max="100" placeholder="默认 10" />
-                            <small style="color:#666;">主页无分类选中时，显示最近阅读的前 N 篇论文</small>
+                <!-- 热力图 -->
+                <div class="heatmap-container">
+                    <div class="heatmap-header">
+                        <span class="heatmap-contributions" id="heatmap-total">0 天有阅读活动</span>
+                        <div class="heatmap-year-selector">
+                            <button class="year-btn" id="year-prev"><i class="fas fa-chevron-left"></i></button>
+                            <span class="year-display" id="heatmap-year">2025</span>
+                            <button class="year-btn" id="year-next"><i class="fas fa-chevron-right"></i></button>
                         </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" onclick="saveHabitSettings()"><i class="fas fa-save"></i> 保存</button>
+                    </div>
+                    <div class="heatmap-wrapper">
+                        <div class="heatmap-months" id="heatmap-months"></div>
+                        <div class="heatmap-body">
+                            <div class="heatmap-days">
+                                <span>Mon</span>
+                                <span>Wed</span>
+                                <span>Fri</span>
+                            </div>
+                            <div class="heatmap-grid" id="heatmap-grid"></div>
+                        </div>
+                    </div>
+                    <div class="heatmap-footer">
+                        <span class="heatmap-legend-label">Less</span>
+                        <div class="heatmap-legend" id="heatmap-legend" title="点击选择配色方案">
+                            <span class="heatmap-level" data-level="0"></span>
+                            <span class="heatmap-level" data-level="1"></span>
+                            <span class="heatmap-level" data-level="2"></span>
+                            <span class="heatmap-level" data-level="3"></span>
+                            <span class="heatmap-level" data-level="4"></span>
+                        </div>
+                        <span class="heatmap-legend-label">More</span>
+                        <!-- 色系选择下拉框 -->
+                        <div class="color-scheme-dropdown" id="color-scheme-dropdown">
+                            <div class="color-scheme-option" data-scheme="green">
+                                <span class="scheme-preview green"></span>
+                                <span>GitHub Green</span>
+                            </div>
+                            <div class="color-scheme-option" data-scheme="blue">
+                                <span class="scheme-preview blue"></span>
+                                <span>Ocean Blue</span>
+                            </div>
+                            <div class="color-scheme-option" data-scheme="purple">
+                                <span class="scheme-preview purple"></span>
+                                <span>Violet Purple</span>
+                            </div>
+                            <div class="color-scheme-option" data-scheme="orange">
+                                <span class="scheme-preview orange"></span>
+                                <span>Sunset Orange</span>
+                            </div>
+                            <div class="color-scheme-option" data-scheme="pink">
+                                <span class="scheme-preview pink"></span>
+                                <span>Rose Pink</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Translation -->
-                <div class="setting-panel" id="setting-panel-translation" style="display:none;">
-                    <h3><i class="fas fa-language"></i> PDF翻译器参数</h3>
-                    <div class="setting-form">
-                        <div class="form-group">
-                            <label for="openai-model">OpenAI Model:</label>
-                            <input type="text" id="openai-model" placeholder="例如: vllm_server/Qwen3-30B-A3B-Instruct-2507" />
-                        </div>
-                        <div class="form-group">
-                            <label for="openai-base-url">OpenAI Base URL:</label>
-                            <input type="text" id="openai-base-url" placeholder="例如: http://192.168.81.133:8080/v1" />
-                        </div>
-                        <div class="form-group">
-                            <label for="openai-api-key">OpenAI API Key:</label>
-                            <input type="text" id="openai-api-key" placeholder="例如: token-abc123" />
-                        </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" onclick="saveTranslationSettings()"><i class="fas fa-save"></i> 保存设置</button>
-                        </div>
+                <!-- 最近阅读 -->
+                <div class="recent-activity">
+                    <h3><i class="fas fa-history"></i> 最近阅读</h3>
+                    <div class="recent-list" id="recent-activity-list">
+                        <!-- 动态填充 -->
                     </div>
                 </div>
 
-                <!-- Analysis -->
-                <div class="setting-panel" id="setting-panel-analysis" style="display:none;">
-                    <h3><i class="fas fa-brain"></i> AI解读参数</h3>
-                    <div class="setting-form">
-                        <div class="form-group">
-                            <label for="mineru-server-url">MinerU Server URL:</label>
-                            <input type="text" id="mineru-server-url" placeholder="例如: http://192.168.81.138:9000" />
+                <!-- 调试工具（开发用） -->
+                <div class="debug-tools" style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+                    <div style="color: rgba(255,255,255,0.4); font-size: 12px; margin-bottom: 8px;">
+                        <i class="fas fa-bug"></i> 调试工具
+                    </div>
+                    <button onclick="addTestReadingData()" style="padding: 8px 16px; background: rgba(102, 126, 234, 0.3); border: 1px solid rgba(102, 126, 234, 0.5); color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                        <i class="fas fa-plus"></i> 添加今日阅读测试数据
+                    </button>
+                    <button onclick="clearReadingData()" style="margin-left: 8px; padding: 8px 16px; background: rgba(220, 53, 69, 0.3); border: 1px solid rgba(220, 53, 69, 0.5); color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                        <i class="fas fa-trash"></i> 清除所有数据
+                    </button>
+                </div>
+            </div>
+
+            <!-- General Panel -->
+            <div class="setting-panel" id="setting-panel-general" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-cog"></i> General Settings</h2>
+                    <p>基础配置选项</p>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-list"></i>
+                        <span>待读列表</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="reading-list-max-items">最多显示数量</label>
+                                <small>限制待读列表一次展示的论文数量</small>
+                            </div>
+                            <input type="number" id="reading-list-max-items" min="1" max="500" placeholder="100" class="setting-input" />
                         </div>
-                        <div class="form-group">
-                            <label for="analysis-openai-base-url">OpenAI Base URL:</label>
-                            <input type="text" id="analysis-openai-base-url" placeholder="例如: http://192.168.81.133:8080/v1" />
+                    </div>
+                    <div class="setting-card-footer">
+                        <button class="btn btn-primary" onclick="saveGeneralSettings()">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Translation Panel -->
+            <div class="setting-panel" id="setting-panel-translation" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-language"></i> Translation Settings</h2>
+                    <p>PDF 翻译器参数配置</p>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-robot"></i>
+                        <span>OpenAI API 配置</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="openai-model">Model</label>
+                                <small>用于翻译的模型名称</small>
+                            </div>
+                            <input type="text" id="openai-model" placeholder="Qwen3-30B-A3B-Instruct-2507" class="setting-input" />
                         </div>
-                        <div class="form-group">
-                            <label for="analysis-openai-api-key">OpenAI API Key:</label>
-                            <input type="text" id="analysis-openai-api-key" placeholder="例如: token-abc123" />
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="openai-base-url">Base URL</label>
+                                <small>API 服务地址</small>
+                            </div>
+                            <input type="text" id="openai-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
                         </div>
-                        <div class="form-group">
-                            <label for="analysis-system-prompt">System Prompt:</label>
-                            <textarea id="analysis-system-prompt" rows="8" placeholder="请输入系统提示词..."></textarea>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="openai-api-key">API Key</label>
+                                <small>API 访问密钥</small>
+                            </div>
+                            <input type="password" id="openai-api-key" placeholder="token-abc123" class="setting-input" />
                         </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" onclick="saveAnalysisSettings()"><i class="fas fa-save"></i> 保存设置</button>
+                    </div>
+                    <div class="setting-card-footer">
+                        <button class="btn btn-primary" onclick="saveTranslationSettings()">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="setting-panel" id="setting-panel-analysis" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-brain"></i> AI Analysis Settings</h2>
+                    <p>AI 解读功能参数配置</p>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-server"></i>
+                        <span>服务器配置</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="mineru-server-url">MinerU Server URL</label>
+                                <small>PDF 解析服务地址</small>
+                            </div>
+                            <input type="text" id="mineru-server-url" placeholder="http://192.168.81.138:9000" class="setting-input" />
                         </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="analysis-openai-base-url">OpenAI Base URL</label>
+                                <small>LLM API 服务地址</small>
+                            </div>
+                            <input type="text" id="analysis-openai-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="analysis-openai-api-key">OpenAI API Key</label>
+                                <small>API 访问密钥</small>
+                            </div>
+                            <input type="password" id="analysis-openai-api-key" placeholder="token-abc123" class="setting-input" />
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-terminal"></i>
+                        <span>System Prompt</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row full-width">
+                            <textarea id="analysis-system-prompt" rows="10" placeholder="请输入系统提示词..." class="setting-textarea"></textarea>
+                        </div>
+                    </div>
+                    <div class="setting-card-footer">
+                        <button class="btn btn-primary" onclick="saveAnalysisSettings()">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
                     </div>
                 </div>
             </div>

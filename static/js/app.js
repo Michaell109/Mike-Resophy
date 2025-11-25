@@ -3045,7 +3045,9 @@ function switchTab(tabName) {
         // 不调用 renderRecentIfNoCategory，让调用者决定显示什么
     } else if (tabName === 'setting') {
         paperView.style.display = 'none';
-        settingView.style.display = 'block';
+        settingView.style.display = 'flex';
+        // 初始化 Settings 页面
+        initSettingsPage();
     }
     saveCurrentViewState();
 }
@@ -3141,9 +3143,661 @@ async function loadGeneralSettings() {
     }
 }
 
-// ========== Habit 设置 ==========
+// ========================================
+// Settings 页面 - 热力图和统计
+// ========================================
+
+let settingsNavInitialized = false;
+let currentHeatmapYear = new Date().getFullYear();
+
+// 初始化 Settings 页面
+function initSettingsPage() {
+    console.log('初始化 Settings 页面, 已初始化:', settingsNavInitialized);
+    if (!settingsNavInitialized) {
+        setupSettingsNavigation();
+        setupHeatmapControls();
+        settingsNavInitialized = true;
+    }
+    // 加载保存的色系
+    loadHeatmapColorScheme();
+    // 更新年份显示
+    updateYearDisplay();
+    renderHeatmap(currentHeatmapYear);
+    renderOverviewStats();
+    renderRecentActivity();
+}
+
+// 获取有阅读数据的年份范围
+function getReadingYearRange() {
+    const data = getDailyReadingData();
+    const years = new Set();
+    
+    Object.keys(data).forEach(dateStr => {
+        if (data[dateStr] > 0) {
+            const year = parseInt(dateStr.split('-')[0], 10);
+            years.add(year);
+        }
+    });
+    
+    if (years.size === 0) {
+        // 没有任何数据，返回当前年
+        const thisYear = new Date().getFullYear();
+        return { minYear: thisYear, maxYear: thisYear };
+    }
+    
+    const yearArray = Array.from(years).sort((a, b) => a - b);
+    return {
+        minYear: yearArray[0],
+        maxYear: yearArray[yearArray.length - 1]
+    };
+}
+
+// 设置热力图控件（年份选择、色系选择）
+function setupHeatmapControls() {
+    // 年份选择
+    const prevBtn = document.getElementById('year-prev');
+    const nextBtn = document.getElementById('year-next');
+    
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            const { minYear } = getReadingYearRange();
+            if (currentHeatmapYear > minYear) {
+                currentHeatmapYear--;
+                updateYearDisplay();
+                renderHeatmap(currentHeatmapYear);
+            }
+        });
+    }
+    
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            const thisYear = new Date().getFullYear();
+            if (currentHeatmapYear < thisYear) {
+                currentHeatmapYear++;
+                updateYearDisplay();
+                renderHeatmap(currentHeatmapYear);
+            }
+        });
+    }
+    
+    // 色系选择
+    const legend = document.getElementById('heatmap-legend');
+    const dropdown = document.getElementById('color-scheme-dropdown');
+    
+    if (legend && dropdown) {
+        legend.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle('show');
+        });
+        
+        // 点击其他地方关闭下拉框
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && !legend.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+        
+        // 色系选项点击
+        dropdown.querySelectorAll('.color-scheme-option').forEach(option => {
+            option.addEventListener('click', () => {
+                const scheme = option.dataset.scheme;
+                setHeatmapColorScheme(scheme);
+                dropdown.classList.remove('show');
+            });
+        });
+    }
+}
+
+// 更新年份显示
+function updateYearDisplay() {
+    const yearEl = document.getElementById('heatmap-year');
+    const prevBtn = document.getElementById('year-prev');
+    const nextBtn = document.getElementById('year-next');
+    const thisYear = new Date().getFullYear();
+    const { minYear } = getReadingYearRange();
+    
+    if (yearEl) {
+        yearEl.textContent = currentHeatmapYear;
+    }
+    
+    // 禁用上一年按钮如果已经是最早有数据的年份
+    if (prevBtn) {
+        prevBtn.disabled = currentHeatmapYear <= minYear;
+    }
+    
+    // 禁用下一年按钮如果已经是今年
+    if (nextBtn) {
+        nextBtn.disabled = currentHeatmapYear >= thisYear;
+    }
+}
+
+// 设置热力图色系
+function setHeatmapColorScheme(scheme) {
+    const container = document.querySelector('.heatmap-container');
+    const dropdown = document.getElementById('color-scheme-dropdown');
+    
+    if (container) {
+        container.setAttribute('data-scheme', scheme);
+    }
+    
+    // 更新选中状态
+    if (dropdown) {
+        dropdown.querySelectorAll('.color-scheme-option').forEach(option => {
+            option.classList.toggle('active', option.dataset.scheme === scheme);
+        });
+    }
+    
+    // 保存到 localStorage
+    localStorage.setItem('heatmapColorScheme', scheme);
+    console.log('色系已保存:', scheme);
+}
+
+// 加载保存的色系
+function loadHeatmapColorScheme() {
+    const saved = localStorage.getItem('heatmapColorScheme') || 'green';
+    setHeatmapColorScheme(saved);
+}
+
+// 设置 Settings 导航切换
+function setupSettingsNavigation() {
+    const navItems = document.querySelectorAll('.setting-sidebar-nav .setting-nav-item');
+    const panels = document.querySelectorAll('.setting-main .setting-panel');
+    
+    console.log('设置导航初始化, navItems:', navItems.length, 'panels:', panels.length);
+    
+    navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            const targetPanel = this.dataset.setting;
+            console.log('点击导航:', targetPanel);
+            
+            // 更新导航状态
+            navItems.forEach(nav => nav.classList.remove('active'));
+            this.classList.add('active');
+            
+            // 切换面板
+            panels.forEach(panel => {
+                if (panel.id === `setting-panel-${targetPanel}`) {
+                    panel.style.display = 'block';
+                    console.log('显示面板:', panel.id);
+                } else {
+                    panel.style.display = 'none';
+                }
+            });
+        });
+    });
+}
+
+// 记录每日阅读时间
+function recordDailyReadingTime(minutes) {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const key = 'dailyReadingData';
+    
+    try {
+        let data = {};
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            data = JSON.parse(saved);
+        }
+        
+        // 累加今天的阅读时间（分钟）
+        data[today] = (data[today] || 0) + minutes;
+        
+        // 只保留过去 400 天的数据
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - 400);
+        const cutoffStr = cutoffDate.toISOString().split('T')[0];
+        
+        Object.keys(data).forEach(date => {
+            if (date < cutoffStr) {
+                delete data[date];
+            }
+        });
+        
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+        console.error('记录每日阅读时间失败:', e);
+    }
+}
+
+// 获取每日阅读数据
+function getDailyReadingData() {
+    const key = 'dailyReadingData';
+    try {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error('获取每日阅读数据失败:', e);
+    }
+    return {};
+}
+
+// 添加测试阅读数据
+function addTestReadingData() {
+    const today = new Date().toISOString().split('T')[0];
+    const key = 'dailyReadingData';
+    
+    try {
+        let data = {};
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            data = JSON.parse(saved);
+        }
+        
+        // 添加今天的测试数据（30分钟）
+        data[today] = (data[today] || 0) + 30;
+        
+        // 添加过去一周的随机数据
+        for (let i = 1; i <= 7; i++) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+            if (!data[dateStr]) {
+                data[dateStr] = Math.floor(Math.random() * 60) + 10; // 10-70分钟
+            }
+        }
+        
+        localStorage.setItem(key, JSON.stringify(data));
+        console.log('测试数据已添加:', data);
+        showMessage('已添加测试数据，刷新热力图...', 'success');
+        
+        // 刷新热力图
+        renderHeatmap();
+        renderOverviewStats();
+    } catch (e) {
+        console.error('添加测试数据失败:', e);
+        showMessage('添加测试数据失败', 'error');
+    }
+}
+
+// 清除所有阅读数据
+function clearReadingData() {
+    if (confirm('确定要清除所有阅读数据吗？此操作不可撤销。')) {
+        localStorage.removeItem('dailyReadingData');
+        console.log('阅读数据已清除');
+        showMessage('阅读数据已清除', 'success');
+        
+        // 刷新热力图
+        renderHeatmap();
+        renderOverviewStats();
+    }
+}
+
+// 渲染热力图
+function renderHeatmap(year) {
+    const grid = document.getElementById('heatmap-grid');
+    const monthsContainer = document.getElementById('heatmap-months');
+    
+    if (!grid || !monthsContainer) {
+        console.log('热力图元素未找到', { grid, monthsContainer });
+        return;
+    }
+    
+    year = year || new Date().getFullYear();
+    const data = getDailyReadingData();
+    console.log('热力图数据:', data, '年份:', year);
+    
+    const today = new Date();
+    const isCurrentYear = year === today.getFullYear();
+    
+    // 清空现有内容
+    grid.innerHTML = '';
+    monthsContainer.innerHTML = '';
+    
+    // 计算该年的起始和结束日期
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = isCurrentYear ? today : new Date(year, 11, 31);
+    
+    // 找到该年第一天所在周的周日
+    const startDate = new Date(yearStart);
+    startDate.setDate(startDate.getDate() - startDate.getDay());
+    
+    // 计算阅读时间的分级阈值
+    const allValues = Object.values(data).filter(v => v > 0);
+    let thresholds = [0, 15, 30, 60, 120]; // 默认阈值（分钟）
+    
+    if (allValues.length > 0) {
+        const sorted = [...allValues].sort((a, b) => a - b);
+        const p25 = sorted[Math.floor(sorted.length * 0.25)] || 15;
+        const p50 = sorted[Math.floor(sorted.length * 0.5)] || 30;
+        const p75 = sorted[Math.floor(sorted.length * 0.75)] || 60;
+        thresholds = [0, p25, p50, p75, p75 * 1.5];
+    }
+    
+    // 获取阅读等级
+    function getLevel(minutes) {
+        if (!minutes || minutes <= 0) return 0;
+        if (minutes < thresholds[1]) return 1;
+        if (minutes < thresholds[2]) return 2;
+        if (minutes < thresholds[3]) return 3;
+        return 4;
+    }
+    
+    // 格式化时间
+    function formatMinutes(mins) {
+        if (mins < 60) return `${mins} 分钟`;
+        const hours = Math.floor(mins / 60);
+        const minutes = mins % 60;
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    }
+    
+    // 月份名称
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // 生成月份标签（固定12个）
+    monthNames.forEach(name => {
+        const monthSpan = document.createElement('span');
+        monthSpan.textContent = name;
+        monthsContainer.appendChild(monthSpan);
+    });
+    
+    let totalActiveDays = 0;
+    let totalYearMinutes = 0;
+    
+    // 生成整年的周
+    const currentDate = new Date(startDate);
+    const endOfYear = new Date(year, 11, 31);
+    // 找到年末所在周的周六
+    const finalDate = new Date(endOfYear);
+    finalDate.setDate(finalDate.getDate() + (6 - finalDate.getDay()));
+    
+    while (currentDate <= finalDate) {
+        const weekDiv = document.createElement('div');
+        weekDiv.className = 'heatmap-week';
+        
+        // 生成一周的7天
+        for (let day = 0; day < 7; day++) {
+            const dayDiv = document.createElement('div');
+            dayDiv.className = 'heatmap-day';
+            
+            const dateYear = currentDate.getFullYear();
+            const isInYear = dateYear === year;
+            const isInFuture = currentDate > today;
+            const isValidDate = isInYear && !isInFuture;
+            
+            if (isValidDate) {
+                const dateStr = currentDate.toISOString().split('T')[0];
+                const minutes = data[dateStr] || 0;
+                const level = getLevel(minutes);
+                
+                dayDiv.setAttribute('data-level', level);
+                dayDiv.setAttribute('data-date', dateStr);
+                
+                // 顶部两行（周日和周一）的 tooltip 向下显示
+                if (day <= 1) {
+                    dayDiv.classList.add('tooltip-bottom');
+                }
+                
+                // 格式化日期显示
+                const displayDate = currentDate.toLocaleDateString('zh-CN', {
+                    month: 'short',
+                    day: 'numeric',
+                    weekday: 'short'
+                });
+                
+                const tooltip = minutes > 0 
+                    ? `${displayDate}: ${formatMinutes(minutes)}`
+                    : `${displayDate}: 无阅读记录`;
+                dayDiv.setAttribute('data-tooltip', tooltip);
+                
+                if (minutes > 0) {
+                    totalActiveDays++;
+                    totalYearMinutes += minutes;
+                }
+            } else {
+                // 不在当年或未来的日期，显示为空
+                dayDiv.style.visibility = 'hidden';
+            }
+            
+            weekDiv.appendChild(dayDiv);
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        grid.appendChild(weekDiv);
+    }
+    
+    // 更新总活动数
+    const totalEl = document.getElementById('heatmap-total');
+    if (totalEl) {
+        const totalHours = Math.floor(totalYearMinutes / 60);
+        const timeStr = totalHours > 0 ? `${totalHours}h` : `${totalYearMinutes}m`;
+        totalEl.textContent = `${totalActiveDays} 天有阅读活动，共 ${timeStr}`;
+    }
+}
+
+// 渲染统计卡片
+async function renderOverviewStats() {
+    try {
+        // 获取所有论文数量
+        let totalPapers = 0;
+        try {
+            const response = await fetch('/api/papers/all');
+            if (response.ok) {
+                const papers = await response.json();
+                totalPapers = papers.length;
+            }
+        } catch (e) {
+            console.error('获取论文数量失败:', e);
+        }
+        
+        // 从 localStorage 获取每日阅读数据计算总阅读时长
+        const dailyData = getDailyReadingData();
+        
+        // 计算总阅读时长（分钟，因为 dailyData 中存储的就是分钟）
+        let totalMinutes = 0;
+        Object.values(dailyData).forEach(minutes => {
+            totalMinutes += (minutes || 0);
+        });
+        const totalHours = Math.floor(totalMinutes / 60);
+        const remainingMinutes = totalMinutes % 60;
+        
+        // 计算连续阅读天数
+        const { currentStreak, bestStreak } = calculateStreaks(dailyData);
+        
+        // 格式化时间显示
+        let timeDisplay;
+        if (totalHours > 0) {
+            timeDisplay = remainingMinutes > 0 ? `${totalHours}h ${remainingMinutes}m` : `${totalHours}h`;
+        } else {
+            timeDisplay = `${totalMinutes}m`;
+        }
+        
+        // 更新 UI
+        const totalPapersEl = document.getElementById('stat-total-papers');
+        const totalTimeEl = document.getElementById('stat-total-time');
+        const currentStreakEl = document.getElementById('stat-current-streak');
+        const bestStreakEl = document.getElementById('stat-best-streak');
+        const userStatsEl = document.getElementById('setting-total-stats');
+        
+        if (totalPapersEl) totalPapersEl.textContent = totalPapers;
+        if (totalTimeEl) totalTimeEl.textContent = timeDisplay;
+        if (currentStreakEl) currentStreakEl.textContent = currentStreak;
+        if (bestStreakEl) bestStreakEl.textContent = bestStreak;
+        
+        // 用户统计摘要
+        const summaryHours = totalHours > 0 ? `${totalHours}h` : `${totalMinutes}m`;
+        if (userStatsEl) userStatsEl.textContent = `${totalPapers} 篇论文 · ${summaryHours} 阅读`;
+        
+        console.log('统计数据:', { totalPapers, totalMinutes, totalHours, currentStreak, bestStreak });
+        
+    } catch (e) {
+        console.error('渲染统计数据失败:', e);
+    }
+}
+
+// 计算连续阅读天数
+function calculateStreaks(dailyData) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let currentStreak = 0;
+    let bestStreak = 0;
+    let tempStreak = 0;
+    
+    // 从今天开始往回检查
+    const checkDate = new Date(today);
+    
+    // 检查今天是否有阅读
+    const todayStr = checkDate.toISOString().split('T')[0];
+    if (dailyData[todayStr] && dailyData[todayStr] > 0) {
+        currentStreak = 1;
+        tempStreak = 1;
+    }
+    
+    // 往回检查
+    checkDate.setDate(checkDate.getDate() - 1);
+    
+    while (true) {
+        const dateStr = checkDate.toISOString().split('T')[0];
+        const hasReading = dailyData[dateStr] && dailyData[dateStr] > 0;
+        
+        if (hasReading) {
+            tempStreak++;
+            if (currentStreak > 0 || tempStreak === 1) {
+                currentStreak = tempStreak;
+            }
+        } else {
+            if (tempStreak > bestStreak) {
+                bestStreak = tempStreak;
+            }
+            if (currentStreak > 0) {
+                // 已经断了，停止计算当前连续
+                tempStreak = 0;
+            } else {
+                tempStreak = 0;
+            }
+        }
+        
+        checkDate.setDate(checkDate.getDate() - 1);
+        
+        // 最多检查 400 天
+        const daysDiff = Math.floor((today - checkDate) / (1000 * 60 * 60 * 24));
+        if (daysDiff > 400) break;
+    }
+    
+    if (tempStreak > bestStreak) {
+        bestStreak = tempStreak;
+    }
+    if (currentStreak > bestStreak) {
+        bestStreak = currentStreak;
+    }
+    
+    return { currentStreak, bestStreak };
+}
+
+// 渲染最近阅读活动
+function renderRecentActivity() {
+    const container = document.getElementById('recent-activity-list');
+    if (!container) return;
+    
+    try {
+        const key = 'recentPapers';
+        const saved = localStorage.getItem(key);
+        let recentItems = [];
+        
+        if (saved) {
+            recentItems = JSON.parse(saved) || [];
+        }
+        
+        // 取最近 5 条
+        const displayItems = recentItems.slice(0, 5);
+        
+        if (displayItems.length === 0) {
+            container.innerHTML = `
+                <div class="recent-empty">
+                    <i class="fas fa-book-open"></i>
+                    <p>暂无阅读记录</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // 获取论文信息并渲染
+        Promise.all(displayItems.map(async item => {
+            try {
+                const response = await fetch(`/api/paper/${item.paperId}`);
+                if (response.ok) {
+                    const paper = await response.json();
+                    return { ...item, paper };
+                }
+            } catch (e) {
+                console.error('获取论文信息失败:', e);
+            }
+            return null;
+        })).then(results => {
+            const validResults = results.filter(r => r && r.paper);
+            
+            if (validResults.length === 0) {
+                container.innerHTML = `
+                    <div class="recent-empty">
+                        <i class="fas fa-book-open"></i>
+                        <p>暂无阅读记录</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = validResults.map(item => {
+                const paper = item.paper;
+                const viewedAt = new Date(item.viewedAt);
+                const timeAgo = getTimeAgo(viewedAt);
+                const readMinutes = Math.floor((paper.read_time || 0) / 60);
+                
+                return `
+                    <div class="recent-item" onclick="openPaperFromRecent('${paper.id}')">
+                        <div class="recent-item-icon">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                        <div class="recent-item-content">
+                            <div class="recent-item-title">${escapeHtml(paper.title || paper.filename)}</div>
+                            <div class="recent-item-meta">阅读 ${readMinutes} 分钟</div>
+                        </div>
+                        <div class="recent-item-time">${timeAgo}</div>
+                    </div>
+                `;
+            }).join('');
+        });
+        
+    } catch (e) {
+        console.error('渲染最近阅读失败:', e);
+        container.innerHTML = `
+            <div class="recent-empty">
+                <i class="fas fa-exclamation-circle"></i>
+                <p>加载失败</p>
+            </div>
+        `;
+    }
+}
+
+// 计算时间差显示
+function getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffMins < 1) return '刚刚';
+    if (diffMins < 60) return `${diffMins} 分钟前`;
+    if (diffHours < 24) return `${diffHours} 小时前`;
+    if (diffDays < 7) return `${diffDays} 天前`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} 周前`;
+    return date.toLocaleDateString('zh-CN');
+}
+
+// 从最近阅读打开论文
+function openPaperFromRecent(paperId) {
+    switchTab('paper');
+    // 打开 PDF 阅读器
+    window.open(`/viewer/${paperId}`, '_blank');
+}
+
+// ========== Habit 设置 (保留兼容) ==========
 function saveHabitSettings() {
-    const count = parseInt(document.getElementById('habit-recent-count').value, 10);
+    const countEl = document.getElementById('habit-recent-count');
+    const count = countEl ? parseInt(countEl.value, 10) : 10;
     const settings = {
         recentCount: (!isNaN(count) && count > 0) ? count : 10
     };
