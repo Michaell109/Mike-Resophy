@@ -33,7 +33,7 @@ parser.add_argument(
     help="服务器监听地址（默认: 192.168.81.138）",
 )
 parser.add_argument(
-    "--port", type=int, default=4005, help="服务器监听端口（默认: 5005）"
+    "--port", type=int, default=5005, help="服务器监听端口（默认: 5005）"
 )
 parser.add_argument("--debug", action="store_true", help="启用调试模式")
 
