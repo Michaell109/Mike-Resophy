@@ -153,11 +153,18 @@ async function restoreViewState() {
                 return;
             }
             if (state.viewMode === 'category' && state.categoryId) {
+                // 先展开到目标分类的路径
+                expandToCategoryPath(state.categoryId);
+                // 选中目标分类
                 const categoryItem = document.querySelector(`.category-item[data-category-id="${state.categoryId}"]`);
                 if (categoryItem) {
-                    categoryItem.click();
-                    return;
+                    // 手动设置选中状态
+                    document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+                    categoryItem.classList.add('selected');
                 }
+                // 直接加载该分类的论文（确保 await）
+                await loadPapers(state.categoryId);
+                return;
             }
 
             await renderRecentIfNoCategory();
@@ -170,6 +177,43 @@ async function restoreViewState() {
         console.error('恢复视图状态失败:', e);
         switchTab('paper');
         await renderRecentIfNoCategory();
+    }
+}
+
+// 展开到目标分类的路径
+function expandToCategoryPath(targetCategoryId) {
+    // 查找分类的路径（从根到目标）
+    function findCategoryPath(node, targetId, path = []) {
+        if (node.id === targetId) {
+            return path;
+        }
+        if (node.children) {
+            for (const child of node.children) {
+                const result = findCategoryPath(child, targetId, [...path, node.id]);
+                if (result) return result;
+            }
+        }
+        return null;
+    }
+    
+    const path = findCategoryPath(categories, targetCategoryId, []);
+    if (path) {
+        // 展开路径上的所有分类
+        path.forEach(categoryId => {
+            if (categoryId === 'root') return;
+            const categoryElement = document.querySelector(`[data-category-id="${categoryId}"]`);
+            if (categoryElement) {
+                const container = categoryElement.closest('.category-container');
+                const toggle = container?.querySelector('.category-toggle');
+                const children = container?.querySelector('.category-children');
+                
+                if (toggle && children) {
+                    toggle.classList.add('expanded');
+                    children.classList.remove('collapsed');
+                    expandedCategories.add(categoryId);
+                }
+            }
+        });
     }
 }
 
@@ -529,6 +573,13 @@ function selectCategory(categoryId, categoryName) {
 // 加载论文列表
 async function loadPapers(categoryId) {
     try {
+        // 如果 categoryId 为 null/undefined，调用 renderAllPapers 代替
+        if (!categoryId) {
+            console.log('[loadPapers] categoryId 为空，调用 renderAllPapers');
+            await renderAllPapers();
+            return;
+        }
+        
         currentViewMode = 'category';
         currentCategoryId = categoryId;
         saveCurrentViewState();
@@ -549,6 +600,11 @@ async function loadPapers(categoryId) {
             </div>
         `;
         const response = await fetch(`/api/papers/${categoryId}`);
+        if (!response.ok) {
+            console.error(`加载论文失败: ${response.status} ${response.statusText}`);
+            showMessage('加载论文失败', 'error');
+            return;
+        }
         papers = await response.json();
         // 确保待读列表ID集合已更新
         await updateReadingListCount();
@@ -1414,10 +1470,15 @@ function startPollingPaperUpdate(paperId, categoryId, initialSnapshotOrTitle, ma
                     console.log(`[轮询]    BibTeX: 已更新`);
                 }
                 
-                // 如果当前还在同一个分类，刷新列表
+                // 如果当前还在同一个分类（或都是全部论文视图），刷新列表
                 if (currentCategoryId === categoryId) {
                     console.log(`[轮询] 刷新论文列表...`);
-                    await loadPapers(currentCategoryId);
+                    if (currentCategoryId) {
+                        await loadPapers(currentCategoryId);
+                    } else {
+                        // 如果 categoryId 为 null，说明是在"所有论文"视图
+                        await renderAllPapers();
+                    }
                     
                     // 如果当前选中的就是这个论文，刷新详情
                     if (currentPaperId === paperId) {
@@ -4993,13 +5054,7 @@ async function restoreActiveTasks() {
         // 持久化并更新指示器
         saveQueuesToStorage();
         updateTaskIndicator();
-
-        // 刷新当前视图
-        if (currentCategoryId) {
-            loadPapers(currentCategoryId);
-        } else {
-            renderRecentIfNoCategory();
-        }
+        // 注意：不在这里刷新视图，由 restoreViewState 统一处理
     } catch (e) {
         console.error('恢复任务状态失败:', e);
     }

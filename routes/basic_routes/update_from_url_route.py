@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional, Protocol
@@ -10,7 +11,7 @@ from typing import Any, Dict, Optional, Protocol
 import requests
 from flask import Flask, jsonify, request
 
-from basic_tools.upload_paper import fetch_paper_by_arxiv_id
+from basic_tools.upload_paper import fetch_paper_by_arxiv_id_fast, fetch_bibtex_from_dblp
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -114,9 +115,37 @@ def register_update_from_url_routes(
             paper_ids.append(paper_id)
             _save_reading_list(paper_ids)
 
+    def _fetch_dblp_bibtex_background(
+        paper_id: str,
+        title: str,
+        authors: str,
+        arxiv_id: str,
+        file_path: str,
+        category_id: str,
+        category_path: list[str],
+    ):
+        """后台获取 DBLP BibTeX 并更新论文"""
+        try:
+            print(f"[后台 DBLP] 开始获取 BibTeX: {title[:50]}...")
+            bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
+            
+            if bibtex:
+                paper = paper_store.get(paper_id)
+                if paper:
+                    paper.bibtex = bibtex
+                    paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+                    save_paper_metadata(file_path, paper)
+                    print(f"[后台 DBLP] ✅ BibTeX 已更新: {paper_id}")
+                else:
+                    print(f"[后台 DBLP] ❌ 找不到论文: {paper_id}")
+            else:
+                print(f"[后台 DBLP] ❌ 未获取到 BibTeX")
+        except Exception as exc:
+            print(f"[后台 DBLP] ❌ 获取 BibTeX 失败: {exc}")
+
     @app.route("/api/upload/arxiv", methods=["POST"])
     def api_upload_arxiv():
-        """从 arXiv URL 下载并导入 PDF"""
+        """从 arXiv URL 下载并导入 PDF（快速返回，DBLP 后台获取）"""
         try:
             data = request.json or {}
             arxiv_url = data.get("arxiv_url", "").strip()
@@ -165,17 +194,14 @@ def register_update_from_url_routes(
 
             print(f"PDF 已保存到: {file_path}")
 
-            # 使用新的统一接口获取论文信息
-            paper_info = fetch_paper_by_arxiv_id(arxiv_id)
+            # 【快速获取】仅从 arXiv API 获取信息，不等待 DBLP
+            metadata = fetch_paper_by_arxiv_id_fast(arxiv_id)
 
-            if not paper_info:
+            if not metadata:
                 print(f"警告: 无法从 arXiv API 获取信息")
-                paper_info = {"arxiv_id": arxiv_id}
+                metadata = {"arxiv_id": arxiv_id}
             else:
-                print(f"成功从 arXiv API 获取论文信息: {paper_info.get('title')}")
-
-            # 统一使用 paper_info 作为 metadata
-            metadata = paper_info
+                print(f"成功从 arXiv API 获取论文信息: {metadata.get('title')}")
 
             new_filename = filename
             if metadata.get("title"):
@@ -200,8 +226,9 @@ def register_update_from_url_routes(
                     except Exception as exc:  # noqa: BLE001
                         print(f"重命名文件失败: {exc}")
 
+            paper_id = str(uuid.uuid4())
             paper_info = {
-                "id": str(uuid.uuid4()),
+                "id": paper_id,
                 "filename": filename,
                 "original_filename": filename,
                 "file_path": file_path,
@@ -209,16 +236,16 @@ def register_update_from_url_routes(
                 "title": metadata.get("title", arxiv_id),
                 "authors": metadata.get("authors", ""),
                 "arxiv_id": arxiv_id,
-                "arxiv_published_date": metadata.get("arxiv_published_date"),
+                "arxiv_published_date": metadata.get("published_date"),
                 "affiliation": metadata.get("affiliation", ""),
                 "year": metadata.get("year", ""),
                 "journal": "",
                 "abstract": metadata.get("abstract", ""),
-                "summary": metadata.get("summary", ""),  # 新增
-                "bibtex": metadata.get("bibtex", ""),  # 新增
+                "summary": metadata.get("summary", ""),
+                "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
                 "keywords": metadata.get("keywords", ""),
                 "subject": metadata.get("subject", ""),
-                "notes": "",  # 用户备注
+                "notes": "",
                 "starred": False,
                 "read_time": 0,
                 "translation_time": 0,
@@ -234,6 +261,24 @@ def register_update_from_url_routes(
             )
             save_paper_metadata(file_path, registered_paper)
             _add_to_reading_list(registered_paper.id)
+
+            # 【后台获取 DBLP BibTeX】
+            if metadata.get("title") and metadata.get("authors"):
+                thread = threading.Thread(
+                    target=_fetch_dblp_bibtex_background,
+                    args=(
+                        paper_id,
+                        metadata["title"],
+                        metadata["authors"],
+                        arxiv_id,
+                        file_path,
+                        category_id,
+                        category_path,
+                    ),
+                    daemon=True,
+                )
+                thread.start()
+                print(f"[立即返回] 论文已添加，DBLP BibTeX 后台获取中...")
 
             return jsonify({"success": True, "paper": registered_paper.to_dict()})
 

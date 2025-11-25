@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional, Protocol
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 
-from basic_tools.upload_paper import process_uploaded_pdf
+from basic_tools.upload_paper import process_uploaded_pdf_fast, fetch_bibtex_from_dblp
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -88,12 +88,12 @@ def register_upload_from_pdf_routes(
         category_path: list[str],
         category_folder: str,
     ):
-        """后台处理：使用新的统一接口处理 PDF 上传"""
+        """后台处理：使用新的统一接口处理 PDF 上传（两阶段：先 arXiv，后 DBLP）"""
         try:
             print(f"[后台] 开始处理PDF元数据: {file_path}")
 
-            # 使用新的统一接口处理 PDF
-            paper_info = process_uploaded_pdf(file_path, original_filename)
+            # 【阶段1】快速获取 arXiv 信息（不等待 DBLP）
+            paper_info = process_uploaded_pdf_fast(file_path, original_filename)
 
             if not paper_info:
                 print("[后台] 无法获取论文信息，保持原始文件名")
@@ -126,7 +126,7 @@ def register_upload_from_pdf_routes(
                         new_file_path = file_path
                         new_filename = current_filename
 
-            # 更新 Paper 对象
+            # 【阶段1】立即更新 Paper 对象（arXiv 信息）
             paper = paper_store.get(paper_id)
             if paper:
                 paper.filename = new_filename
@@ -139,15 +139,35 @@ def register_upload_from_pdf_routes(
                 paper.year = paper_info.get("year", "")
                 paper.abstract = paper_info.get("abstract", "")
                 paper.summary = paper_info.get("summary", "")
-                paper.bibtex = paper_info.get("bibtex", "")
+                paper.bibtex = ""  # 暂时为空
                 paper.keywords = paper_info.get("keywords", "")
                 paper.subject = paper_info.get("subject", "")
 
-                # 保存更新后的 paper
+                # 保存更新后的 paper（arXiv 信息）
                 paper_store.upsert(
                     paper, category_id=category_id, category_path=category_path
                 )
                 save_paper_metadata(new_file_path, paper)
+                print(f"[后台 阶段1] ✅ arXiv 信息已更新: {new_filename}")
+
+                # 【阶段2】后台获取 DBLP BibTeX
+                if paper_info.get("title") and paper_info.get("authors") and paper_info.get("arxiv_id"):
+                    print(f"[后台 阶段2] 开始获取 DBLP BibTeX...")
+                    bibtex = fetch_bibtex_from_dblp(
+                        title=paper_info["title"],
+                        authors=paper_info["authors"],
+                        arxiv_id=paper_info["arxiv_id"]
+                    )
+                    if bibtex:
+                        paper.bibtex = bibtex
+                        paper_store.upsert(
+                            paper, category_id=category_id, category_path=category_path
+                        )
+                        save_paper_metadata(new_file_path, paper)
+                        print(f"[后台 阶段2] ✅ DBLP BibTeX 已更新")
+                    else:
+                        print(f"[后台 阶段2] ❌ 未获取到 DBLP BibTeX")
+
                 print(f"[后台] 论文元数据处理完成: {new_filename}")
             else:
                 print(f"[后台] 警告: 找不到 paper {paper_id}")
