@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReadPaper</title>
+    <title>Resophy - Agentic Paper Reading</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- PDF.js (CDN) 用于前端解析PDF元数据 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -20,8 +21,8 @@
     <nav class="navbar">
         <div class="navbar-content">
             <div class="navbar-brand">
-                <img src="{{ url_for('static', filename='images/readpaper-logo.png') }}" alt="ReadPaper" class="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
-                <span class="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> ReadPaper</span>
+                <img src="{{ url_for('static', filename='images/hompage_logo.png') }}" alt="Resophy" class="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                <span class="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> Resophy</span>
             </div>
             <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
                 <button id="btn-show-translating" class="ti-item ti-translate" title="查看翻译中的论文">
@@ -42,9 +43,9 @@
                 <button class="nav-tab active" data-tab="paper">
                     <i class="fas fa-file-pdf"></i> Paper
                 </button>
-                <button class="nav-tab" data-tab="setting">
-                    <i class="fas fa-cog"></i> Setting
-                </button>
+                <div class="nav-avatar" id="nav-avatar" data-tab="setting" title="Settings">
+                    <canvas id="nav-avatar-canvas" width="32" height="32"></canvas>
+                </div>
             </div>
         </div>
     </nav>
@@ -143,11 +144,15 @@
         <!-- 左侧导航 -->
         <div class="setting-sidebar">
             <div class="setting-sidebar-header">
-                <div class="setting-user-avatar">
-                    <i class="fas fa-user-graduate"></i>
+                <div class="setting-user-avatar" id="setting-user-avatar" title="点击上传头像">
+                    <canvas id="setting-avatar-canvas" width="56" height="56"></canvas>
+                    <div class="avatar-overlay">
+                        <i class="fas fa-camera"></i>
+                    </div>
                 </div>
+                <input type="file" id="avatar-upload" accept="image/*" style="display: none;">
                 <div class="setting-user-info">
-                    <span class="setting-user-name">Paper Reader</span>
+                    <span class="setting-user-name" id="setting-user-name" title="双击编辑名字">Paper Reader</span>
                     <span class="setting-user-stats" id="setting-total-stats">0 篇论文 · 0h 阅读</span>
                 </div>
             </div>
@@ -275,19 +280,6 @@
                     <div class="recent-list" id="recent-activity-list">
                         <!-- 动态填充 -->
                     </div>
-                </div>
-
-                <!-- 调试工具（开发用） -->
-                <div class="debug-tools" style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
-                    <div style="color: rgba(255,255,255,0.4); font-size: 12px; margin-bottom: 8px;">
-                        <i class="fas fa-bug"></i> 调试工具
-                    </div>
-                    <button onclick="addTestReadingData()" style="padding: 8px 16px; background: rgba(102, 126, 234, 0.3); border: 1px solid rgba(102, 126, 234, 0.5); color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        <i class="fas fa-plus"></i> 添加今日阅读测试数据
-                    </button>
-                    <button onclick="clearReadingData()" style="margin-left: 8px; padding: 8px 16px; background: rgba(220, 53, 69, 0.3); border: 1px solid rgba(220, 53, 69, 0.5); color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        <i class="fas fa-trash"></i> 清除所有数据
-                    </button>
                 </div>
             </div>
 

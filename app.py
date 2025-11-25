@@ -46,11 +46,38 @@ UPLOAD_FOLDER = None  # 将在 main 中设置
 CATEGORIES_FILE = None  # 将在 main 中设置
 READING_LIST_FILE = None  # 将在 main 中设置
 GENERAL_SETTINGS_FILE = None  # 将在 main 中设置
+USER_SETTINGS_FILE = None  # 用户设置（名字、头像等）
+READING_HISTORY_FILE = None  # 每日阅读历史
+TRANSLATION_SETTINGS_FILE = None  # 翻译设置
+ANALYSIS_SETTINGS_FILE = None  # AI 解读设置
+AVATARS_DIR = None  # 头像图片目录
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
 
 # 默认通用设置
 DEFAULT_GENERAL_SETTINGS = {
     "reading_list_max_items": 100,
+}
+
+# 默认用户设置
+DEFAULT_USER_SETTINGS = {
+    "name": "Paper Reader",
+    "avatar": None,  # 头像文件名，如 "avatar.jpg"
+    "heatmapColorScheme": "green",
+}
+
+# 默认翻译设置
+DEFAULT_TRANSLATION_SETTINGS = {
+    "openaiModel": "",
+    "openaiBaseUrl": "",
+    "openaiApiKey": "",
+}
+
+# 默认 AI 解读设置
+DEFAULT_ANALYSIS_SETTINGS = {
+    "mineruServerUrl": "",
+    "openaiBaseUrl": "",
+    "openaiApiKey": "",
+    "systemPrompt": "",
 }
 
 # 全局变量（将在 init_app 中初始化）
@@ -74,6 +101,7 @@ scan_papers_in_directory = paper_repository.scan_papers_in_directory
 def init_app(papers_dir=None):
     """初始化应用配置和目录"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE, GENERAL_SETTINGS_FILE
+    global USER_SETTINGS_FILE, READING_HISTORY_FILE, TRANSLATION_SETTINGS_FILE, ANALYSIS_SETTINGS_FILE, AVATARS_DIR
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
     # 设置论文目录
@@ -90,9 +118,15 @@ def init_app(papers_dir=None):
     CATEGORIES_FILE = os.path.join(UPLOAD_FOLDER, "categories.json")
     READING_LIST_FILE = os.path.join(UPLOAD_FOLDER, "reading_list.json")
     GENERAL_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "general_settings.json")
+    USER_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "user_settings.json")
+    READING_HISTORY_FILE = os.path.join(UPLOAD_FOLDER, "reading_history.json")
+    TRANSLATION_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "translation_settings.json")
+    ANALYSIS_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "analysis_settings.json")
+    AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
 
     # 确保必要的目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(AVATARS_DIR, exist_ok=True)
 
     # 初始化待读列表文件
     if not os.path.exists(READING_LIST_FILE):
@@ -103,6 +137,26 @@ def init_app(papers_dir=None):
     if not os.path.exists(GENERAL_SETTINGS_FILE):
         with open(GENERAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_GENERAL_SETTINGS, f, ensure_ascii=False, indent=2)
+
+    # 初始化用户设置文件
+    if not os.path.exists(USER_SETTINGS_FILE):
+        with open(USER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_USER_SETTINGS, f, ensure_ascii=False, indent=2)
+
+    # 初始化阅读历史文件
+    if not os.path.exists(READING_HISTORY_FILE):
+        with open(READING_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+
+    # 初始化翻译设置文件
+    if not os.path.exists(TRANSLATION_SETTINGS_FILE):
+        with open(TRANSLATION_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_TRANSLATION_SETTINGS, f, ensure_ascii=False, indent=2)
+
+    # 初始化 AI 解读设置文件
+    if not os.path.exists(ANALYSIS_SETTINGS_FILE):
+        with open(ANALYSIS_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_ANALYSIS_SETTINGS, f, ensure_ascii=False, indent=2)
 
     # 基础工具函数绑定
     init_categories = partial(category_manager.init_categories, CATEGORIES_FILE)
@@ -119,6 +173,11 @@ def init_app(papers_dir=None):
     print(f"分类配置: {CATEGORIES_FILE}")
     print(f"待读列表: {READING_LIST_FILE}")
     print(f"通用设置: {GENERAL_SETTINGS_FILE}")
+    print(f"用户设置: {USER_SETTINGS_FILE}")
+    print(f"阅读历史: {READING_HISTORY_FILE}")
+    print(f"翻译设置: {TRANSLATION_SETTINGS_FILE}")
+    print(f"AI解读设置: {ANALYSIS_SETTINGS_FILE}")
+    print(f"头像目录: {AVATARS_DIR}")
 
 
 # 翻译任务管理
@@ -165,6 +224,14 @@ def register_routes():
         app,
         settings_file_path=GENERAL_SETTINGS_FILE,
         default_settings=DEFAULT_GENERAL_SETTINGS,
+        user_settings_file=USER_SETTINGS_FILE,
+        default_user_settings=DEFAULT_USER_SETTINGS,
+        reading_history_file=READING_HISTORY_FILE,
+        translation_settings_file=TRANSLATION_SETTINGS_FILE,
+        default_translation_settings=DEFAULT_TRANSLATION_SETTINGS,
+        analysis_settings_file=ANALYSIS_SETTINGS_FILE,
+        default_analysis_settings=DEFAULT_ANALYSIS_SETTINGS,
+        avatars_dir=AVATARS_DIR,
     )
 
     register_paper_operation_routes(

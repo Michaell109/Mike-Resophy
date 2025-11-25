@@ -180,8 +180,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     setupNavigation();
     loadTranslationSettings();
     loadAnalysisSettings();
-    loadHabitSettings();
     loadGeneralSettings();
+    // 初始化导航栏头像
+    updateAvatars();
     // 先恢复队列状态，再恢复运行中的任务
     restoreQueuesFromStorage();
     cleanupCompletedQueues();
@@ -2984,6 +2985,14 @@ function setupNavigation() {
             switchTab(targetTab);
         });
     });
+    
+    // 导航栏头像点击事件
+    const navAvatar = document.getElementById('nav-avatar');
+    if (navAvatar) {
+        navAvatar.addEventListener('click', () => {
+            switchTab('setting');
+        });
+    }
 
     // 设置页左侧导航
     document.addEventListener('click', (e) => {
@@ -3030,6 +3039,7 @@ function switchTab(tabName) {
     const paperView = document.getElementById('paper-view');
     const settingView = document.getElementById('setting-view');
     const navTabs = document.querySelectorAll('.nav-tab');
+    const navAvatar = document.getElementById('nav-avatar');
     
     navTabs.forEach(tab => {
         if (tab.dataset.tab === tabName) {
@@ -3038,6 +3048,15 @@ function switchTab(tabName) {
             tab.classList.remove('active');
         }
     });
+    
+    // 更新头像导航状态
+    if (navAvatar) {
+        if (tabName === 'setting') {
+            navAvatar.classList.add('active');
+        } else {
+            navAvatar.classList.remove('active');
+        }
+    }
     
     if (tabName === 'paper') {
         paperView.style.display = 'flex';
@@ -3053,41 +3072,57 @@ function switchTab(tabName) {
 }
 
 // 保存翻译设置
-function saveTranslationSettings() {
+async function saveTranslationSettings() {
     const settings = {
         openaiModel: document.getElementById('openai-model').value.trim(),
         openaiBaseUrl: document.getElementById('openai-base-url').value.trim(),
         openaiApiKey: document.getElementById('openai-api-key').value.trim()
     };
     
-    localStorage.setItem('translationSettings', JSON.stringify(settings));
-    showMessage('设置已保存', 'success');
+    try {
+        const response = await fetch('/api/settings/translation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        if (response.ok) {
+            showMessage('设置已保存', 'success');
+        } else {
+            showMessage('保存失败', 'error');
+        }
+    } catch (e) {
+        console.error('保存翻译设置失败:', e);
+        showMessage('保存失败', 'error');
+    }
 }
 
 // 加载翻译设置
-function loadTranslationSettings() {
-    const saved = localStorage.getItem('translationSettings');
-    if (saved) {
-        try {
-            const settings = JSON.parse(saved);
-            document.getElementById('openai-model').value = settings.openaiModel || '';
-            document.getElementById('openai-base-url').value = settings.openaiBaseUrl || '';
-            document.getElementById('openai-api-key').value = settings.openaiApiKey || '';
-        } catch (e) {
-            console.error('加载设置失败:', e);
+async function loadTranslationSettings() {
+    try {
+        const response = await fetch('/api/settings/translation');
+        if (response.ok) {
+            const settings = await response.json();
+            const modelEl = document.getElementById('openai-model');
+            const baseUrlEl = document.getElementById('openai-base-url');
+            const apiKeyEl = document.getElementById('openai-api-key');
+            if (modelEl) modelEl.value = settings.openaiModel || '';
+            if (baseUrlEl) baseUrlEl.value = settings.openaiBaseUrl || '';
+            if (apiKeyEl) apiKeyEl.value = settings.openaiApiKey || '';
         }
+    } catch (e) {
+        console.error('加载翻译设置失败:', e);
     }
 }
 
 // 获取翻译设置
-function getTranslationSettings() {
-    const saved = localStorage.getItem('translationSettings');
-    if (saved) {
-        try {
-            return JSON.parse(saved);
-        } catch (e) {
-            console.error('解析设置失败:', e);
+async function getTranslationSettings() {
+    try {
+        const response = await fetch('/api/settings/translation');
+        if (response.ok) {
+            return await response.json();
         }
+    } catch (e) {
+        console.error('获取翻译设置失败:', e);
     }
     return null;
 }
@@ -3150,16 +3185,331 @@ async function loadGeneralSettings() {
 let settingsNavInitialized = false;
 let currentHeatmapYear = new Date().getFullYear();
 
+// ========================================
+// 用户头像和名字设置
+// ========================================
+
+// 生成像素头像 (GitHub 风格 identicon)
+function generateIdenticon(seed, size = 5) {
+    // 简单的哈希函数
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        const char = seed.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    
+    // 生成颜色 - 使用种子生成一个漂亮的颜色
+    const hue = Math.abs(hash % 360);
+    const saturation = 65 + Math.abs((hash >> 8) % 20);
+    const lightness = 45 + Math.abs((hash >> 16) % 15);
+    const bgColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    const fgColor = `hsl(${hue}, ${saturation}%, ${lightness + 35}%)`;
+    
+    // 生成像素图案 (5x5 对称)
+    const pattern = [];
+    for (let y = 0; y < size; y++) {
+        pattern[y] = [];
+        for (let x = 0; x < Math.ceil(size / 2); x++) {
+            // 使用哈希值的不同位来决定像素
+            const bitIndex = y * 3 + x;
+            const pixel = (Math.abs(hash >> bitIndex) % 2) === 1;
+            pattern[y][x] = pixel;
+            // 镜像
+            pattern[y][size - 1 - x] = pixel;
+        }
+    }
+    
+    return { pattern, bgColor, fgColor, size };
+}
+
+// 在 canvas 上绘制像素头像
+function drawIdenticon(canvas, seed) {
+    const ctx = canvas.getContext('2d');
+    const { pattern, bgColor, fgColor, size } = generateIdenticon(seed);
+    
+    const cellSize = canvas.width / size;
+    
+    // 绘制背景
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 绘制像素
+    ctx.fillStyle = fgColor;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            if (pattern[y][x]) {
+                ctx.fillRect(
+                    x * cellSize + cellSize * 0.1,
+                    y * cellSize + cellSize * 0.1,
+                    cellSize * 0.8,
+                    cellSize * 0.8
+                );
+            }
+        }
+    }
+}
+
+// 用户设置缓存（避免频繁请求后端）
+let userSettingsCache = null;
+
+// 获取用户设置（异步）
+async function getUserSettings() {
+    // 如果有缓存，直接返回
+    if (userSettingsCache) {
+        return userSettingsCache;
+    }
+    try {
+        const response = await fetch('/api/settings/user');
+        if (response.ok) {
+            userSettingsCache = await response.json();
+            return userSettingsCache;
+        }
+    } catch (e) {
+        console.error('读取用户设置失败:', e);
+    }
+    return {
+        name: 'Paper Reader',
+        avatar: null,
+        heatmapColorScheme: 'green'
+    };
+}
+
+// 获取用户设置（同步版本，使用缓存）
+function getUserSettingsSync() {
+    if (userSettingsCache) {
+        return userSettingsCache;
+    }
+    return {
+        name: 'Paper Reader',
+        avatar: null,
+        heatmapColorScheme: 'green'
+    };
+}
+
+// 保存用户设置
+async function saveUserSettings(settings) {
+    try {
+        const response = await fetch('/api/settings/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        if (response.ok) {
+            // 更新缓存
+            userSettingsCache = { ...userSettingsCache, ...settings };
+        }
+    } catch (e) {
+        console.error('保存用户设置失败:', e);
+    }
+}
+
+// 上传头像到服务器
+async function uploadAvatar(avatarData) {
+    try {
+        const response = await fetch('/api/settings/avatar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ avatarData })
+        });
+        if (response.ok) {
+            const result = await response.json();
+            // 更新缓存
+            if (userSettingsCache) {
+                userSettingsCache.avatar = result.avatar;
+            }
+            return result.avatar;
+        }
+    } catch (e) {
+        console.error('上传头像失败:', e);
+    }
+    return null;
+}
+
+// 更新所有头像显示
+async function updateAvatars() {
+    const userSettings = await getUserSettings();
+    
+    // 绘制头像到 canvas 的辅助函数
+    const drawAvatarToCanvas = (canvas, avatarUrl, userName) => {
+        if (avatarUrl) {
+            // 使用服务器上的图片
+            const img = new Image();
+            img.onload = () => {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // 圆形裁剪
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.clip();
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            };
+            img.onerror = () => {
+                // 加载失败时使用像素头像
+                drawIdenticon(canvas, userName);
+            };
+            img.src = avatarUrl + '?t=' + Date.now(); // 添加时间戳避免缓存
+        } else {
+            // 使用生成的像素头像
+            drawIdenticon(canvas, userName);
+        }
+    };
+    
+    const avatarUrl = userSettings.avatar ? '/api/settings/avatar' : null;
+    
+    // 导航栏头像
+    const navCanvas = document.getElementById('nav-avatar-canvas');
+    if (navCanvas) {
+        drawAvatarToCanvas(navCanvas, avatarUrl, userSettings.name);
+    }
+    
+    // Settings 页面头像
+    const settingCanvas = document.getElementById('setting-avatar-canvas');
+    if (settingCanvas) {
+        drawAvatarToCanvas(settingCanvas, avatarUrl, userSettings.name);
+    }
+    
+    // 更新名字显示
+    const nameEl = document.getElementById('setting-user-name');
+    if (nameEl) {
+        nameEl.textContent = userSettings.name;
+    }
+}
+
+// 设置用户头像和名字的事件监听
+function setupUserProfileEvents() {
+    // 头像上传
+    const settingAvatar = document.getElementById('setting-user-avatar');
+    const avatarUpload = document.getElementById('avatar-upload');
+    
+    if (settingAvatar && avatarUpload) {
+        settingAvatar.addEventListener('click', () => {
+            avatarUpload.click();
+        });
+        
+        avatarUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                if (!file.type.startsWith('image/')) {
+                    showMessage('请选择图片文件', 'warning');
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const img = new Image();
+                    img.onload = async () => {
+                        // 压缩图片到合适大小
+                        const canvas = document.createElement('canvas');
+                        const maxSize = 200;
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        if (width > height) {
+                            if (width > maxSize) {
+                                height *= maxSize / width;
+                                width = maxSize;
+                            }
+                        } else {
+                            if (height > maxSize) {
+                                width *= maxSize / height;
+                                height = maxSize;
+                            }
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const avatarData = canvas.toDataURL('image/jpeg', 0.8);
+                        
+                        // 上传到服务器
+                        const result = await uploadAvatar(avatarData);
+                        if (result) {
+                            await updateAvatars();
+                            showMessage('头像已更新', 'success');
+                        } else {
+                            showMessage('头像上传失败', 'error');
+                        }
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+    
+    // 名字编辑 (双击)
+    const nameEl = document.getElementById('setting-user-name');
+    if (nameEl) {
+        nameEl.addEventListener('dblclick', () => {
+            nameEl.contentEditable = true;
+            nameEl.classList.add('editing');
+            nameEl.focus();
+            
+            // 选中文本
+            const range = document.createRange();
+            range.selectNodeContents(nameEl);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        
+        nameEl.addEventListener('blur', async () => {
+            nameEl.contentEditable = false;
+            nameEl.classList.remove('editing');
+            
+            const newName = nameEl.textContent.trim();
+            if (newName) {
+                const userSettings = await getUserSettings();
+                if (newName !== userSettings.name) {
+                    await saveUserSettings({ name: newName });
+                    // 如果没有自定义头像，则重新生成像素头像
+                    if (!userSettings.avatar) {
+                        await updateAvatars();
+                    }
+                    showMessage('名字已更新', 'success');
+                }
+            } else {
+                // 恢复原名字
+                const userSettings = await getUserSettings();
+                nameEl.textContent = userSettings.name;
+            }
+        });
+        
+        nameEl.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                nameEl.blur();
+            } else if (e.key === 'Escape') {
+                const userSettings = await getUserSettings();
+                nameEl.textContent = userSettings.name;
+                nameEl.blur();
+            }
+        });
+    }
+}
+
 // 初始化 Settings 页面
-function initSettingsPage() {
+async function initSettingsPage() {
     console.log('初始化 Settings 页面, 已初始化:', settingsNavInitialized);
     if (!settingsNavInitialized) {
         setupSettingsNavigation();
         setupHeatmapControls();
+        setupUserProfileEvents();
         settingsNavInitialized = true;
     }
-    // 加载保存的色系
-    loadHeatmapColorScheme();
+    // 先加载用户设置和阅读历史到缓存
+    await getUserSettings();
+    await getDailyReadingData();
+    // 更新头像和名字
+    await updateAvatars();
+    // 加载保存的色系（现在从服务器加载）
+    await loadHeatmapColorScheme();
     // 更新年份显示
     updateYearDisplay();
     renderHeatmap(currentHeatmapYear);
@@ -3169,7 +3519,7 @@ function initSettingsPage() {
 
 // 获取有阅读数据的年份范围
 function getReadingYearRange() {
-    const data = getDailyReadingData();
+    const data = getDailyReadingDataSync();
     const years = new Set();
     
     Object.keys(data).forEach(dateStr => {
@@ -3272,7 +3622,7 @@ function updateYearDisplay() {
 }
 
 // 设置热力图色系
-function setHeatmapColorScheme(scheme) {
+function setHeatmapColorScheme(scheme, save = true) {
     const container = document.querySelector('.heatmap-container');
     const dropdown = document.getElementById('color-scheme-dropdown');
     
@@ -3287,15 +3637,18 @@ function setHeatmapColorScheme(scheme) {
         });
     }
     
-    // 保存到 localStorage
-    localStorage.setItem('heatmapColorScheme', scheme);
-    console.log('色系已保存:', scheme);
+    // 保存到服务器
+    if (save) {
+        saveUserSettings({ heatmapColorScheme: scheme });
+        console.log('色系已保存:', scheme);
+    }
 }
 
 // 加载保存的色系
-function loadHeatmapColorScheme() {
-    const saved = localStorage.getItem('heatmapColorScheme') || 'green';
-    setHeatmapColorScheme(saved);
+async function loadHeatmapColorScheme() {
+    const userSettings = await getUserSettings();
+    const scheme = userSettings.heatmapColorScheme || 'green';
+    setHeatmapColorScheme(scheme, false); // 不重复保存
 }
 
 // 设置 Settings 导航切换
@@ -3331,42 +3684,36 @@ function setupSettingsNavigation() {
 // 记录每日阅读时间
 function recordDailyReadingTime(minutes) {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const key = 'dailyReadingData';
     
-    try {
-        let data = {};
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            data = JSON.parse(saved);
-        }
-        
-        // 累加今天的阅读时间（分钟）
-        data[today] = (data[today] || 0) + minutes;
-        
-        // 只保留过去 400 天的数据
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - 400);
-        const cutoffStr = cutoffDate.toISOString().split('T')[0];
-        
-        Object.keys(data).forEach(date => {
-            if (date < cutoffStr) {
-                delete data[date];
-            }
-        });
-        
-        localStorage.setItem(key, JSON.stringify(data));
-    } catch (e) {
+    // 发送到服务器
+    fetch('/api/settings/reading-history/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes, date: today })
+    }).catch(e => {
         console.error('记录每日阅读时间失败:', e);
+    });
+    
+    // 同时更新本地缓存（用于即时显示）
+    if (readingHistoryCache) {
+        readingHistoryCache[today] = (readingHistoryCache[today] || 0) + minutes;
     }
 }
 
 // 获取每日阅读数据
-function getDailyReadingData() {
-    const key = 'dailyReadingData';
+// 阅读历史缓存
+let readingHistoryCache = null;
+
+async function getDailyReadingData() {
+    // 如果有缓存，直接返回
+    if (readingHistoryCache) {
+        return readingHistoryCache;
+    }
     try {
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            return JSON.parse(saved);
+        const response = await fetch('/api/settings/reading-history');
+        if (response.ok) {
+            readingHistoryCache = await response.json();
+            return readingHistoryCache;
         }
     } catch (e) {
         console.error('获取每日阅读数据失败:', e);
@@ -3374,33 +3721,44 @@ function getDailyReadingData() {
     return {};
 }
 
+// 同步版本（使用缓存）
+function getDailyReadingDataSync() {
+    if (readingHistoryCache) {
+        return readingHistoryCache;
+    }
+    return {};
+}
+
 // 添加测试阅读数据
-function addTestReadingData() {
+async function addTestReadingData() {
     const today = new Date().toISOString().split('T')[0];
-    const key = 'dailyReadingData';
     
     try {
-        let data = {};
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            data = JSON.parse(saved);
-        }
-        
         // 添加今天的测试数据（30分钟）
-        data[today] = (data[today] || 0) + 30;
+        await fetch('/api/settings/reading-history/record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes: 30, date: today })
+        });
         
         // 添加过去一周的随机数据
         for (let i = 1; i <= 7; i++) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             const dateStr = date.toISOString().split('T')[0];
-            if (!data[dateStr]) {
-                data[dateStr] = Math.floor(Math.random() * 60) + 10; // 10-70分钟
-            }
+            const minutes = Math.floor(Math.random() * 60) + 10; // 10-70分钟
+            await fetch('/api/settings/reading-history/record', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minutes, date: dateStr })
+            });
         }
         
-        localStorage.setItem(key, JSON.stringify(data));
-        console.log('测试数据已添加:', data);
+        // 清除缓存并重新加载
+        readingHistoryCache = null;
+        await getDailyReadingData();
+        
+        console.log('测试数据已添加');
         showMessage('已添加测试数据，刷新热力图...', 'success');
         
         // 刷新热力图
@@ -3413,15 +3771,21 @@ function addTestReadingData() {
 }
 
 // 清除所有阅读数据
-function clearReadingData() {
+async function clearReadingData() {
     if (confirm('确定要清除所有阅读数据吗？此操作不可撤销。')) {
-        localStorage.removeItem('dailyReadingData');
-        console.log('阅读数据已清除');
-        showMessage('阅读数据已清除', 'success');
-        
-        // 刷新热力图
-        renderHeatmap();
-        renderOverviewStats();
+        try {
+            await fetch('/api/settings/reading-history/clear', { method: 'POST' });
+            readingHistoryCache = null;
+            console.log('阅读数据已清除');
+            showMessage('阅读数据已清除', 'success');
+            
+            // 刷新热力图
+            renderHeatmap();
+            renderOverviewStats();
+        } catch (e) {
+            console.error('清除数据失败:', e);
+            showMessage('清除数据失败', 'error');
+        }
     }
 }
 
@@ -3436,7 +3800,8 @@ function renderHeatmap(year) {
     }
     
     year = year || new Date().getFullYear();
-    const data = getDailyReadingData();
+    // 使用同步缓存版本，调用前需确保数据已加载
+    const data = getDailyReadingDataSync();
     console.log('热力图数据:', data, '年份:', year);
     
     const today = new Date();
@@ -3582,8 +3947,8 @@ async function renderOverviewStats() {
             console.error('获取论文数量失败:', e);
         }
         
-        // 从 localStorage 获取每日阅读数据计算总阅读时长
-        const dailyData = getDailyReadingData();
+        // 从服务器获取每日阅读数据计算总阅读时长
+        const dailyData = getDailyReadingDataSync();
         
         // 计算总阅读时长（分钟，因为 dailyData 中存储的就是分钟）
         let totalMinutes = 0;
@@ -3986,7 +4351,7 @@ async function requestTranslation(paperId, event) {
     }
     
     // 检查设置
-    const settings = getTranslationSettings();
+    const settings = await getTranslationSettings();
     if (!settings || !settings.openaiModel || !settings.openaiBaseUrl || !settings.openaiApiKey) {
         showMessage('请先在设置中配置翻译参数', 'warning');
         switchTab('setting');
@@ -4030,7 +4395,7 @@ async function processTranslationQueue() {
         updateTranslationStatus(paperId, 'translating', 0);
         renderPapersList(); // 更新显示
         
-        const settings = getTranslationSettings();
+        const settings = await getTranslationSettings();
         const response = await fetch('/api/paper/translate', {
             method: 'POST',
             headers: {
@@ -4476,7 +4841,7 @@ function openChineseVersion(paperId) {
 // ========== AI解读相关函数 ==========
 
 // 保存解读设置
-function saveAnalysisSettings() {
+async function saveAnalysisSettings() {
     const settings = {
         mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
         openaiBaseUrl: document.getElementById('analysis-openai-base-url').value.trim(),
@@ -4484,44 +4849,61 @@ function saveAnalysisSettings() {
         systemPrompt: document.getElementById('analysis-system-prompt').value.trim()
     };
     
-    localStorage.setItem('analysisSettings', JSON.stringify(settings));
-    showMessage('设置已保存', 'success');
+    try {
+        const response = await fetch('/api/settings/analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        if (response.ok) {
+            showMessage('设置已保存', 'success');
+        } else {
+            showMessage('保存失败', 'error');
+        }
+    } catch (e) {
+        console.error('保存AI解读设置失败:', e);
+        showMessage('保存失败', 'error');
+    }
 }
 
 // 加载解读设置
-function loadAnalysisSettings() {
-    const saved = localStorage.getItem('analysisSettings');
-    if (saved) {
-        try {
-            const settings = JSON.parse(saved);
-            document.getElementById('mineru-server-url').value = settings.mineruServerUrl || '';
-            document.getElementById('analysis-openai-base-url').value = settings.openaiBaseUrl || '';
-            document.getElementById('analysis-openai-api-key').value = settings.openaiApiKey || '';
-            document.getElementById('analysis-system-prompt').value = settings.systemPrompt || '';
-        } catch (e) {
-            console.error('加载设置失败:', e);
-        }
-    } else {
-        // 设置默认的 SYSTEM_PROMPT
-        const defaultPrompt = `请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+async function loadAnalysisSettings() {
+    const defaultPrompt = `请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
 实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
 图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
 
 INPUT: <MARKDOWN>`;
-        document.getElementById('analysis-system-prompt').value = defaultPrompt;
+    
+    try {
+        const response = await fetch('/api/settings/analysis');
+        if (response.ok) {
+            const settings = await response.json();
+            const mineruEl = document.getElementById('mineru-server-url');
+            const baseUrlEl = document.getElementById('analysis-openai-base-url');
+            const apiKeyEl = document.getElementById('analysis-openai-api-key');
+            const promptEl = document.getElementById('analysis-system-prompt');
+            if (mineruEl) mineruEl.value = settings.mineruServerUrl || '';
+            if (baseUrlEl) baseUrlEl.value = settings.openaiBaseUrl || '';
+            if (apiKeyEl) apiKeyEl.value = settings.openaiApiKey || '';
+            if (promptEl) promptEl.value = settings.systemPrompt || defaultPrompt;
+        }
+    } catch (e) {
+        console.error('加载AI解读设置失败:', e);
+        // 使用默认值
+        const promptEl = document.getElementById('analysis-system-prompt');
+        if (promptEl) promptEl.value = defaultPrompt;
     }
 }
 
 // 获取解读设置
-function getAnalysisSettings() {
-    const saved = localStorage.getItem('analysisSettings');
-    if (saved) {
-        try {
-            return JSON.parse(saved);
-        } catch (e) {
-            console.error('读取设置失败:', e);
-            return null;
+async function getAnalysisSettings() {
+    try {
+        const response = await fetch('/api/settings/analysis');
+        if (response.ok) {
+            return await response.json();
         }
+    } catch (e) {
+        console.error('获取AI解读设置失败:', e);
     }
     return null;
 }
@@ -4644,7 +5026,7 @@ async function requestAnalysis(paperId, event) {
     }
 
     // 检查设置
-    const settings = getAnalysisSettings();
+    const settings = await getAnalysisSettings();
     if (!settings || !settings.mineruServerUrl || !settings.openaiBaseUrl || !settings.openaiApiKey || !settings.systemPrompt) {
         showMessage('请先在设置中配置AI解读参数', 'warning');
         // 切换到设置页面
@@ -4701,7 +5083,7 @@ async function processAnalysisQueue() {
         updateAnalysisStatus(paperId, 'analyzing');
 
         // 获取设置
-        const settings = getAnalysisSettings();
+        const settings = await getAnalysisSettings();
         if (!settings) {
             throw new Error('设置未配置');
         }
