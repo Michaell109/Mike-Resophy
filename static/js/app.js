@@ -2922,7 +2922,7 @@ async function onBatchAnalyze() {
     for (const id of ids) {
         await requestAnalysis(id);
     }
-    showMessage(`已提交 ${ids.length} 篇解读`, 'success');
+    // 已提交解读，状态列会自动更新
 }
 
 async function onBatchTranslate() {
@@ -2931,7 +2931,7 @@ async function onBatchTranslate() {
     for (const id of ids) {
         await requestTranslation(id);
     }
-    showMessage(`已提交 ${ids.length} 篇翻译`, 'success');
+    // 已提交翻译，状态列会自动更新
     updateTaskIndicator();
 }
 
@@ -4391,6 +4391,29 @@ async function renderRecentIfNoCategory() {
     await renderAllPapers();
 }
 
+// 根据当前视图模式刷新列表（通用函数）
+async function refreshCurrentViewList() {
+    switch (currentViewMode) {
+        case 'translating':
+            await showTranslatingPapers();
+            break;
+        case 'analyzing':
+            await showAnalyzingPapers();
+            break;
+        case 'reading-list':
+            await showReadingList();
+            break;
+        case 'category':
+        default:
+            if (currentCategoryId) {
+                await loadPapers(currentCategoryId);
+            } else {
+                await renderAllPapers();
+            }
+            break;
+    }
+}
+
 // 请求翻译
 async function requestTranslation(paperId, event) {
     if (event) {
@@ -4421,7 +4444,7 @@ async function requestTranslation(paperId, event) {
     
     // 添加到队列
     if (translationStatus[paperId]) {
-        showMessage('该论文已在翻译队列中', 'warning');
+        // 该论文已在翻译队列中，不重复添加
         return;
     }
     
@@ -4483,7 +4506,7 @@ async function processTranslationQueue() {
             renderPapersList(); // 更新显示
             
             // 显示日志查看按钮的提示
-            showMessage('翻译任务已启动，点击日志按钮查看进度', 'success');
+            // 不显示启动提示，用户可以通过状态列看到进度
         } else {
             updateTranslationStatus(paperId, 'error', 0);
             saveQueuesToStorage();
@@ -4533,16 +4556,22 @@ function startLogPolling(taskId, paperId) {
                             paper.has_chinese_version = true;
                             paper.chinese_version_path = result.result.chinese_version_path;
                         }
-                        showMessage('翻译完成', 'success');
+                        // 翻译完成，状态列会自动更新
                     } else {
                         updateTranslationStatus(paperId, 'error', 0, currentTaskId);
-                        showMessage(result.result?.error || '翻译失败', 'error');
+                        // 取消时不显示错误消息
+                        // 退出码 -15 是 SIGTERM，表示用户主动取消，不显示错误
+                        const errorMsg = result.result?.error || '';
+                        const isCancelled = status === 'cancelled' || errorMsg.includes('-15') || errorMsg.includes('-9');
+                        if (status === 'failed' && !isCancelled) {
+                            showMessage(errorMsg || '翻译失败', 'error');
+                        }
                     }
                     
                     // 继续处理队列
                     isTranslating = false;
-                    renderPapersList();
-                    renderRecentIfNoCategory(); // 同时更新最近阅读列表
+                    // 根据当前视图模式刷新列表
+                    await refreshCurrentViewList();
                     processTranslationQueue();
                 }
             } else {
@@ -4561,8 +4590,8 @@ function startLogPolling(taskId, paperId) {
                     isTranslating = false;
                     saveQueuesToStorage();
                     updateTaskIndicator();
-                    renderPapersList();
-                    renderRecentIfNoCategory();
+                    // 根据当前视图模式刷新列表
+                    await refreshCurrentViewList();
                     processTranslationQueue();
                 }
             }
@@ -4715,12 +4744,12 @@ async function cancelTranslation(taskId, paperId) {
         const result = await response.json();
         
         if (response.ok && result.success) {
-            showMessage('翻译已取消', 'success');
+            // 翻译已取消，状态列会自动更新
             stopLogPolling(taskId);
             updateTranslationStatus(paperId, 'error', 0, taskId);
             isTranslating = false;
-            renderPapersList();
-            renderRecentIfNoCategory();
+            // 根据当前视图模式刷新列表
+            await refreshCurrentViewList();
             hideModal();
             processTranslationQueue(); // 继续处理队列
         } else {
@@ -4744,8 +4773,8 @@ async function cancelTranslation(taskId, paperId) {
                 }
                 saveQueuesToStorage();
                 updateTaskIndicator();
-                renderPapersList();
-                renderRecentIfNoCategory();
+                // 根据当前视图模式刷新列表
+                await refreshCurrentViewList();
                 hideModal();
                 // 继续处理队列
                 processTranslationQueue();
@@ -4782,7 +4811,7 @@ async function cancelTranslationFromQueue(paperId, event) {
     saveQueuesToStorage();
     delete translationStatus[paperId];
     updateTranslationStatus(paperId, 'error', 0);
-    showMessage('已从队列中移除', 'success');
+    // 已从队列中移除，状态列会自动更新
 }
 
 // 获取状态文本
@@ -5093,7 +5122,7 @@ async function requestAnalysis(paperId, event) {
     if (analysisStatus[paperId]) {
         const status = analysisStatus[paperId].status;
         if (status === 'analyzing' || status === 'queued') {
-            showMessage('该论文已在解读队列中', 'info');
+            // 该论文已在解读队列中，不重复添加
             return;
         }
     }
@@ -5106,8 +5135,11 @@ async function requestAnalysis(paperId, event) {
     updateAnalysisStatus(paperId, 'queued', queuePosition);
     saveQueuesToStorage();
     
-    // 立即更新显示
-    if (currentCategoryId) {
+    // 立即更新显示（根据当前视图模式）
+    if (currentViewMode === 'reading-list') {
+        // 待读列表中只更新单个论文状态，不刷新整个列表
+        updatePaperStatusDisplay(paperId);
+    } else if (currentCategoryId) {
         renderPapersList();
     } else {
         renderAllPapers();
@@ -5209,9 +5241,9 @@ async function pollAnalysisStatus(taskId, paperId) {
                     }
                     isAnalyzing = false;
                     stopAnalysisLogPolling(taskId);
-                    showMessage('解读完成，可以查看结果', 'success');
-                    renderPapersList();
-                    renderRecentIfNoCategory();
+                    // 解读完成，状态列会自动更新
+                    // 根据当前视图模式刷新列表
+                    await refreshCurrentViewList();
                     if (currentPaperId === paperId) {
                         loadPaperInfo(paperId);
                     }
@@ -5220,7 +5252,13 @@ async function pollAnalysisStatus(taskId, paperId) {
                     updateAnalysisStatus(paperId, 'error');
                     isAnalyzing = false;
                     stopAnalysisLogPolling(taskId);
-                    showMessage(`解读失败: ${result.result?.error || '未知错误'}`, 'error');
+                    // 取消时不显示错误消息，只有真正失败时才显示
+                    // 退出码 -15 是 SIGTERM，表示用户主动取消，不显示错误
+                    const errorMsg = result.result?.error || '';
+                    const isCancelled = result.status === 'cancelled' || errorMsg.includes('-15') || errorMsg.includes('-9');
+                    if (result.status === 'failed' && !isCancelled) {
+                        showMessage(`解读失败: ${errorMsg || '未知错误'}`, 'error');
+                    }
                     processAnalysisQueue(); // 继续处理队列
                 } else {
                     // 仍在运行，继续轮询
@@ -5281,69 +5319,109 @@ function updatePaperStatusDisplay(paperId) {
     const paperItem = document.querySelector(`.paper-item[data-paper-id="${paperId}"]`);
     if (!paperItem) return;
     
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) return;
+    
+    // 更新列表视图中的状态列（.paper-col-action）
+    const actionCols = paperItem.querySelectorAll('.paper-col-action');
+    if (actionCols.length >= 2) {
+        // 翻译列是第一个 .paper-col-action（索引0是图标列后的第一个操作列）
+        // 实际上按顺序是：icon, title, date, translate(0), analyze(1), reading(2)
+        // 但 .paper-col-action 只包括 translate, analyze, reading
+        const translateActionCol = actionCols[0];
+        const analyzeActionCol = actionCols[1];
+        
+        // 更新翻译列
+        const tStatus = translationStatus[paperId];
+        let translateColHtml = '';
+        if (tStatus && tStatus.status === 'translating') {
+            translateColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> 翻译中...<button class="paper-action-stop" onclick="cancelTranslation('${paperId}', event)" title="停止翻译"><i class="fas fa-times"></i></button></span>`;
+        } else if (tStatus && tStatus.status === 'queued') {
+            translateColHtml = `<span class="paper-action-status processing"><i class="fas fa-clock"></i> 队列中<button class="paper-action-stop" onclick="cancelTranslation('${paperId}', event)" title="取消队列"><i class="fas fa-times"></i></button></span>`;
+        } else if (paper.has_chinese_version) {
+            translateColHtml = `<button class="paper-col-btn view chinese" onclick="openChineseVersion('${paperId}', event)"><i class="fas fa-language"></i> 中文版</button>`;
+        } else {
+            translateColHtml = `<button class="paper-col-btn translate icon-only" onclick="requestTranslation('${paperId}', event)" title="AI翻译"><i class="fas fa-language"></i></button>`;
+        }
+        translateActionCol.innerHTML = translateColHtml;
+        
+        // 更新解读列
+        const aStatus = analysisStatus[paperId];
+        let analyzeColHtml = '';
+        if (aStatus && aStatus.status === 'analyzing') {
+            const step = aStatus.step === 'pdf2md' ? 'PDF解析中...' : 'LLM解读中...';
+            analyzeColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> ${step}<button class="paper-action-stop" onclick="cancelAnalysis('${paperId}', event)" title="停止解读"><i class="fas fa-times"></i></button></span>`;
+        } else if (aStatus && aStatus.status === 'queued') {
+            analyzeColHtml = `<span class="paper-action-status processing"><i class="fas fa-clock"></i> 队列中<button class="paper-action-stop" onclick="cancelAnalysis('${paperId}', event)" title="取消队列"><i class="fas fa-times"></i></button></span>`;
+        } else if (paper.has_analysis_result) {
+            analyzeColHtml = `<button class="paper-col-btn view analysis" onclick="viewAnalysisResult('${paperId}', event)"><i class="fas fa-brain"></i> AI解读</button>`;
+        } else {
+            analyzeColHtml = `<button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paperId}', event)" title="AI解读"><i class="fas fa-brain"></i></button>`;
+        }
+        analyzeActionCol.innerHTML = analyzeColHtml;
+    }
+    
+    // 同时更新 .paper-meta 中的状态（用于详情视图）
     const paperMeta = paperItem.querySelector('.paper-meta');
     if (paperMeta) {
-        const paper = papers.find(p => p.id === paperId);
-        if (paper) {
-            // 更新翻译状态
-            const translationStatusHtml = getTranslationStatusText(paperId);
-            const oldTranslationStatus = paperMeta.querySelector('.translation-status');
-            if (oldTranslationStatus) {
-                oldTranslationStatus.remove();
+        // 更新翻译状态
+        const translationStatusHtml = getTranslationStatusText(paperId);
+        const oldTranslationStatus = paperMeta.querySelector('.translation-status');
+        if (oldTranslationStatus) {
+            oldTranslationStatus.remove();
+        }
+        if (translationStatusHtml) {
+            const statusDiv = document.createElement('span');
+            statusDiv.className = 'translation-status';
+            statusDiv.innerHTML = translationStatusHtml;
+            // 插入到 meta 的开始位置
+            paperMeta.insertBefore(statusDiv, paperMeta.firstChild);
+        }
+        
+        // 更新解读状态
+        const analysisStatusHtml = getAnalysisStatusText(paperId);
+        const oldAnalysisStatus = paperMeta.querySelector('.analysis-status');
+        if (oldAnalysisStatus) {
+            oldAnalysisStatus.remove();
+        }
+        if (analysisStatusHtml) {
+            const statusDiv = document.createElement('span');
+            statusDiv.className = 'analysis-status';
+            statusDiv.innerHTML = analysisStatusHtml;
+            paperMeta.appendChild(statusDiv);
+        }
+        
+        // 更新查看结果按钮
+        // 检查是否需要显示"查看中文版"按钮
+        const existingChineseBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="openChineseVersion"]');
+        if (paper.has_chinese_version && !existingChineseBtn) {
+            const btnContainer = paperItem.querySelector('.paper-details');
+            if (btnContainer) {
+                const btnHtml = `
+                    <div class="chinese-version-btn-container" style="margin-top: 5px;">
+                        <button class="chinese-version-btn" onclick="openChineseVersion('${paperId}', event)" title="查看中文版PDF">
+                            <i class="fas fa-language"></i> 查看中文版
+                        </button>
+                    </div>
+                `;
+                btnContainer.insertAdjacentHTML('beforeend', btnHtml);
             }
-            if (translationStatusHtml) {
-                const statusDiv = document.createElement('span');
-                statusDiv.className = 'translation-status';
-                statusDiv.innerHTML = translationStatusHtml;
-                // 插入到 meta 的开始位置
-                paperMeta.insertBefore(statusDiv, paperMeta.firstChild);
-            }
-            
-            // 更新解读状态
-            const analysisStatusHtml = getAnalysisStatusText(paperId);
-            const oldAnalysisStatus = paperMeta.querySelector('.analysis-status');
-            if (oldAnalysisStatus) {
-                oldAnalysisStatus.remove();
-            }
-            if (analysisStatusHtml) {
-                const statusDiv = document.createElement('span');
-                statusDiv.className = 'analysis-status';
-                statusDiv.innerHTML = analysisStatusHtml;
-                paperMeta.appendChild(statusDiv);
-            }
-            
-            // 更新查看结果按钮
-            // 检查是否需要显示"查看中文版"按钮
-            const existingChineseBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="openChineseVersion"]');
-            if (paper.has_chinese_version && !existingChineseBtn) {
+        }
+        
+        // 检查是否需要显示"查看 AI 解读"按钮
+        const existingAnalysisBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="viewAnalysisResult"]');
+        if (paper.has_analysis_result) {
+            if (!existingAnalysisBtn) {
                 const btnContainer = paperItem.querySelector('.paper-details');
                 if (btnContainer) {
                     const btnHtml = `
                         <div class="chinese-version-btn-container" style="margin-top: 5px;">
-                            <button class="chinese-version-btn" onclick="openChineseVersion('${paperId}', event)" title="查看中文版PDF">
-                                <i class="fas fa-language"></i> 查看中文版
+                            <button class="chinese-version-btn" onclick="viewAnalysisResult('${paperId}', event)" title="查看 AI 解读" style="background: #6f42c1; color: white; border-color: #6f42c1;">
+                                <i class="fas fa-brain"></i> 查看 AI 解读
                             </button>
                         </div>
                     `;
                     btnContainer.insertAdjacentHTML('beforeend', btnHtml);
-                }
-            }
-            
-            // 检查是否需要显示"查看 AI 解读"按钮
-            const existingAnalysisBtn = paperItem.querySelector('.chinese-version-btn-container .chinese-version-btn[onclick*="viewAnalysisResult"]');
-            if (paper.has_analysis_result) {
-                if (!existingAnalysisBtn) {
-                    const btnContainer = paperItem.querySelector('.paper-details');
-                    if (btnContainer) {
-                        const btnHtml = `
-                            <div class="chinese-version-btn-container" style="margin-top: 5px;">
-                                <button class="chinese-version-btn" onclick="viewAnalysisResult('${paperId}', event)" title="查看 AI 解读" style="background: #6f42c1; color: white; border-color: #6f42c1;">
-                                    <i class="fas fa-brain"></i> 查看 AI 解读
-                                </button>
-                            </div>
-                        `;
-                        btnContainer.insertAdjacentHTML('beforeend', btnHtml);
-                    }
                 }
             }
         }
@@ -5400,10 +5478,16 @@ function startAnalysisLogPolling(taskId, paperId) {
                     // 更新状态
                     if (status === 'completed') {
                         updateAnalysisStatus(paperId, 'completed');
-                        showMessage('解读完成，可以查看结果', 'success');
+                        // 解读完成，状态列会自动更新
                     } else {
                         updateAnalysisStatus(paperId, 'error');
-                        showMessage(`解读${status === 'cancelled' ? '已取消' : '失败'}: ${result.result?.error || '未知错误'}`, 'error');
+                        // 取消时不显示错误消息，只有真正失败时才显示
+                        // 退出码 -15 是 SIGTERM，表示用户主动取消，不显示错误
+                        const errorMsg = result.result?.error || '';
+                        const isCancelled = status === 'cancelled' || errorMsg.includes('-15') || errorMsg.includes('-9');
+                        if (status === 'failed' && !isCancelled) {
+                            showMessage(`解读失败: ${errorMsg || '未知错误'}`, 'error');
+                        }
                     }
                     
                     // 继续处理队列
@@ -5522,7 +5606,7 @@ function showAnalysisLogModal(taskId, logs, status, step, paperId) {
         newConfirmBtn.onclick = async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            await cancelAnalysis(taskId, paperId);
+            await cancelAnalysisTask(taskId, paperId);
         };
     }
     
@@ -5556,7 +5640,7 @@ function showAnalysisLogModal(taskId, logs, status, step, paperId) {
                     if (result.status !== 'running') {
                         clearInterval(logInterval);
                         if (result.status === 'completed') {
-                            showMessage('解读完成', 'success');
+                            // 解读完成，状态列会自动更新
                             // 更新状态显示（不重新加载整个列表，避免闪烁）
                             updateAnalysisStatus(paperId, 'completed');
                             updatePaperStatusDisplay(paperId);
@@ -5579,8 +5663,8 @@ function showAnalysisLogModal(taskId, logs, status, step, paperId) {
     }
 }
 
-// 取消解读（从状态中取消，需要taskId）
-async function cancelAnalysis(taskId, paperId) {
+// 取消解读任务（从状态中取消，需要taskId）
+async function cancelAnalysisTask(taskId, paperId) {
     try {
         const response = await fetch(`/api/paper/analyze/${taskId}/cancel`, {
             method: 'POST'
@@ -5589,7 +5673,7 @@ async function cancelAnalysis(taskId, paperId) {
         const result = await response.json();
         
         if (response.ok && result.success) {
-            showMessage('解读已取消', 'success');
+            // 解读已取消，状态列会自动更新
             updateAnalysisStatus(paperId, 'error');
             isAnalyzing = false;
             processAnalysisQueue();
@@ -5615,10 +5699,13 @@ async function cancelAnalysis(taskId, paperId) {
                 }
                 saveQueuesToStorage();
                 updateTaskIndicator();
-                if (currentCategoryId) {
+                // 根据当前视图模式更新显示
+                if (currentViewMode === 'reading-list' || currentViewMode === 'analyzing') {
+                    updatePaperStatusDisplay(paperId);
+                } else if (currentCategoryId) {
                     updatePaperStatusDisplay(paperId);
                 } else {
-                    renderRecentIfNoCategory();
+                    await refreshCurrentViewList();
                 }
                 hideModal();
                 // 继续处理队列
@@ -5644,7 +5731,7 @@ async function cancelAnalysisFromStatus(paperId, event) {
     if (!confirm('确定要终止解读吗？')) {
         return;
     }
-    await cancelAnalysis(status.taskId, paperId);
+    await cancelAnalysisTask(status.taskId, paperId);
 }
 
 // 从队列中取消解读
@@ -5658,8 +5745,10 @@ async function cancelAnalysisFromQueue(paperId, event) {
     analysisQueue.splice(index, 1);
     saveQueuesToStorage();
     delete analysisStatus[paperId];
-    updateAnalysisStatus(paperId, 'error');
-    showMessage('已从队列中移除', 'success');
+    // 直接更新显示，不调用 updateAnalysisStatus（因为状态已删除）
+    updatePaperStatusDisplay(paperId);
+    updateTaskIndicator();
+    // 已从队列中移除，状态列会自动更新
 }
 
 // 查看解读结果（右侧信息面板内展示，放宽面板宽度）
@@ -5996,7 +6085,7 @@ function cancelTranslation(paperId, event) {
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    showMessage('已取消翻译', 'success');
+                    // 已取消翻译，状态列会自动更新
                     // 如果当前正在翻译的是这个任务，重置翻译标志
                     if (isTranslating) {
                         isTranslating = false;
@@ -6018,8 +6107,10 @@ function cancelTranslation(paperId, event) {
     saveQueuesToStorage();
     updateTaskIndicator();
     
-    // 刷新显示
-    if (currentCategoryId) {
+    // 刷新显示（根据当前视图模式）
+    if (currentViewMode === 'reading-list' || currentViewMode === 'translating') {
+        updatePaperStatusDisplay(paperId);
+    } else if (currentCategoryId) {
         updatePaperStatusDisplay(paperId);
     } else {
         renderAllPapers();
@@ -6045,7 +6136,7 @@ function cancelAnalysis(paperId, event) {
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    showMessage('已取消解读', 'success');
+                    // 已取消解读，状态列会自动更新
                     // 如果当前正在解读的是这个任务，重置解读标志
                     if (isAnalyzing) {
                         isAnalyzing = false;
@@ -6067,8 +6158,10 @@ function cancelAnalysis(paperId, event) {
     saveQueuesToStorage();
     updateTaskIndicator();
     
-    // 刷新显示
-    if (currentCategoryId) {
+    // 刷新显示（根据当前视图模式）
+    if (currentViewMode === 'reading-list' || currentViewMode === 'analyzing') {
+        updatePaperStatusDisplay(paperId);
+    } else if (currentCategoryId) {
         updatePaperStatusDisplay(paperId);
     } else {
         renderAllPapers();
