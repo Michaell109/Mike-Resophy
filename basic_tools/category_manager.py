@@ -11,22 +11,6 @@ EMPTY_CATEGORIES: Dict[str, Any] = {
     "children": [],
 }
 
-# 保留旧的默认分类（用于向后兼容，如果需要）
-DEFAULT_CATEGORIES: Dict[str, Any] = {
-    "id": "root",
-    "name": "Root",
-    "children": [
-        {
-            "id": "mllm",
-            "name": "MLLM",
-            "children": [
-                {"id": "finetuning", "name": "finetuning", "children": []},
-                {"id": "post_training", "name": "post_training", "children": []},
-            ],
-        }
-    ],
-}
-
 
 def init_categories(
     categories_file: str, default: Optional[Dict[str, Any]] = None
