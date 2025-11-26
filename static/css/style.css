@@ -2522,6 +2522,54 @@ mark { background: #fff59d; }
     overflow-wrap: break-word;
 }
 
+/* 文本块 - 限制显示3行 */
+.info-section.compact .info-value.text-block {
+    line-height: 1.4;
+    transition: all 0.3s ease;
+}
+
+.info-section.compact .info-value.text-block.text-collapsed {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-height: calc(1.4em * 3);
+}
+
+.info-section.compact .info-value.text-block:not(.text-collapsed) {
+    display: block;
+    max-height: none;
+    overflow: visible;
+}
+
+/* 展开/收起按钮 */
+.text-expand-btn,
+.text-collapse-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #2196f3;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+.text-expand-btn:hover,
+.text-collapse-btn:hover {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.text-expand-btn i,
+.text-collapse-btn i {
+    font-size: 10px;
+}
+
 /* 可编辑字段 */
 .info-section.compact .info-value.editable {
     padding: 4px 6px;

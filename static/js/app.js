@@ -1058,43 +1058,79 @@ async function loadPaperInfo(paperId) {
 
 // 渲染论文信息（重构版：紧凑+折叠）
 function renderPaperInfo(paper) {
-    // 辅助函数：截断文本
-    const truncateText = (text, maxLines = 3) => {
-        if (!text) return '';
-        const lines = text.split('\n');
-        if (lines.length <= maxLines) return text;
-        return lines.slice(0, maxLines).join('\n') + '...';
+    // 辅助函数：格式化arXiv日期（去掉年份重复）
+    const formatArxivDate = (dateString) => {
+        if (!dateString) return '';
+        try {
+            const date = new Date(dateString);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}/${month}/${day}`;
+        } catch (e) {
+            return dateString;
+        }
     };
     
-    // 辅助函数：创建折叠区域
-    const createCollapsible = (label, content, field, multiline = false, defaultExpanded = false, editable = true) => {
+    // 辅助函数：创建可展开的文本块
+    const createExpandableTextBlock = (label, content, field, multiline = false, defaultExpanded = false, editable = true) => {
         if (!content) return '';
-        const truncated = multiline ? truncateText(content, 3) : content;
-        const needsCollapse = multiline && content.split('\n').length > 3;
-        const collapsedClass = needsCollapse && !defaultExpanded ? 'collapsed' : '';
+        
+        // 简单判断是否需要展开：检查文本长度或换行数
+        // 对于单行文本，如果超过一定长度可能需要展开
+        // 对于多行文本，如果超过3行需要展开
+        let needsExpand = false;
+        if (multiline) {
+            const lines = content.split('\n');
+            needsExpand = lines.length > 3 || content.length > 200;
+        } else {
+            // 单行文本，如果太长也可能需要展开
+            needsExpand = content.length > 100;
+        }
+        
+        const isCollapsed = needsExpand && !defaultExpanded;
+        const collapsedClass = isCollapsed ? 'text-collapsed' : '';
         const editableClass = editable ? 'editable' : '';
         const editableAttr = editable ? 'contenteditable="true"' : '';
         
         return `
-            <div class="info-section compact ${collapsedClass}" data-field="${field}">
-                <div class="info-header" onclick="toggleInfoSection(this)">
+            <div class="info-section compact" data-field="${field}">
+                <div class="info-header">
                     <span class="info-label">${label}</span>
-                    ${needsCollapse ? '<i class="fas fa-chevron-down toggle-icon"></i>' : ''}
                 </div>
                 <div class="info-content">
-                    <div class="info-value ${editableClass}" data-field="${field}" ${editableAttr}
-                         style="${multiline ? 'white-space: pre-wrap;' : ''}">${content || ''}</div>
+                    <div class="info-value text-block ${collapsedClass} ${editableClass}" 
+                         data-field="${field}" 
+                         ${editableAttr}
+                         data-full-text="${escapeHtml(content)}"
+                         style="${multiline ? 'white-space: pre-wrap;' : ''}">${escapeHtml(content || '')}</div>
+                    ${needsExpand ? `
+                    <div class="text-expand-btn" onclick="toggleTextExpand(this)" style="display: ${isCollapsed ? 'block' : 'none'}">
+                        <i class="fas fa-chevron-down"></i> 展开
+                    </div>
+                    <div class="text-collapse-btn" onclick="toggleTextCollapse(this)" style="display: ${isCollapsed ? 'none' : 'block'}">
+                        <i class="fas fa-chevron-up"></i> 收起
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         `;
     };
     
+    // HTML转义函数
+    const escapeHtml = (text) => {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    };
+    
     paperInfo.innerHTML = `
         <div class="paper-info-container compact-mode">
             <!-- 基本信息 -->
-            ${createCollapsible('标题', paper.title, 'title', false, true)}
-            ${createCollapsible('作者', paper.authors, 'authors', false, true)}
-            ${createCollapsible('单位', paper.affiliation, 'affiliation', true)}
+            ${createExpandableTextBlock('标题', paper.title, 'title', false, false, true)}
+            ${createExpandableTextBlock('作者', paper.authors, 'authors', false, false, true)}
+            ${createExpandableTextBlock('单位', paper.affiliation, 'affiliation', true, false, true)}
             
             <!-- 时间信息 -->
             <div class="info-section compact">
@@ -1103,14 +1139,14 @@ function renderPaperInfo(paper) {
                 </div>
                 <div class="info-content">
                     <div class="info-value compact-text">
-                        ${paper.year ? `<span><i class="fas fa-calendar"></i> ${paper.year}</span>` : ''}
-                        ${paper.arxiv_published_date ? `<span><i class="fas fa-clock"></i> ${new Date(paper.arxiv_published_date).toLocaleDateString()}</span>` : ''}
+                        ${paper.arxiv_published_date ? `<span><i class="fas fa-clock"></i> arXiv: ${formatArxivDate(paper.arxiv_published_date)}</span>` : ''}
+                        ${paper.year && !paper.arxiv_published_date ? `<span><i class="fas fa-calendar"></i> ${paper.year}</span>` : ''}
                     </div>
                 </div>
             </div>
             
             <!-- 摘要 -->
-            ${createCollapsible('摘要 (Abstract)', paper.abstract, 'abstract', true)}
+            ${createExpandableTextBlock('摘要 (Abstract)', paper.abstract, 'abstract', true, false, true)}
             
             <!-- BibTeX -->
             ${paper.bibtex ? `
@@ -1123,13 +1159,13 @@ function renderPaperInfo(paper) {
                     <i class="fas fa-chevron-down toggle-icon"></i>
                 </div>
                 <div class="info-content">
-                    <pre class="bibtex-content" id="bibtex-${paper.id}">${paper.bibtex || ''}</pre>
+                    <pre class="bibtex-content" id="bibtex-${paper.id}">${escapeHtml(paper.bibtex || '')}</pre>
                 </div>
             </div>
             ` : ''}
             
             <!-- 备注 -->
-            ${createCollapsible('备注', paper.notes || '', 'notes', true)}
+            ${createExpandableTextBlock('备注', paper.notes || '', 'notes', true, false, true)}
             
             <!-- 中文版本 -->
             ${paper.has_chinese_version ? `
@@ -1158,12 +1194,49 @@ function renderPaperInfo(paper) {
             }
         });
     });
+    
+    // 初始化文本块的展开/折叠状态
+    paperInfo.querySelectorAll('.text-block').forEach(block => {
+        const fullText = block.dataset.fullText || block.textContent;
+        block.dataset.fullText = fullText;
+    });
 }
 
 // 切换信息区域折叠状态
 function toggleInfoSection(header) {
     const section = header.closest('.info-section');
     section.classList.toggle('collapsed');
+}
+
+// 切换文本展开/折叠状态
+function toggleTextExpand(btn) {
+    const content = btn.previousElementSibling;
+    if (!content || !content.classList.contains('text-block')) return;
+    
+    // 展开
+    content.classList.remove('text-collapsed');
+    btn.style.display = 'none';
+    
+    // 显示折叠按钮
+    const collapseBtn = content.parentElement.querySelector('.text-collapse-btn');
+    if (collapseBtn) {
+        collapseBtn.style.display = 'block';
+    }
+}
+
+// 折叠文本
+function toggleTextCollapse(btn) {
+    const content = btn.previousElementSibling.previousElementSibling;
+    if (!content || !content.classList.contains('text-block')) return;
+    
+    content.classList.add('text-collapsed');
+    btn.style.display = 'none';
+    
+    // 显示展开按钮
+    const expandBtn = content.parentElement.querySelector('.text-expand-btn');
+    if (expandBtn) {
+        expandBtn.style.display = 'block';
+    }
 }
 
 // 复制 BibTeX
