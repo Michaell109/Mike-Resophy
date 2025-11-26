@@ -341,15 +341,36 @@ class ZoteroRDFParser:
                     if category_path not in matched_paper.extra["category"]:
                         matched_paper.extra["category"].append(category_path)
 
-        # 将 category 列表转换为字符串
+        # 将 category 列表转换为字符串，并移除冗余路径
         for paper in self.papers:
             if "category" in paper.extra:
                 if isinstance(paper.extra["category"], list):
-                    category_str = "; ".join(paper.extra["category"])
+                    categories = paper.extra["category"]
+                    # 移除冗余路径：如果一个路径是另一个路径的前缀，则移除前缀路径
+                    # 只保留最长的（最具体的）路径
+                    filtered_categories = []
+                    for cat_path in categories:
+                        # 检查这个路径是否是其他路径的前缀
+                        is_prefix = False
+                        for other_path in categories:
+                            if cat_path != other_path and other_path.startswith(
+                                cat_path + "/"
+                            ):
+                                is_prefix = True
+                                break
+                        if not is_prefix:
+                            filtered_categories.append(cat_path)
+
+                    # 如果过滤后还有多个路径，按长度排序（最长的在前）
+                    filtered_categories.sort(key=len, reverse=True)
+
+                    category_str = "; ".join(filtered_categories)
                     paper.extra["category"] = category_str
                     # 也添加到 subject 字段（如果为空）
                     if not paper.subject and category_str:
-                        paper.subject = paper.extra["category"].split(";")[0].strip()
+                        paper.subject = (
+                            filtered_categories[0] if filtered_categories else ""
+                        )
 
     def _parse_papers(self):
         """解析论文条目"""

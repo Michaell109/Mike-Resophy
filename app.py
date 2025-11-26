@@ -17,6 +17,7 @@ from routes.basic_routes.search_route import register_search_routes
 from routes.basic_routes.settings_route import register_settings_routes
 from routes.basic_routes.update_from_url_route import register_update_from_url_routes
 from routes.basic_routes.upload_from_pdf_route import register_upload_from_pdf_routes
+from routes.basic_routes.import_route import register_import_routes
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")
@@ -291,6 +292,18 @@ def register_routes():
         get_category_path=get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
+    )
+
+    register_import_routes(
+        app,
+        get_categories=get_categories,
+        save_categories=save_categories,
+        get_category_path=get_category_path,
+        create_category_folder=create_category_folder,
+        save_paper_metadata=save_paper_metadata,
+        reading_list_file=READING_LIST_FILE,
+        paper_store=paper_store,
+        upload_folder=UPLOAD_FOLDER,
     )
 
 

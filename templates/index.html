@@ -173,6 +173,10 @@
                     <i class="fas fa-brain"></i>
                     <span>AI Analysis</span>
                 </button>
+                <button class="setting-nav-item" data-setting="import">
+                    <i class="fas fa-file-import"></i>
+                    <span>Import</span>
+                </button>
             </nav>
         </div>
 
@@ -402,6 +406,122 @@
                         <button class="btn btn-primary" onclick="saveAnalysisSettings()">
                             <i class="fas fa-save"></i> 保存设置
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import Panel -->
+            <div class="setting-panel" id="setting-panel-import" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-file-import"></i> Import from Zotero</h2>
+                    <p>从 Zotero 导入论文库，支持导入目录结构和 PDF 文件</p>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-upload"></i>
+                        <span>上传 RDF 文件</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="import-options">
+                            <label class="import-option-checkbox">
+                                <input type="checkbox" id="import-test-mode" checked>
+                                <span>测试模式（仅导入前 20 篇论文）</span>
+                            </label>
+                        </div>
+                        
+                        <div class="import-drop-zone" id="import-drop-zone">
+                            <div class="drop-zone-content" id="drop-zone-content">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>拖拽 Zotero RDF 文件到此处</p>
+                                <span>或者 <a href="#" onclick="document.getElementById('rdf-file-input').click(); return false;">点击选择文件</a></span>
+                                <small>从 Zotero 导出：文件 → 导出文献库 → 选择 RDF 格式</small>
+                            </div>
+                            <input type="file" id="rdf-file-input" accept=".rdf" style="display: none;">
+                        </div>
+                        
+                        <!-- 解析进度 -->
+                        <div class="import-progress-container" id="import-progress-container" style="display: none;">
+                            <div class="import-status">
+                                <i class="fas fa-spinner fa-spin" id="import-status-icon"></i>
+                                <span id="import-status-text">正在解析 RDF 文件...</span>
+                            </div>
+                            <div class="import-progress-bar">
+                                <div class="import-progress-fill" id="import-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="import-progress-detail" id="import-progress-detail">
+                                准备中...
+                            </div>
+                        </div>
+                        
+                        <!-- 导入结果 -->
+                        <div class="import-result" id="import-result" style="display: none;">
+                            <div class="import-result-summary">
+                                <div class="result-stat success">
+                                    <i class="fas fa-check-circle"></i>
+                                    <span id="import-success-count">0</span>
+                                    <label>成功导入</label>
+                                </div>
+                                <div class="result-stat failed">
+                                    <i class="fas fa-times-circle"></i>
+                                    <span id="import-failed-count">0</span>
+                                    <label>导入失败</label>
+                                </div>
+                                <div class="result-stat skipped">
+                                    <i class="fas fa-forward"></i>
+                                    <span id="import-skipped-count">0</span>
+                                    <label>已跳过</label>
+                                </div>
+                                <div class="result-stat duplicate">
+                                    <i class="fas fa-clone"></i>
+                                    <span id="import-duplicate-count">0</span>
+                                    <label>重复跳过</label>
+                                </div>
+                            </div>
+                            <div class="import-result-detail" id="import-result-detail" style="display: none;">
+                                <p><i class="fas fa-folder" style="color: #8b949e;"></i> 其中 <strong id="import-others-count">0</strong> 篇因无分类进入 Others 目录</p>
+                            </div>
+                            <div class="import-result-actions">
+                                <button class="btn btn-primary" onclick="resetImport()">
+                                    <i class="fas fa-redo"></i> 重新导入
+                                </button>
+                                <button class="btn btn-secondary" onclick="switchToOverview()">
+                                    <i class="fas fa-arrow-left"></i> 返回概览
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 导入说明 -->
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-info-circle"></i>
+                        <span>导入说明</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="import-instructions">
+                            <div class="instruction-step">
+                                <span class="step-number">1</span>
+                                <div class="step-content">
+                                    <strong>导出 Zotero 文献库</strong>
+                                    <p>在 Zotero 中选择「我的文库」，右键点击「导出文献库」，格式选择 <code>Zotero RDF</code>，得到 .rdf 文件</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">2</span>
+                                <div class="step-content">
+                                    <strong>上传 RDF 文件</strong>
+                                    <p>将导出的 .rdf 文件拖拽到上方区域，系统会自动解析</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">3</span>
+                                <div class="step-content">
+                                    <strong>自动下载 PDF</strong>
+                                    <p>系统会根据论文信息从 arXiv 自动下载 PDF 文件</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

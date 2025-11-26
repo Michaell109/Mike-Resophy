@@ -5,6 +5,7 @@ let currentPaperId = null;
 let papers = [];
 let expandedCategories = new Set(); // 记录展开的分类
 let draggedPaper = null; // 当前拖拽的论文
+let draggedCategory = null; // 当前拖拽的目录
 let dragExpandTimer = null; // 拖拽展开定时器
 let currentViewMode = 'category'; // 'category' | 'translating' | 'analyzing' | 'reading-list' - 当前视图模式
 let readingListCount = 0; // 待读列表数量
@@ -114,10 +115,22 @@ const loading = document.getElementById('loading');
 
 // 保存当前视图状态
 function saveCurrentViewState() {
+    // 检查当前是否在 Setting 界面
+    const settingView = document.getElementById('setting-view');
+    const isSettingView = settingView && settingView.style.display !== 'none';
+    
+    // 获取当前激活的 setting 面板
+    let settingPanel = null;
+    if (isSettingView) {
+        const activeNav = document.querySelector('.setting-nav-item.active');
+        settingPanel = activeNav?.dataset.setting || 'overview';
+    }
+    
     const state = {
         viewMode: currentViewMode,
         categoryId: currentCategoryId,
-        tabName: document.querySelector('.nav-tab.active')?.dataset.tab || 'paper'
+        tabName: isSettingView ? 'setting' : 'paper',
+        settingPanel: settingPanel
     };
     try {
         sessionStorage.setItem('currentViewState', JSON.stringify(state));
@@ -135,6 +148,10 @@ async function restoreViewState() {
 
             if (state.tabName === 'setting') {
                 switchTab('setting');
+                // 恢复到具体的 setting 面板
+                if (state.settingPanel) {
+                    switchSettingPanel(state.settingPanel);
+                }
                 return;
             }
 
@@ -225,6 +242,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadTranslationSettings();
     loadAnalysisSettings();
     loadGeneralSettings();
+    initImportFeature();
     // 初始化导航栏头像
     updateAvatars();
     // 先恢复队列状态，再恢复运行中的任务
@@ -375,8 +393,13 @@ async function loadCategories() {
 function renderCategoryTree() {
     categoryTree.innerHTML = '';
     if (categories.children) {
-        // 顶层分类按名称排序
-        const sorted = [...categories.children].sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+        // 顶层分类按名称排序，但 Others 放在最前面
+        const sorted = [...categories.children].sort((a, b) => {
+            // Others 目录永远排在最前面
+            if (a.name === 'Others') return -1;
+            if (b.name === 'Others') return 1;
+            return (a.name || '').localeCompare(b.name || '');
+        });
         sorted.forEach(category => {
             const element = createCategoryElement(category);
             categoryTree.appendChild(element);
@@ -456,9 +479,13 @@ function createCategoryElement(category, level = 0) {
 
     const hasChildren = category.children && category.children.length > 0;
     
+    // Others 目录使用灰色图标
+    const isOthers = category.name === 'Others';
+    const folderColor = isOthers ? '#8b949e' : '#ffc107';
+    
     div.innerHTML = `
         ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span class="category-toggle-placeholder"></span>'}
-        <i class="fas fa-folder" style="margin-right: 6px; color: #ffc107; font-size: 12px;"></i>
+        <i class="fas fa-folder" style="margin-right: 6px; color: ${folderColor}; font-size: 12px;"></i>
         <span class="category-name">${category.name}</span>
         <span class="pdf-count">${category.pdf_count || 0}</span>
     `;
@@ -502,7 +529,10 @@ function createCategoryElement(category, level = 0) {
         showContextMenu(e, category.id);
     });
 
-    // 添加拖拽目标功能
+    // 添加拖拽功能（使目录可被拖拽）
+    setupCategoryDrag(div, category);
+    
+    // 添加拖拽目标功能（接收论文或目录的拖放）
     setupCategoryDropTarget(div, category);
 
     // 切换展开/折叠
@@ -1003,8 +1033,12 @@ function renderPapersList() {
             showPaperContextMenu(e, paper.id);
         });
 
-        // 双击打开 PDF 阅读器
+        // 双击打开 PDF 阅读器（忽略在按钮上的双击）
         div.addEventListener('dblclick', (e) => {
+            // 如果双击的是按钮或按钮内的元素，不触发打开
+            if (e.target.closest('button') || e.target.closest('.paper-col-btn')) {
+                return;
+            }
             e.preventDefault();
             openPDFViewer(paper.id);
         });
@@ -2186,7 +2220,86 @@ function setupPaperDrag(paperElement, paper) {
     });
 }
 
-// 设置分类拖拽目标功能
+// 设置目录拖拽功能（使目录可被拖拽）
+function setupCategoryDrag(categoryElement, category) {
+    // 不允许拖拽根目录
+    if (category.id === 'root') return;
+    
+    categoryElement.draggable = true;
+    
+    categoryElement.addEventListener('dragstart', (e) => {
+        // 如果正在拖拽论文，不处理
+        if (draggedPaper) {
+            e.preventDefault();
+            return;
+        }
+        
+        console.log('开始拖拽目录:', category.name);
+        draggedCategory = category;
+        
+        // 阻止事件冒泡，避免触发父元素的拖拽
+        e.stopPropagation();
+        
+        // 延迟添加 dragging 类
+        setTimeout(() => {
+            categoryElement.classList.add('dragging');
+        }, 0);
+        
+        // 设置拖拽数据
+        e.dataTransfer.setData('text/plain', `category:${category.id}`);
+        e.dataTransfer.effectAllowed = 'move';
+        
+        // 创建自定义拖拽图像
+        const dragImage = document.createElement('div');
+        dragImage.style.position = 'absolute';
+        dragImage.style.top = '-9999px';
+        dragImage.style.left = '-9999px';
+        dragImage.style.padding = '8px 12px';
+        dragImage.style.background = '#f8f9fa';
+        dragImage.style.border = '2px solid #ffc107';
+        dragImage.style.borderRadius = '6px';
+        dragImage.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+        dragImage.style.fontSize = '13px';
+        dragImage.style.fontWeight = '500';
+        dragImage.style.color = '#333';
+        dragImage.style.display = 'flex';
+        dragImage.style.alignItems = 'center';
+        dragImage.style.gap = '6px';
+        dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${category.name}`;
+        document.body.appendChild(dragImage);
+        
+        const rect = categoryElement.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+        
+        e.dataTransfer.setDragImage(dragImage, offsetX, offsetY);
+        
+        setTimeout(() => {
+            if (document.body.contains(dragImage)) {
+                document.body.removeChild(dragImage);
+            }
+        }, 0);
+    });
+    
+    categoryElement.addEventListener('dragend', (e) => {
+        console.log('结束拖拽目录');
+        categoryElement.classList.remove('dragging');
+        draggedCategory = null;
+        
+        // 清理所有拖拽状态
+        document.querySelectorAll('.category-item.drag-over, .category-item.drag-target').forEach(el => {
+            el.classList.remove('drag-over', 'drag-target');
+        });
+        
+        // 清理定时器
+        if (dragExpandTimer) {
+            clearTimeout(dragExpandTimer);
+            dragExpandTimer = null;
+        }
+    });
+}
+
+// 设置分类拖拽目标功能（接收论文或目录的拖放）
 function setupCategoryDropTarget(categoryElement, category) {
     const container = categoryElement.closest('.category-container');
 
@@ -2195,8 +2308,26 @@ function setupCategoryDropTarget(categoryElement, category) {
         e.preventDefault();
         e.stopPropagation();
         
-        if (!draggedPaper) {
+        // 检查是否有拖拽的论文或目录
+        if (!draggedPaper && !draggedCategory) {
             return;
+        }
+        
+        // 如果拖拽的是目录，不能拖到自己或自己的子目录
+        if (draggedCategory) {
+            if (draggedCategory.id === category.id) {
+                e.dataTransfer.dropEffect = 'none';
+                return;
+            }
+            // 检查是否是子目录（简单检查：目标是否在拖拽元素的 DOM 子树中）
+            const draggedElement = document.querySelector(`[data-category-id="${draggedCategory.id}"]`);
+            if (draggedElement) {
+                const draggedContainer = draggedElement.closest('.category-container');
+                if (draggedContainer && draggedContainer.contains(categoryElement)) {
+                    e.dataTransfer.dropEffect = 'none';
+                    return;
+                }
+            }
         }
         
         e.dataTransfer.dropEffect = 'move';
@@ -2235,7 +2366,7 @@ function setupCategoryDropTarget(categoryElement, category) {
     categoryElement.addEventListener('dragover', onDragOver);
     
     categoryElement.addEventListener('dragleave', (e) => {
-        if (!draggedPaper) return;
+        if (!draggedPaper && !draggedCategory) return;
         
         // 检查是否真的离开了元素（而不是进入子元素）
         const rect = categoryElement.getBoundingClientRect();
@@ -2257,13 +2388,6 @@ function setupCategoryDropTarget(categoryElement, category) {
         e.preventDefault();
         e.stopPropagation();
         
-        if (!draggedPaper) {
-            console.log('drop时没有拖拽的论文');
-            return;
-        }
-        
-        console.log('放置论文到分类:', category.name, '论文:', draggedPaper.title || draggedPaper.filename);
-        
         categoryElement.classList.remove('drag-over');
         categoryElement.classList.add('drag-target');
         
@@ -2273,8 +2397,19 @@ function setupCategoryDropTarget(categoryElement, category) {
             dragExpandTimer = null;
         }
         
-        // 移动论文
-        movePaper(draggedPaper.id, category.id);
+        // 处理论文拖放
+        if (draggedPaper) {
+            console.log('放置论文到分类:', category.name, '论文:', draggedPaper.title || draggedPaper.filename);
+            movePaper(draggedPaper.id, category.id);
+        }
+        // 处理目录拖放
+        else if (draggedCategory) {
+            console.log('放置目录到分类:', category.name, '目录:', draggedCategory.name);
+            moveCategory(draggedCategory.id, category.id);
+        }
+        else {
+            console.log('drop时没有拖拽的论文或目录');
+        }
         
         // 短暂显示目标状态后清除
         setTimeout(() => {
@@ -2316,6 +2451,46 @@ async function movePaper(paperId, targetCategoryId) {
     } catch (error) {
         console.error('移动论文失败:', error);
         showMessage('移动论文失败', 'error');
+    }
+}
+
+// 移动目录到新的父目录
+async function moveCategory(categoryId, targetParentId) {
+    try {
+        const response = await fetch(`/api/categories/${categoryId}/move`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                target_parent_id: targetParentId
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+            console.log('目录移动成功:', result.old_path, '->', result.new_path);
+            showMessage('目录移动成功', 'success');
+            
+            // 更新本地数据并重新渲染分类树
+            await updateCategoriesData();
+            await renderCategoryTreeWithState();
+            
+            // 如果当前选中的分类被移动了，更新选中状态
+            if (currentCategoryId === categoryId) {
+                // 重新选中该分类
+                const categoryItem = document.querySelector(`.category-item[data-category-id="${categoryId}"]`);
+                if (categoryItem) {
+                    categoryItem.classList.add('selected');
+                }
+            }
+        } else {
+            showMessage(`移动失败: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('移动目录失败:', error);
+        showMessage('移动目录失败', 'error');
     }
 }
 
@@ -2850,9 +3025,11 @@ function renderCategorySelectTree(root, container) {
         item.style.paddingLeft = `${level * 20 + 12}px`;
 
         const hasChildren = node.children && node.children.length > 0;
+        const isOthers = node.name === 'Others';
+        const folderColor = isOthers ? '#8b949e' : '#ffc107';
         item.innerHTML = `
             ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span style="width: 16px; margin-right: 5px;"></span>'}
-            <i class="fas fa-folder" style="margin-right: 8px; color: #ffc107;"></i>
+            <i class="fas fa-folder" style="margin-right: 8px; color: ${folderColor};"></i>
             <span class="category-name">${node.name || 'Root'}</span>
             ${node.id ? `<input type="radio" name="target-category" value="${node.id}" style="margin-left:auto; margin-right:10px;">` : ''}
         `;
@@ -3132,12 +3309,10 @@ function setupNavigation() {
     document.addEventListener('click', (e) => {
         const item = e.target.closest && e.target.closest('.setting-nav-item');
         if (!item) return;
-        document.querySelectorAll('.setting-nav-item').forEach(b=>b.classList.remove('active'));
-        item.classList.add('active');
         const key = item.getAttribute('data-setting');
-        document.querySelectorAll('.setting-panel').forEach(p=>p.style.display='none');
-        const panel = document.getElementById(`setting-panel-${key}`);
-        if (panel) panel.style.display = 'block';
+        if (key) {
+            switchSettingPanel(key);
+        }
     });
 
     // 翻译任务按钮
@@ -5069,6 +5244,285 @@ async function getAnalysisSettings() {
         console.error('获取AI解读设置失败:', e);
     }
     return null;
+}
+
+// ========== Zotero 导入相关函数 ==========
+
+// 导入状态
+let importEventSource = null;
+let importInProgress = false;
+
+// 初始化导入功能
+function initImportFeature() {
+    const dropZone = document.getElementById('import-drop-zone');
+    const fileInput = document.getElementById('rdf-file-input');
+    
+    if (!dropZone || !fileInput) return;
+    
+    // 拖拽事件
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+    });
+    
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleRdfFile(files[0]);
+        }
+    });
+    
+    // 点击上传
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleRdfFile(e.target.files[0]);
+        }
+    });
+    
+    // 检查是否有正在进行的导入任务（页面刷新后恢复）
+    checkExistingImportTask();
+    
+    console.log('Import 功能初始化完成');
+}
+
+// 检查是否有正在进行的导入任务
+async function checkExistingImportTask() {
+    try {
+        const response = await fetch('/api/import/zotero/status');
+        const data = await response.json();
+        
+        if (data.has_task && data.status !== 'completed' && data.status !== 'error') {
+            console.log('发现正在进行的导入任务:', data.task_id);
+            importInProgress = true;
+            
+            // 显示进度界面
+            document.getElementById('drop-zone-content').style.display = 'none';
+            document.getElementById('import-progress-container').style.display = 'block';
+            document.getElementById('import-result').style.display = 'none';
+            
+            // 更新当前进度
+            updateImportStatus(
+                `正在导入论文 (${data.current}/${data.total})...`,
+                data.progress,
+                data.message || '处理中...'
+            );
+            
+            // 重新连接 SSE
+            startImportProgressStream(data.task_id);
+        } else if (data.has_task && data.status === 'completed') {
+            // 任务已完成，显示结果
+            showImportResult(
+                data.success_count || 0,
+                data.failed_count || 0,
+                data.skipped_count || 0,
+                data.duplicate_count || 0,
+                data.others_count || 0
+            );
+        }
+    } catch (e) {
+        console.log('检查导入任务状态失败:', e);
+    }
+}
+
+// 处理 RDF 文件上传
+async function handleRdfFile(file) {
+    if (!file.name.toLowerCase().endsWith('.rdf')) {
+        showMessage('请上传 .rdf 格式的文件', 'error');
+        return;
+    }
+    
+    if (importInProgress) {
+        showMessage('正在导入中，请等待完成', 'warning');
+        return;
+    }
+    
+    importInProgress = true;
+    
+    // 隐藏上传区域，显示进度
+    document.getElementById('drop-zone-content').style.display = 'none';
+    document.getElementById('import-progress-container').style.display = 'block';
+    document.getElementById('import-result').style.display = 'none';
+    
+    updateImportStatus('正在上传 RDF 文件...', 0, '准备中...');
+    
+    // 获取测试模式选项
+    const testMode = document.getElementById('import-test-mode')?.checked || false;
+    
+    // 上传文件
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('test_mode', testMode ? 'true' : 'false');
+    
+    try {
+        const response = await fetch('/api/import/zotero', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || '上传失败');
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // 开始监听导入进度
+            startImportProgressStream(result.task_id);
+        } else {
+            throw new Error(result.error || '导入失败');
+        }
+    } catch (error) {
+        console.error('导入失败:', error);
+        showMessage('导入失败: ' + error.message, 'error');
+        resetImport();
+    }
+}
+
+// 开始监听导入进度（SSE）
+function startImportProgressStream(taskId) {
+    if (importEventSource) {
+        importEventSource.close();
+    }
+    
+    importEventSource = new EventSource(`/api/import/zotero/progress/${taskId}`);
+    
+    importEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleImportProgress(data);
+        } catch (e) {
+            console.error('解析进度数据失败:', e);
+        }
+    };
+    
+    importEventSource.onerror = (e) => {
+        console.error('SSE 连接错误:', e);
+        if (importEventSource) {
+            importEventSource.close();
+            importEventSource = null;
+        }
+    };
+}
+
+// 处理导入进度更新
+function handleImportProgress(data) {
+    const { status, progress, current, total, message, success_count, failed_count, skipped_count, duplicate_count, others_count } = data;
+    
+    if (status === 'parsing') {
+        updateImportStatus('正在解析 RDF 文件...', 0, message || '获取论文信息中...');
+    } else if (status === 'importing') {
+        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+        updateImportStatus(
+            `正在导入论文 (${current}/${total})...`,
+            percent,
+            message || `处理中...`
+        );
+    } else if (status === 'completed') {
+        // 导入完成
+        if (importEventSource) {
+            importEventSource.close();
+            importEventSource = null;
+        }
+        showImportResult(success_count || 0, failed_count || 0, skipped_count || 0, duplicate_count || 0, others_count || 0);
+        importInProgress = false;
+        
+        // 刷新分类树
+        loadCategories();
+    } else if (status === 'error') {
+        if (importEventSource) {
+            importEventSource.close();
+            importEventSource = null;
+        }
+        showMessage('导入失败: ' + (message || '未知错误'), 'error');
+        resetImport();
+    }
+}
+
+// 更新导入状态显示
+function updateImportStatus(statusText, percent, detail) {
+    const statusTextEl = document.getElementById('import-status-text');
+    const progressFill = document.getElementById('import-progress-fill');
+    const progressDetail = document.getElementById('import-progress-detail');
+    
+    if (statusTextEl) statusTextEl.textContent = statusText;
+    if (progressFill) progressFill.style.width = percent + '%';
+    if (progressDetail) progressDetail.textContent = detail;
+}
+
+// 显示导入结果
+function showImportResult(successCount, failedCount, skippedCount, duplicateCount = 0, othersCount = 0) {
+    document.getElementById('import-progress-container').style.display = 'none';
+    document.getElementById('import-result').style.display = 'block';
+    
+    document.getElementById('import-success-count').textContent = successCount;
+    document.getElementById('import-failed-count').textContent = failedCount;
+    document.getElementById('import-skipped-count').textContent = skippedCount;
+    document.getElementById('import-duplicate-count').textContent = duplicateCount;
+    
+    // 显示 Others 详情
+    const detailEl = document.getElementById('import-result-detail');
+    const othersCountEl = document.getElementById('import-others-count');
+    if (othersCount > 0 && detailEl && othersCountEl) {
+        othersCountEl.textContent = othersCount;
+        detailEl.style.display = 'block';
+    } else if (detailEl) {
+        detailEl.style.display = 'none';
+    }
+    
+    let msg = `导入完成！成功 ${successCount} 篇`;
+    if (failedCount > 0) msg += `，失败 ${failedCount} 篇`;
+    if (skippedCount > 0) msg += `，跳过 ${skippedCount} 篇`;
+    if (duplicateCount > 0) msg += `，重复 ${duplicateCount} 篇`;
+    showMessage(msg, 'success');
+}
+
+// 重置导入界面
+function resetImport() {
+    importInProgress = false;
+    
+    if (importEventSource) {
+        importEventSource.close();
+        importEventSource = null;
+    }
+    
+    document.getElementById('drop-zone-content').style.display = 'flex';
+    document.getElementById('import-progress-container').style.display = 'none';
+    document.getElementById('import-result').style.display = 'none';
+    
+    // 重置文件输入
+    const fileInput = document.getElementById('rdf-file-input');
+    if (fileInput) fileInput.value = '';
+}
+
+// 切换到指定的 setting 面板
+function switchSettingPanel(panelName) {
+    document.querySelectorAll('.setting-nav-item').forEach(b => b.classList.remove('active'));
+    const targetBtn = document.querySelector(`.setting-nav-item[data-setting="${panelName}"]`);
+    if (targetBtn) targetBtn.classList.add('active');
+    
+    document.querySelectorAll('.setting-panel').forEach(p => p.style.display = 'none');
+    const targetPanel = document.getElementById(`setting-panel-${panelName}`);
+    if (targetPanel) targetPanel.style.display = 'block';
+    
+    // 保存状态
+    saveCurrentViewState();
+}
+
+// 切换到概览页面
+function switchToOverview() {
+    switchSettingPanel('overview');
 }
 
 // 恢复进行中的任务状态（页面刷新/重新打开后）
