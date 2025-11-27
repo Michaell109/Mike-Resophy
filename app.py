@@ -12,12 +12,12 @@ from core.paper_store import paper_store
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
 from routes.basic_routes.category_tree_route import register_category_routes
+from routes.basic_routes.import_route import register_import_routes
 from routes.basic_routes.paper_operation_route import register_paper_operation_routes
 from routes.basic_routes.search_route import register_search_routes
 from routes.basic_routes.settings_route import register_settings_routes
 from routes.basic_routes.update_from_url_route import register_update_from_url_routes
 from routes.basic_routes.upload_from_pdf_route import register_upload_from_pdf_routes
-from routes.basic_routes.import_route import register_import_routes
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")

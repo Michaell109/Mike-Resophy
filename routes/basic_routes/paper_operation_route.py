@@ -167,6 +167,40 @@ def register_paper_operation_routes(
         papers = get_papers_in_category(category_id, category_path)
         return jsonify([paper.to_dict() for paper in papers])
 
+    @app.route("/api/papers/<category_id>/recursive")
+    def api_papers_recursive(category_id: str):
+        """递归获取分类及其所有子分类下的论文（用于一级目录/Project）"""
+        categories = get_categories()
+        category_node = find_category_node(categories, category_id)
+
+        if not category_node:
+            return jsonify({"error": "Category not found"}), 404
+
+        def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
+            """递归收集分类及其子分类下的所有论文"""
+            all_papers = []
+
+            # 获取当前分类的论文
+            node_path = get_category_path(categories, node["id"])
+            if node_path:
+                node_papers = get_papers_in_category(node["id"], node_path)
+                all_papers.extend(node_papers)
+
+            # 递归处理子分类
+            for child in node.get("children", []):
+                all_papers.extend(collect_papers_recursive(child))
+
+            return all_papers
+
+        all_papers = collect_papers_recursive(category_node)
+
+        # 按上传时间排序（最新的在前）
+        sorted_papers = sorted(
+            all_papers, key=lambda p: p.upload_date or "", reverse=True
+        )
+
+        return jsonify([paper.to_dict() for paper in sorted_papers])
+
     @app.route("/api/paper/<paper_id>")
     def api_paper_info(paper_id: str):
         result = find_paper(paper_id)

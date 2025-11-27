@@ -96,10 +96,15 @@ function cleanupCompletedQueues() {
     saveQueuesToStorage();
 }
 
-// 多选相关
+// 论文多选相关
 let isMultiSelectMode = false;
 let selectedPaperIds = new Set();
 let lastSelectedIndex = null; // 用于 shift 选择
+
+// 目录多选相关
+let isCategoryMultiSelectMode = false;
+let selectedCategoryIds = new Set();
+let lastSelectedCategoryIndex = null; // 用于 shift 选择目录
 
 // DOM 元素
 const categoryTree = document.getElementById('category-tree');
@@ -349,7 +354,7 @@ fileInput.addEventListener('change', handleFileSelect);
     document.addEventListener('click', (e) => {
         contextMenu.style.display = 'none';
         paperContextMenu.style.display = 'none';
-        // 多选状态下，点击主要区域空白退出
+        // 论文多选状态下，点击主要区域空白退出
         if (isMultiSelectMode) {
             const main = document.querySelector('.main-content');
             const isInsideMain = main && main.contains(e.target);
@@ -358,6 +363,15 @@ fileInput.addEventListener('change', handleFileSelect);
             const isToggleBtn = e.target.closest && e.target.closest('#toggle-multiselect');
             if (isInsideMain && !isPaperItem && !isToolbar && !isToggleBtn) {
                 exitMultiSelectMode();
+            }
+        }
+        // 目录多选状态下，点击非目录项区域退出
+        if (isCategoryMultiSelectMode) {
+            const isCategoryItem = e.target.closest && e.target.closest('.category-item');
+            const isCategoryBatchMenu = e.target.closest && e.target.closest('.category-batch-menu');
+            // 如果点击的不是目录项，也不是批量操作菜单，则退出多选
+            if (!isCategoryItem && !isCategoryBatchMenu) {
+                exitCategoryMultiSelectMode();
             }
         }
     });
@@ -393,11 +407,15 @@ async function loadCategories() {
 function renderCategoryTree() {
     categoryTree.innerHTML = '';
     if (categories.children) {
-        // 顶层分类按名称排序，但 Others 放在最前面
+        // 顶层分类排序：置顶 > Others > 按名称
         const sorted = [...categories.children].sort((a, b) => {
-            // Others 目录永远排在最前面
+            // 置顶目录优先
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            // 然后 Others 目录
             if (a.name === 'Others') return -1;
             if (b.name === 'Others') return 1;
+            // 最后按名称排序
             return (a.name || '').localeCompare(b.name || '');
         });
         sorted.forEach(category => {
@@ -474,32 +492,60 @@ function createCategoryElement(category, level = 0) {
     // 创建分类项
     const div = document.createElement('div');
     div.className = 'category-item';
+    if (category.pinned) {
+        div.classList.add('pinned');
+    }
     div.dataset.categoryId = category.id;
+    div.dataset.level = level; // 存储层级
     div.style.paddingLeft = `${level * 20 + 12}px`;
+    div.tabIndex = 0; // 使元素可聚焦，支持键盘事件
 
     const hasChildren = category.children && category.children.length > 0;
     
-    // Others 目录使用灰色图标
+    // 获取图标颜色：自定义颜色 > Others灰色 > 默认黄色
     const isOthers = category.name === 'Others';
-    const folderColor = isOthers ? '#8b949e' : '#ffc107';
+    const folderColor = category.iconColor || (isOthers ? '#8b949e' : '#ffc107');
+    
+    // 置顶图标
+    const pinIcon = category.pinned ? '<i class="fas fa-thumbtack pin-icon"></i>' : '';
     
     div.innerHTML = `
         ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span class="category-toggle-placeholder"></span>'}
         <i class="fas fa-folder" style="margin-right: 6px; color: ${folderColor}; font-size: 12px;"></i>
-        <span class="category-name">${category.name}</span>
+        <span class="category-name">${category.name}</span>${pinIcon}
         <span class="pdf-count">${category.pdf_count || 0}</span>
     `;
 
-    // 点击事件
+    // 点击事件 - 支持多选
     div.addEventListener('click', (e) => {
         e.stopPropagation();
+        
+        // Ctrl/Cmd + 点击：切换多选
+        if (e.ctrlKey || e.metaKey) {
+            handleCategoryMultiSelectClick(e, category.id, div);
+            return;
+        }
+        
+        // Shift + 点击：范围选择
+        if (e.shiftKey && lastSelectedCategoryIndex !== null) {
+            handleCategoryShiftSelect(category.id, div);
+            return;
+        }
+        
+        // 普通点击 - 清除多选状态
+        if (isCategoryMultiSelectMode) {
+            exitCategoryMultiSelectMode();
+        }
+        
         // 无论点击分类项的哪个位置，都先展开其子目录（若存在）
         const children = container.querySelector('.category-children');
         const toggle = div.querySelector('.category-toggle');
         if (children && children.classList.contains('collapsed')) {
             children.classList.remove('collapsed');
             if (toggle) toggle.classList.add('expanded');
+            expandedCategories.add(category.id);
         }
+        
         // 若重复点击已选中的分类，则取消选中
         if (div.classList.contains('selected')) {
             div.classList.remove('selected');
@@ -520,16 +566,56 @@ function createCategoryElement(category, level = 0) {
             `;
             return;
         }
-        selectCategory(category.id, category.name);
+        
+        // 记录选择索引
+        lastSelectedCategoryIndex = getCategoryIndex(category.id);
+        selectCategory(category.id, category.name, level);
     });
 
     // 右键菜单
     div.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        showContextMenu(e, category.id);
+        // 如果右键点击的目录在多选中，显示批量菜单
+        if (isCategoryMultiSelectMode && selectedCategoryIds.has(category.id)) {
+            showCategoryBatchContextMenu(e);
+        } else {
+            // 如果不在多选中，清除多选并显示单个目录菜单
+            if (isCategoryMultiSelectMode) {
+                exitCategoryMultiSelectMode();
+            }
+            showContextMenu(e, category.id);
+        }
     });
 
-    // 添加拖拽功能（使目录可被拖拽）
+    // 键盘事件
+    div.addEventListener('keydown', (e) => {
+        // 回车键 - 重命名
+        if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
+            e.preventDefault();
+            if (isCategoryMultiSelectMode && selectedCategoryIds.size > 1) {
+                showMessage('多选模式下不支持重命名', 'warning');
+                return;
+            }
+            startInlineRename(div, category);
+        }
+        // Delete/Backspace - 删除
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            if (isCategoryMultiSelectMode && selectedCategoryIds.size > 0) {
+                confirmDeleteSelectedCategories();
+            } else {
+                confirmDeleteCategory(category.id);
+            }
+        }
+        // Escape - 退出多选
+        if (e.key === 'Escape') {
+            if (isCategoryMultiSelectMode) {
+                exitCategoryMultiSelectMode();
+            }
+        }
+    });
+
+    // 添加拖拽功能（使目录可被拖拽）- 支持批量拖拽
     setupCategoryDrag(div, category);
     
     // 添加拖拽目标功能（接收论文或目录的拖放）
@@ -551,8 +637,17 @@ function createCategoryElement(category, level = 0) {
     if (hasChildren) {
         const childrenDiv = document.createElement('div');
         childrenDiv.className = 'category-children collapsed';
-        // 子分类按名称排序
-        const sortedChildren = [...category.children].sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+        // 子分类排序：置顶 > Others > 按名称
+        const sortedChildren = [...category.children].sort((a, b) => {
+            // 置顶目录优先
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            // 然后 Others 目录
+            if (a.name === 'Others') return -1;
+            if (b.name === 'Others') return 1;
+            // 最后按名称排序
+            return (a.name || '').localeCompare(b.name || '');
+        });
         sortedChildren.forEach(child => {
             const childElement = createCategoryElement(child, level + 1);
             childrenDiv.appendChild(childElement);
@@ -578,7 +673,7 @@ function toggleCategoryChildren(element, category) {
 }
 
 // 选择分类
-function selectCategory(categoryId, categoryName) {
+function selectCategory(categoryId, categoryName, level = null) {
     // 移除之前的选中状态
     document.querySelectorAll('.category-item.selected').forEach(item => {
         item.classList.remove('selected');
@@ -588,20 +683,27 @@ function selectCategory(categoryId, categoryName) {
     const categoryElement = document.querySelector(`[data-category-id="${categoryId}"]`);
     if (categoryElement) {
         categoryElement.classList.add('selected');
+        // 如果未传入 level，从元素属性获取
+        if (level === null) {
+            level = parseInt(categoryElement.dataset.level || '0', 10);
+        }
     }
 
     currentCategoryId = categoryId;
     currentCategoryTitle.textContent = categoryName;
     
-    // 加载该分类下的论文
-    loadPapers(categoryId);
+    // 根据层级决定加载方式
+    // level === 0 表示一级目录（大目录/Project），递归加载所有子目录论文
+    const recursive = (level === 0);
+    loadPapers(categoryId, recursive);
     
     // 清空右侧信息面板
     clearPaperInfo();
 }
 
 // 加载论文列表
-async function loadPapers(categoryId) {
+// recursive: 是否递归加载所有子目录的论文（用于一级目录/大目录）
+async function loadPapers(categoryId, recursive = false) {
     try {
         // 如果 categoryId 为 null/undefined，调用 renderAllPapers 代替
         if (!categoryId) {
@@ -629,7 +731,13 @@ async function loadPapers(categoryId) {
                 <p>加载中...</p>
             </div>
         `;
-        const response = await fetch(`/api/papers/${categoryId}`);
+        
+        // 根据 recursive 参数决定 API 路径
+        const apiUrl = recursive 
+            ? `/api/papers/${categoryId}/recursive`
+            : `/api/papers/${categoryId}`;
+        
+        const response = await fetch(apiUrl);
         if (!response.ok) {
             console.error(`加载论文失败: ${response.status} ${response.statusText}`);
             showMessage('加载论文失败', 'error');
@@ -2026,6 +2134,24 @@ function setupContextMenu() {
         contextMenu.style.display = 'none';
     });
 
+    // 置顶/取消置顶
+    document.getElementById('toggle-pin-category').addEventListener('click', () => {
+        const categoryId = contextMenu.dataset.categoryId;
+        togglePinCategory(categoryId);
+        contextMenu.style.display = 'none';
+    });
+
+    // 颜色选择
+    document.querySelectorAll('.color-submenu .color-option').forEach(option => {
+        option.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const categoryId = contextMenu.dataset.categoryId;
+            const color = option.dataset.color;
+            changeCategoryColor(categoryId, color);
+            contextMenu.style.display = 'none';
+        });
+    });
+
     document.getElementById('export-bibtex').addEventListener('click', () => {
         const categoryId = contextMenu.dataset.categoryId;
         exportCategoryBibtex(categoryId);
@@ -2047,9 +2173,85 @@ function setupContextMenu() {
 // 显示右键菜单
 function showContextMenu(e, categoryId) {
     contextMenu.dataset.categoryId = categoryId;
+    
+    // 更新置顶按钮文本
+    const category = findCategoryById(categories, categoryId);
+    const pinText = document.getElementById('pin-text');
+    if (pinText && category) {
+        pinText.textContent = category.pinned ? '取消置顶' : '置顶';
+        // 更新图标
+        const pinIcon = document.querySelector('#toggle-pin-category i');
+        if (pinIcon) {
+            pinIcon.className = category.pinned ? 'fas fa-thumbtack' : 'far fa-thumbtack';
+            pinIcon.style.color = category.pinned ? '#ffc107' : '#666';
+        }
+    }
+    
+    // 更新颜色选择中的选中状态
+    const currentColor = category?.iconColor || '#ffc107';
+    document.querySelectorAll('.color-submenu .color-option').forEach(option => {
+        option.classList.toggle('selected', option.dataset.color === currentColor);
+    });
+    
     contextMenu.style.display = 'block';
     contextMenu.style.left = e.pageX + 'px';
     contextMenu.style.top = e.pageY + 'px';
+}
+
+// 切换目录置顶状态
+async function togglePinCategory(categoryId) {
+    const category = findCategoryById(categories, categoryId);
+    if (!category) return;
+    
+    const newPinned = !category.pinned;
+    
+    try {
+        const response = await fetch(`/api/categories/${categoryId}/pin`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pinned: newPinned })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            category.pinned = newPinned;
+            await updateCategoriesData();
+            await renderCategoryTreeWithState();
+            showMessage(newPinned ? '已置顶' : '已取消置顶', 'success');
+        } else {
+            showMessage('操作失败', 'error');
+        }
+    } catch (e) {
+        console.error('置顶操作失败:', e);
+        showMessage('操作失败', 'error');
+    }
+}
+
+// 更换目录图标颜色
+async function changeCategoryColor(categoryId, color) {
+    const category = findCategoryById(categories, categoryId);
+    if (!category) return;
+    
+    try {
+        const response = await fetch(`/api/categories/${categoryId}/color`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ color: color })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            category.iconColor = color;
+            await updateCategoriesData();
+            await renderCategoryTreeWithState();
+            // 不显示提示，静默更新
+        } else {
+            showMessage('更新失败', 'error');
+        }
+    } catch (e) {
+        console.error('更新颜色失败:', e);
+        showMessage('更新失败', 'error');
+    }
 }
 
 // 设置论文右键菜单
@@ -3070,7 +3272,13 @@ function renderCategorySelectTree(root, container) {
         wrapper.appendChild(item);
 
         if (hasChildren) {
-            const sortedChildren = [...node.children].sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+            const sortedChildren = [...node.children].sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                if (a.name === 'Others') return -1;
+                if (b.name === 'Others') return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            });
             sortedChildren.forEach(child => {
                 const childEl = createSelectableNode(child, level + 1);
                 childrenDiv.appendChild(childEl);
@@ -3083,7 +3291,13 @@ function renderCategorySelectTree(root, container) {
 
     // 渲染 Root 的子节点作为可选项
     if (root && root.children) {
-        const sortedTop = [...root.children].sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+        const sortedTop = [...root.children].sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            if (a.name === 'Others') return -1;
+            if (b.name === 'Others') return 1;
+            return (a.name || '').localeCompare(b.name || '');
+        });
         sortedTop.forEach(child => container.appendChild(createSelectableNode(child, 0)));
     }
 }
@@ -3115,7 +3329,7 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// ========== 多选逻辑 ==========
+// ========== 论文多选逻辑 ==========
 function toggleMultiSelectMode() {
     isMultiSelectMode = !isMultiSelectMode;
     if (!isMultiSelectMode) {
@@ -3133,6 +3347,250 @@ function exitMultiSelectMode() {
     lastSelectedIndex = null;
     updateBatchUI();
     renderPapersList();
+}
+
+// ========== 目录多选逻辑 ==========
+
+// 获取所有可见目录元素的有序列表
+function getAllVisibleCategoryElements() {
+    return Array.from(document.querySelectorAll('.category-item[data-category-id]'));
+}
+
+// 获取目录在可见列表中的索引
+function getCategoryIndex(categoryId) {
+    const elements = getAllVisibleCategoryElements();
+    return elements.findIndex(el => el.dataset.categoryId === categoryId);
+}
+
+// 处理 Ctrl + 点击目录多选
+function handleCategoryMultiSelectClick(e, categoryId, element) {
+    if (!isCategoryMultiSelectMode) {
+        isCategoryMultiSelectMode = true;
+    }
+    
+    if (selectedCategoryIds.has(categoryId)) {
+        selectedCategoryIds.delete(categoryId);
+        element.classList.remove('multi-selected');
+    } else {
+        selectedCategoryIds.add(categoryId);
+        element.classList.add('multi-selected');
+    }
+    
+    lastSelectedCategoryIndex = getCategoryIndex(categoryId);
+    
+    // 如果没有选中任何目录，退出多选模式
+    if (selectedCategoryIds.size === 0) {
+        exitCategoryMultiSelectMode();
+    }
+    
+    updateCategoryBatchUI();
+}
+
+// 处理 Shift + 点击目录范围选择
+function handleCategoryShiftSelect(categoryId, element) {
+    const currentIndex = getCategoryIndex(categoryId);
+    if (currentIndex === -1 || lastSelectedCategoryIndex === null) return;
+    
+    const elements = getAllVisibleCategoryElements();
+    const start = Math.min(lastSelectedCategoryIndex, currentIndex);
+    const end = Math.max(lastSelectedCategoryIndex, currentIndex);
+    
+    if (!isCategoryMultiSelectMode) {
+        isCategoryMultiSelectMode = true;
+    }
+    
+    // 选中范围内的所有目录
+    for (let i = start; i <= end; i++) {
+        const el = elements[i];
+        if (el) {
+            const id = el.dataset.categoryId;
+            selectedCategoryIds.add(id);
+            el.classList.add('multi-selected');
+        }
+    }
+    
+    updateCategoryBatchUI();
+}
+
+// 退出目录多选模式
+function exitCategoryMultiSelectMode() {
+    if (!isCategoryMultiSelectMode) return;
+    isCategoryMultiSelectMode = false;
+    selectedCategoryIds.clear();
+    lastSelectedCategoryIndex = null;
+    
+    // 移除所有多选样式
+    document.querySelectorAll('.category-item.multi-selected').forEach(el => {
+        el.classList.remove('multi-selected');
+    });
+    
+    updateCategoryBatchUI();
+}
+
+// 更新目录批量操作 UI
+function updateCategoryBatchUI() {
+    // 可以在这里添加批量操作工具栏的显示逻辑
+    console.log(`已选中 ${selectedCategoryIds.size} 个目录`);
+}
+
+// 显示目录批量操作右键菜单
+function showCategoryBatchContextMenu(e) {
+    const menu = document.createElement('div');
+    menu.className = 'context-menu category-batch-menu';
+    menu.style.cssText = `
+        position: fixed;
+        left: ${e.clientX}px;
+        top: ${e.clientY}px;
+        z-index: 10000;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        padding: 4px 0;
+        min-width: 150px;
+    `;
+    
+    menu.innerHTML = `
+        <div class="context-menu-item" data-action="delete" style="padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-trash" style="color: #dc3545;"></i>
+            <span>删除选中目录 (${selectedCategoryIds.size})</span>
+        </div>
+    `;
+    
+    // 点击删除
+    menu.querySelector('[data-action="delete"]').addEventListener('click', () => {
+        confirmDeleteSelectedCategories();
+        document.body.removeChild(menu);
+    });
+    
+    // 鼠标悬停效果
+    menu.querySelectorAll('.context-menu-item').forEach(item => {
+        item.addEventListener('mouseenter', () => item.style.background = '#f5f5f5');
+        item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+    });
+    
+    // 点击其他地方关闭菜单
+    const closeMenu = (ev) => {
+        if (!menu.contains(ev.target)) {
+            if (document.body.contains(menu)) {
+                document.body.removeChild(menu);
+            }
+            document.removeEventListener('click', closeMenu);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    
+    document.body.appendChild(menu);
+}
+
+// 确认删除选中的多个目录
+async function confirmDeleteSelectedCategories() {
+    const count = selectedCategoryIds.size;
+    if (count === 0) return;
+    
+    const confirmed = confirm(`确定要删除选中的 ${count} 个目录吗？\n此操作将同时删除目录内的所有论文，且不可恢复！`);
+    if (!confirmed) return;
+    
+    const ids = Array.from(selectedCategoryIds);
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const categoryId of ids) {
+        try {
+            const response = await fetch(`/api/categories/${categoryId}`, {
+                method: 'DELETE'
+            });
+            const result = await response.json();
+            if (result.success) {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (e) {
+            failCount++;
+        }
+    }
+    
+    exitCategoryMultiSelectMode();
+    await updateCategoriesData();
+    await renderCategoryTreeWithState();
+    
+    if (failCount === 0) {
+        showMessage(`成功删除 ${successCount} 个目录`, 'success');
+    } else {
+        showMessage(`删除完成：成功 ${successCount}，失败 ${failCount}`, 'warning');
+    }
+}
+
+// 确认删除单个目录
+function confirmDeleteCategory(categoryId) {
+    const categoryNode = findCategoryNodeLocal(categories, categoryId);
+    const name = categoryNode ? categoryNode.name : '该目录';
+    
+    const confirmed = confirm(`确定要删除目录"${name}"吗？\n此操作将同时删除目录内的所有论文，且不可恢复！`);
+    if (confirmed) {
+        deleteCategory(categoryId);
+    }
+}
+
+// 在本地数据中查找目录节点
+function findCategoryNodeLocal(node, targetId) {
+    if (node.id === targetId) return node;
+    if (node.children) {
+        for (const child of node.children) {
+            const found = findCategoryNodeLocal(child, targetId);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+// 开始内联重命名
+function startInlineRename(element, category) {
+    const nameSpan = element.querySelector('.category-name');
+    if (!nameSpan) return;
+    
+    const oldName = category.name;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldName;
+    input.className = 'category-rename-input';
+    input.style.cssText = `
+        font-size: inherit;
+        padding: 2px 4px;
+        border: 1px solid #007bff;
+        border-radius: 3px;
+        outline: none;
+        width: ${Math.max(nameSpan.offsetWidth + 20, 100)}px;
+        background: white;
+    `;
+    
+    nameSpan.style.display = 'none';
+    nameSpan.parentNode.insertBefore(input, nameSpan.nextSibling);
+    input.focus();
+    input.select();
+    
+    const finishRename = async () => {
+        const newName = input.value.trim();
+        input.remove();
+        nameSpan.style.display = '';
+        
+        if (newName && newName !== oldName) {
+            await renameCategory(category.id, newName);
+        }
+    };
+    
+    input.addEventListener('blur', finishRename);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+        }
+        if (e.key === 'Escape') {
+            input.value = oldName;
+            input.blur();
+        }
+    });
 }
 
 function updateBatchUI() {
@@ -4589,54 +5047,30 @@ function renderTaskTooltip() {
     tooltip.innerHTML = parts.length ? parts.join('') : '<div class="tt-item" style="color:#888;">暂无进行中的任务</div>';
 }
 
-async function renderAllPapers() {
-    if (currentCategoryId) return;
-    try {
-        // 从后端获取所有论文
-        const response = await fetch('/api/papers/all');
-        if (!response.ok) {
-            papersList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-file-pdf"></i>
-                    <p>加载论文失败</p>
-                </div>`;
-            return;
-        }
-        
-        papers = await response.json();
-        
-        if (!papers.length) {
-            papersList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-file-pdf"></i>
-                    <p>暂无论文</p>
-                    <p style="font-size:12px; margin-top:6px; color:#666;">请上传或导入论文</p>
-                </div>`;
-            document.getElementById('sort-controls').style.display = 'none';
-            return;
-        }
-        
-        // 更新标题
-        currentCategoryTitle.textContent = `所有论文 (${papers.length} 篇)`;
-        
-        // 确保待读列表ID集合已更新
-        await updateReadingListCount();
-        
-        // 使用标准的渲染函数，支持排序
-        renderPapersList();
-    } catch (e) {
-        console.error('渲染所有论文失败', e);
-        papersList.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-file-pdf"></i>
-                <p>加载论文失败</p>
-            </div>`;
-    }
+// 显示空状态（未选择任何目录时）
+function showEmptyState() {
+    papers = [];
+    currentCategoryTitle.textContent = '选择一个分类查看论文';
+    papersList.innerHTML = `
+        <div class="empty-state">
+            <i class="fas fa-folder-open" style="font-size: 48px; color: #ffc107; margin-bottom: 16px;"></i>
+            <p style="font-size: 16px; color: #666; margin-bottom: 8px;">请从左侧选择一个目录</p>
+            <p style="font-size: 13px; color: #999;">点击一级目录可查看该目录及所有子目录下的论文</p>
+        </div>
+    `;
+    // 隐藏排序控件
+    const sortControls = document.getElementById('sort-controls');
+    if (sortControls) sortControls.style.display = 'none';
+    clearPaperInfo();
 }
 
-// 保留旧函数名作为别名，以便不破坏现有调用
+// 保留旧函数名作为别名，但改为显示空状态
+async function renderAllPapers() {
+    showEmptyState();
+}
+
 async function renderRecentIfNoCategory() {
-    await renderAllPapers();
+    showEmptyState();
 }
 
 // 根据当前视图模式刷新列表（通用函数）
@@ -5290,10 +5724,42 @@ function initImportFeature() {
         }
     });
     
+    // 填充目标目录选择列表
+    populateImportTargetCategories();
+    
     // 检查是否有正在进行的导入任务（页面刷新后恢复）
     checkExistingImportTask();
     
     console.log('Import 功能初始化完成');
+}
+
+// 填充导入目标目录选择列表
+function populateImportTargetCategories() {
+    const select = document.getElementById('import-target-category');
+    if (!select) return;
+    
+    // 保留默认选项
+    select.innerHTML = '<option value="">根目录（默认）</option>';
+    
+    // 递归添加目录选项
+    function addCategoryOptions(node, level = 0) {
+        if (!node.children) return;
+        
+        node.children.forEach(child => {
+            const indent = '　'.repeat(level); // 使用全角空格缩进
+            const option = document.createElement('option');
+            option.value = child.id;
+            option.textContent = `${indent}📁 ${child.name}`;
+            select.appendChild(option);
+            
+            // 递归添加子目录
+            if (child.children && child.children.length > 0) {
+                addCategoryOptions(child, level + 1);
+            }
+        });
+    }
+    
+    addCategoryOptions(categories);
 }
 
 // 检查是否有正在进行的导入任务
@@ -5359,10 +5825,14 @@ async function handleRdfFile(file) {
     // 获取测试模式选项
     const testMode = document.getElementById('import-test-mode')?.checked || false;
     
+    // 获取目标目录
+    const targetCategoryId = document.getElementById('import-target-category')?.value || '';
+    
     // 上传文件
     const formData = new FormData();
     formData.append('file', file);
     formData.append('test_mode', testMode ? 'true' : 'false');
+    formData.append('target_category_id', targetCategoryId);
     
     try {
         const response = await fetch('/api/import/zotero', {
@@ -5515,6 +5985,11 @@ function switchSettingPanel(panelName) {
     document.querySelectorAll('.setting-panel').forEach(p => p.style.display = 'none');
     const targetPanel = document.getElementById(`setting-panel-${panelName}`);
     if (targetPanel) targetPanel.style.display = 'block';
+    
+    // 如果切换到 Import 面板，刷新目录选择列表
+    if (panelName === 'import') {
+        populateImportTargetCategories();
+    }
     
     // 保存状态
     saveCurrentViewState();

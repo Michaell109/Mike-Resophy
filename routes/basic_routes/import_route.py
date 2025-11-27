@@ -203,6 +203,136 @@ def _find_or_create_category(
     return result
 
 
+def _find_or_create_category_under_parent(
+    categories: Dict[str, Any],
+    parent_category_id: str,
+    category_path: List[str],
+    save_categories: SaveCategoriesFn,
+    create_category_folder: CreateCategoryFolderFn,
+) -> Optional[str]:
+    """
+    在指定父目录下查找或创建分类，返回分类 ID
+
+    例如：parent_category_id 对应 "Project A"，category_path 为 ["Multi Modality", "LLaVA"]
+    则会创建 "Project A/Multi Modality/LLaVA"
+
+    Args:
+        categories: 分类树数据
+        parent_category_id: 父目录ID
+        category_path: 分类路径，如 ["Multi Modality", "LLaVA"]
+        save_categories: 保存分类的函数
+        create_category_folder: 创建分类文件夹的函数
+
+    Returns:
+        分类 ID，失败返回 None
+    """
+    if not category_path:
+        # 如果没有 category_path，直接返回父目录ID
+        return parent_category_id
+
+    # 查找父目录节点
+    def find_node_by_id(
+        node: Dict[str, Any], target_id: str
+    ) -> Optional[Dict[str, Any]]:
+        if node.get("id") == target_id:
+            return node
+        for child in node.get("children", []):
+            result = find_node_by_id(child, target_id)
+            if result:
+                return result
+        return None
+
+    parent_node = find_node_by_id(categories, parent_category_id)
+    if not parent_node:
+        # 父目录不存在，回退到根目录
+        return _find_or_create_category(
+            categories, category_path, save_categories, create_category_folder
+        )
+
+    # 获取父目录的路径（用于创建文件夹）
+    def get_path_to_node(
+        root: Dict[str, Any], target_id: str, path: List[str] = None
+    ) -> Optional[List[str]]:
+        if path is None:
+            path = []
+        if root.get("id") == target_id:
+            return path + [root.get("name", "")]
+        for child in root.get("children", []):
+            result = get_path_to_node(child, target_id, path + [root.get("name", "")])
+            if result:
+                return result
+        return None
+
+    parent_path = get_path_to_node(categories, parent_category_id)
+    if not parent_path:
+        parent_path = []
+    else:
+        # 移除 "Root" 如果存在
+        parent_path = [p for p in parent_path if p and p != "Root"]
+
+    # 在父目录下查找或创建分类
+    def find_or_create_in_children(
+        children: List[Dict], path: List[str], current_folder_path: List[str]
+    ) -> Optional[str]:
+        if not path:
+            return None
+
+        target_name = path[0]
+        remaining_path = path[1:]
+
+        # 查找现有分类
+        for child in children:
+            if child.get("name") == target_name:
+                if remaining_path:
+                    # 继续查找子分类
+                    if "children" not in child:
+                        child["children"] = []
+                    return find_or_create_in_children(
+                        child["children"],
+                        remaining_path,
+                        current_folder_path + [target_name],
+                    )
+                else:
+                    # 找到了目标分类
+                    return child.get("id")
+
+        # 没找到，创建新分类
+        new_id = str(uuid.uuid4())
+        new_category = {"id": new_id, "name": target_name, "children": []}
+        children.append(new_category)
+
+        # 创建文件夹
+        full_folder_path = current_folder_path + [target_name]
+        try:
+            create_category_folder(full_folder_path)
+            print(f"[Import] 创建分类文件夹: {'/'.join(full_folder_path)}")
+        except Exception as e:
+            print(f"[Import] 创建分类文件夹失败: {e}")
+
+        if remaining_path:
+            # 继续创建子分类
+            return find_or_create_in_children(
+                new_category["children"], remaining_path, full_folder_path
+            )
+        else:
+            return new_id
+
+    # 确保父目录有 children 列表
+    if "children" not in parent_node:
+        parent_node["children"] = []
+
+    # 从父目录开始查找
+    result = find_or_create_in_children(
+        parent_node["children"], category_path, parent_path
+    )
+
+    # 保存更新后的分类
+    if result:
+        save_categories(categories)
+
+    return result
+
+
 def _get_full_category_path(
     categories: Dict[str, Any],
     category_id: str,
@@ -299,8 +429,16 @@ def register_import_routes(
                 task.update(kwargs)
                 task["last_update"] = datetime.now().isoformat()
 
-    def _import_papers_task(task_id: str, papers_data: List[Dict[str, Any]]):
-        """后台导入任务"""
+    def _import_papers_task(
+        task_id: str, papers_data: List[Dict[str, Any]], target_category_id: str = ""
+    ):
+        """后台导入任务
+
+        Args:
+            task_id: 任务ID
+            papers_data: 论文数据列表
+            target_category_id: 目标目录ID，如果指定则作为父目录，Zotero 分类结构将在其下创建
+        """
         global current_import_task_id
 
         with import_tasks_lock:
@@ -314,6 +452,29 @@ def register_import_routes(
         skipped_count = 0
         duplicate_count = 0  # 重复数量
         others_count = 0  # 进入 Others 的数量
+
+        # 如果指定了目标目录，预先获取其信息
+        parent_category_id = None
+        parent_category_path = None
+        print(
+            f"[Import] 接收到的目标目录ID: '{target_category_id}' (类型: {type(target_category_id).__name__})"
+        )
+        if target_category_id:
+            categories = get_categories()
+            print(f"[Import] 正在查找目标目录...")
+            parent_category_path = get_category_path(categories, target_category_id)
+            print(f"[Import] 查找结果: {parent_category_path}")
+            if parent_category_path:
+                parent_category_id = target_category_id
+                print(
+                    f"[Import] ✅ 将在目录 '{'/'.join(parent_category_path[1:])}' 下导入，保留 Zotero 分类结构"
+                )
+            else:
+                print(
+                    f"[Import] ❌ 目标目录不存在: {target_category_id}，将在根目录下按 Zotero 分类导入"
+                )
+        else:
+            print("[Import] 未指定目标目录，将在根目录下按 Zotero 分类导入")
 
         for idx, paper_data in enumerate(papers_data):
             try:
@@ -357,10 +518,23 @@ def register_import_routes(
                     )
 
                 # 查找或创建分类
+                # 如果指定了父目录，在父目录下创建分类结构
                 categories = get_categories()
-                category_id = _find_or_create_category(
-                    categories, category_path, save_categories, create_category_folder
-                )
+                if parent_category_id:
+                    category_id = _find_or_create_category_under_parent(
+                        categories,
+                        parent_category_id,
+                        category_path,
+                        save_categories,
+                        create_category_folder,
+                    )
+                else:
+                    category_id = _find_or_create_category(
+                        categories,
+                        category_path,
+                        save_categories,
+                        create_category_folder,
+                    )
 
                 if not category_id:
                     print(f"[Import] 创建分类失败: {category_path}")
@@ -579,6 +753,10 @@ def register_import_routes(
         test_mode = request.form.get("test_mode", "false").lower() == "true"
         print(f"[Import] 测试模式: {test_mode}")
 
+        # 获取目标目录参数（可选）
+        target_category_id = request.form.get("target_category_id", "").strip()
+        print(f"[Import] 目标目录ID: {target_category_id or '（按Zotero分类）'}")
+
         try:
             # 保存临时文件
             temp_dir = os.path.join(upload_folder, ".temp")
@@ -665,7 +843,7 @@ def register_import_routes(
             # 启动后台导入任务（不使用 daemon=True，确保任务完成）
             thread = threading.Thread(
                 target=_import_papers_task,
-                args=(task_id, papers_data),
+                args=(task_id, papers_data, target_category_id),
             )
             thread.start()
 

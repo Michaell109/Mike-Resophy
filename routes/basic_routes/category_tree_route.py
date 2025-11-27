@@ -53,6 +53,7 @@ class GetCategoryPdfCountFn(Protocol):
 
 class PaperStore(Protocol):
     def list_by_category(self, category_id: str) -> List[Any]: ...
+    def remove(self, paper_id: str) -> Optional[Any]: ...
 
 
 def register_category_routes(
@@ -127,14 +128,79 @@ def register_category_routes(
         save_categories(categories)
         return jsonify({"success": True})
 
+    @app.route("/api/categories/<category_id>/pin", methods=["PUT"])
+    def api_pin_category(category_id):
+        """置顶/取消置顶分类"""
+        data = request.json or {}
+        pinned = data.get("pinned", False)
+
+        categories = get_categories()
+        category_node = find_category_node(categories, category_id)
+
+        if category_node is None:
+            return jsonify({"success": False, "error": "Category not found"}), 404
+
+        category_node["pinned"] = pinned
+        save_categories(categories)
+        return jsonify({"success": True, "pinned": pinned})
+
+    @app.route("/api/categories/<category_id>/color", methods=["PUT"])
+    def api_change_category_color(category_id):
+        """更改分类图标颜色"""
+        data = request.json or {}
+        color = data.get("color")
+
+        if not color:
+            return (
+                jsonify({"success": False, "error": "Color is required"}),
+                400,
+            )
+
+        categories = get_categories()
+        category_node = find_category_node(categories, category_id)
+
+        if category_node is None:
+            return jsonify({"success": False, "error": "Category not found"}), 404
+
+        category_node["iconColor"] = color
+        save_categories(categories)
+        return jsonify({"success": True, "color": color})
+
     @app.route("/api/categories/<category_id>", methods=["DELETE"])
     def api_delete_category(category_id):
         categories = get_categories()
+
+        def collect_all_category_ids(node: Dict[str, Any]) -> List[str]:
+            """递归收集分类及其所有子分类的 ID"""
+            ids = [node.get("id")]
+            for child in node.get("children", []):
+                ids.extend(collect_all_category_ids(child))
+            return ids
+
+        def delete_papers_in_categories(category_ids: List[str]) -> int:
+            """从 paper_store 中删除指定分类下的所有论文"""
+            deleted_count = 0
+            for cat_id in category_ids:
+                papers = paper_store.list_by_category(cat_id)
+                for paper in papers:
+                    paper_id = paper.id if hasattr(paper, 'id') else paper.get('id')
+                    if paper_id:
+                        paper_store.remove(paper_id)
+                        deleted_count += 1
+            return deleted_count
 
         def delete_category_recursive(node: Dict[str, Any], target_id: str) -> bool:
             children = node.get("children", [])
             for index, child in enumerate(children):
                 if child["id"] == target_id:
+                    # 1. 收集要删除的所有分类 ID（包括子分类）
+                    all_category_ids = collect_all_category_ids(child)
+                    
+                    # 2. 从 paper_store 中删除所有相关论文
+                    deleted_papers = delete_papers_in_categories(all_category_ids)
+                    print(f"已从 paper_store 删除 {deleted_papers} 篇论文")
+                    
+                    # 3. 删除物理文件夹
                     category_path = get_category_path(categories, target_id)
                     if category_path and len(category_path) > 1:
                         folder_path = os.path.join(upload_folder, *category_path[1:])
@@ -142,6 +208,7 @@ def register_category_routes(
                             shutil.rmtree(folder_path)
                             print(f"已删除分类文件夹: {folder_path}")
 
+                    # 4. 从分类树中删除节点
                     del children[index]
                     return True
                 if delete_category_recursive(child, target_id):
