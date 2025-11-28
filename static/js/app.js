@@ -1307,7 +1307,20 @@ function renderPaperInfo(paper) {
             ` : ''}
             
             <!-- 备注 -->
-            ${createExpandableTextBlock('备注', paper.notes || '', 'notes', true, false, true)}
+            <div class="info-section compact ${paper.notes ? '' : 'collapsed'}" data-field="notes">
+                <div class="info-header" onclick="toggleInfoSection(this)">
+                    <span class="info-label">备注</span>
+                    <i class="fas fa-chevron-down toggle-icon"></i>
+                </div>
+                <div class="info-content">
+                    <div class="info-value text-block editable notes-editable" 
+                         data-field="notes" 
+                         contenteditable="true"
+                         data-full-text="${escapeHtml(paper.notes || '')}"
+                         data-placeholder="点击添加备注..."
+                         style="white-space: pre-wrap; min-height: 40px;">${escapeHtml(paper.notes || '')}</div>
+                </div>
+            </div>
             
             <!-- 中文版本 -->
             ${paper.has_chinese_version ? `
@@ -1325,7 +1338,14 @@ function renderPaperInfo(paper) {
     // 添加编辑事件监听器（只针对可编辑字段）
     paperInfo.querySelectorAll('.editable').forEach(element => {
         element.addEventListener('blur', () => {
-            savePaperField(paper.id, element.dataset.field, element.textContent);
+            // 获取内容并保存
+            const content = element.textContent.trim();
+            savePaperField(paper.id, element.dataset.field, content);
+            
+            // 备注栏 placeholder 处理：如果为空，清空内容以显示 placeholder
+            if (element.dataset.field === 'notes' && !content) {
+                element.textContent = '';
+            }
         });
         
         element.addEventListener('keydown', (e) => {
@@ -1335,6 +1355,19 @@ function renderPaperInfo(paper) {
                 element.blur();
             }
         });
+        
+        // 备注栏 placeholder 处理
+        if (element.dataset.field === 'notes') {
+            // 初始化：如果为空，清空内容以显示 placeholder
+            if (!element.textContent.trim()) {
+                element.textContent = '';
+            }
+            
+            // 聚焦时：如果为空，确保可以输入
+            element.addEventListener('focus', () => {
+                // placeholder 会通过 CSS 自动隐藏
+            });
+        }
     });
     
     // 初始化文本块的展开/折叠状态

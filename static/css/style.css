@@ -2697,6 +2697,26 @@ mark { background: #fff59d; }
 
 .info-section.compact .info-value.editable:focus {
     outline: none;
+    background: #fff;
+    border: 1px solid #2196f3;
+}
+
+/* 备注栏 placeholder 效果 */
+.info-section.compact .info-value.editable.notes-editable:empty:before {
+    content: attr(data-placeholder);
+    color: #999;
+    font-style: italic;
+    pointer-events: none;
+}
+
+.info-section.compact .info-value.editable.notes-editable:focus:empty:before {
+    content: '';
+}
+
+.info-section.compact .info-value.editable.notes-editable:not(:focus):empty {
+    color: #999;
+    font-style: italic;
+}
     background: #fff3cd;
     box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.2);
 }
