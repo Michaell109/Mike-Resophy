@@ -166,12 +166,12 @@ class Paper:
         self.analysis_result_path = result_path if has_result else None
 
     def record_read_time(self, seconds: int) -> None:
-        self.read_time = max(self.read_time, _normalize_int(seconds, 0))
+        """累加阅读时间（秒）"""
+        self.read_time = self.read_time + _normalize_int(seconds, 0)
 
     def record_analysis_view_time(self, seconds: int) -> None:
-        self.analysis_view_time = max(
-            self.analysis_view_time, _normalize_int(seconds, 0)
-        )
+        """累加 AI 解读阅读时间（秒）"""
+        self.analysis_view_time = self.analysis_view_time + _normalize_int(seconds, 0)
 
     def mark_starred(self, value: Any) -> None:
         self.starred = _normalize_bool(value, False)

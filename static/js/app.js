@@ -1020,10 +1020,11 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         </div>
     `;
     
-    // 标题列
+    // 标题列（包含阅读时间）
+    const readTimeText = getTotalReadTimeText(paper);
     const titleCol = `
         <div class="paper-col-title" title="${paper.title || paper.filename}">
-            ${paper.title || paper.filename}
+            ${paper.title || paper.filename}${readTimeText}
         </div>
     `;
     
@@ -4311,8 +4312,10 @@ async function initSettingsPage() {
         setupUserProfileEvents();
         settingsNavInitialized = true;
     }
-    // 先加载用户设置和阅读历史到缓存
+    // 先加载用户设置和阅读历史到缓存（强制刷新）
     await getUserSettings();
+    // 清除缓存，强制从服务器重新加载
+    readingHistoryCache = null;
     await getDailyReadingData();
     // 更新头像和名字
     await updateAvatars();
@@ -4489,9 +4492,18 @@ function setupSettingsNavigation() {
     });
 }
 
+// 格式化日期为 YYYY-MM-DD（使用本地时间，避免时区问题）
+function formatDateLocal(date) {
+    const d = date || new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // 记录每日阅读时间
 function recordDailyReadingTime(minutes) {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = formatDateLocal(new Date());
     
     // 发送到服务器
     fetch('/api/settings/reading-history/record', {
@@ -4539,7 +4551,7 @@ function getDailyReadingDataSync() {
 
 // 添加测试阅读数据
 async function addTestReadingData() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateLocal(new Date());
     
     try {
         // 添加今天的测试数据（30分钟）
@@ -4553,7 +4565,7 @@ async function addTestReadingData() {
         for (let i = 1; i <= 7; i++) {
             const date = new Date();
             date.setDate(date.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
+            const dateStr = formatDateLocal(date);
             const minutes = Math.floor(Math.random() * 60) + 10; // 10-70分钟
             await fetch('/api/settings/reading-history/record', {
                 method: 'POST',
@@ -4691,7 +4703,11 @@ function renderHeatmap(year) {
             const isValidDate = isInYear && !isInFuture;
             
             if (isValidDate) {
-                const dateStr = currentDate.toISOString().split('T')[0];
+                // 使用本地时间格式化日期（避免时区问题）
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                const dateStr = `${year}-${month}-${day}`;
                 const minutes = data[dateStr] || 0;
                 const level = getLevel(minutes);
                 
@@ -4813,7 +4829,7 @@ function calculateStreaks(dailyData) {
     const checkDate = new Date(today);
     
     // 检查今天是否有阅读
-    const todayStr = checkDate.toISOString().split('T')[0];
+    const todayStr = formatDateLocal(checkDate);
     if (dailyData[todayStr] && dailyData[todayStr] > 0) {
         currentStreak = 1;
         tempStreak = 1;
@@ -4823,7 +4839,7 @@ function calculateStreaks(dailyData) {
     checkDate.setDate(checkDate.getDate() - 1);
     
     while (true) {
-        const dateStr = checkDate.toISOString().split('T')[0];
+        const dateStr = formatDateLocal(checkDate);
         const hasReading = dailyData[dateStr] && dailyData[dateStr] > 0;
         
         if (hasReading) {
@@ -4916,7 +4932,10 @@ function renderRecentActivity() {
                 const paper = item.paper;
                 const viewedAt = new Date(item.viewedAt);
                 const timeAgo = getTimeAgo(viewedAt);
-                const readMinutes = Math.floor((paper.read_time || 0) / 60);
+                // 计算总阅读时长（PDF + AI解读）
+                const totalSeconds = (paper.read_time || 0) + (paper.analysis_view_time || 0);
+                const totalMinutes = Math.floor(totalSeconds / 60);
+                const readTimeDisplay = totalMinutes > 0 ? `已读 ${totalMinutes} 分钟` : '未读';
                 
                 return `
                     <div class="recent-item" onclick="openPaperFromRecent('${paper.id}')">
@@ -4925,7 +4944,7 @@ function renderRecentActivity() {
                         </div>
                         <div class="recent-item-content">
                             <div class="recent-item-title">${escapeHtml(paper.title || paper.filename)}</div>
-                            <div class="recent-item-meta">阅读 ${readMinutes} 分钟</div>
+                            <div class="recent-item-meta">${readTimeDisplay}</div>
                         </div>
                         <div class="recent-item-time">${timeAgo}</div>
                     </div>

@@ -586,6 +586,68 @@ def register_paper_operation_routes(
         remove_from_reading_list(paper_id)
         return jsonify({"success": True})
 
+    @app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
+    def api_record_read_time(paper_id: str):
+        """记录论文阅读时间（累加增量）"""
+        try:
+            data = request.json or {}
+            # 使用增量方式
+            increment = data.get("increment", 0)
+
+            if not isinstance(increment, (int, float)) or increment <= 0:
+                return jsonify({"success": True, "read_time": 0}), 200
+
+            result = find_paper(paper_id)
+            if not result:
+                return jsonify({"success": False, "error": "Paper not found"}), 404
+
+            paper, category_path, category_id = result
+
+            # 累加阅读时间增量
+            paper.record_read_time(int(increment))
+
+            # 保存到文件
+            if paper.file_path:
+                save_paper_metadata(paper.file_path, paper)
+
+            return jsonify({"success": True, "read_time": paper.read_time})
+
+        except Exception as exc:  # noqa: BLE001
+            print(f"记录阅读时间失败: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/paper/<paper_id>/analysis-view-time", methods=["POST"])
+    def api_record_analysis_view_time(paper_id: str):
+        """记录 AI 解读阅读时间（累加增量）"""
+        try:
+            data = request.json or {}
+            # 使用增量方式
+            increment = data.get("increment", 0)
+
+            if not isinstance(increment, (int, float)) or increment <= 0:
+                return jsonify({"success": True, "analysis_view_time": 0}), 200
+
+            result = find_paper(paper_id)
+            if not result:
+                return jsonify({"success": False, "error": "Paper not found"}), 404
+
+            paper, category_path, category_id = result
+
+            # 累加解读阅读时间增量
+            paper.record_analysis_view_time(int(increment))
+
+            # 保存到文件
+            if paper.file_path:
+                save_paper_metadata(paper.file_path, paper)
+
+            return jsonify(
+                {"success": True, "analysis_view_time": paper.analysis_view_time}
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            print(f"记录解读阅读时间失败: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500
+
     @app.route("/api/paper/<paper_id>/refresh-metadata", methods=["POST"])
     def api_refresh_paper_metadata(paper_id: str):
         """重新抓取 PDF 元数据"""
