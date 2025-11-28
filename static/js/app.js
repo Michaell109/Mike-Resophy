@@ -569,6 +569,9 @@ function createCategoryElement(category, level = 0) {
         
         // 记录选择索引
         lastSelectedCategoryIndex = getCategoryIndex(category.id);
+        // 选择分类并加载论文（无论是否有子目录，都要显示该目录下的论文）
+        // 确保即使展开子目录后，也会加载并显示当前目录的论文
+        console.log(`[分类点击] 选择分类: ${category.name} (ID: ${category.id}, Level: ${level})`);
         selectCategory(category.id, category.name, level);
     });
 
@@ -692,9 +695,12 @@ function selectCategory(categoryId, categoryName, level = null) {
     currentCategoryId = categoryId;
     currentCategoryTitle.textContent = categoryName;
     
-    // 根据层级决定加载方式
-    // level === 0 表示一级目录（大目录/Project），递归加载所有子目录论文
-    const recursive = (level === 0);
+    // 检查分类是否有子目录，如果有则递归加载所有子目录的论文
+    const category = findCategoryById(categories, categoryId);
+    const hasChildren = category && category.children && category.children.length > 0;
+    
+    // 如果有子目录，递归加载；否则只加载当前目录的论文
+    const recursive = hasChildren;
     loadPapers(categoryId, recursive);
     
     // 清空右侧信息面板
