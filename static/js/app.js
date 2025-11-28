@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadTranslationSettings();
     loadAnalysisSettings();
     loadGeneralSettings();
-    initImportFeature();
+    await initImportFeature();
     // 初始化导航栏头像
     updateAvatars();
     // 先恢复队列状态，再恢复运行中的任务
@@ -3721,14 +3721,22 @@ function sortPapers(papers, sortBy) {
                 const titleA2 = (a.title || a.filename || '').toLowerCase();
                 const titleB2 = (b.title || b.filename || '').toLowerCase();
                 return titleB2.localeCompare(titleA2);
-            case 'year_desc':
-                const yearA = parseInt(a.year) || 0;
-                const yearB = parseInt(b.year) || 0;
-                return yearB - yearA;
-            case 'year_asc':
-                const yearA2 = parseInt(a.year) || 0;
-                const yearB2 = parseInt(b.year) || 0;
-                return yearA2 - yearB2;
+            case 'published_date_desc':
+                // 按 arXiv 发布日期降序排序（最新的在前）
+                const dateA = a.arxiv_published_date || '';
+                const dateB = b.arxiv_published_date || '';
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1;  // 没有日期的排在后面
+                if (!dateB) return -1;
+                return new Date(dateB) - new Date(dateA);
+            case 'published_date_asc':
+                // 按 arXiv 发布日期升序排序（最旧的在前）
+                const dateA2 = a.arxiv_published_date || '';
+                const dateB2 = b.arxiv_published_date || '';
+                if (!dateA2 && !dateB2) return 0;
+                if (!dateA2) return 1;  // 没有日期的排在后面
+                if (!dateB2) return -1;
+                return new Date(dateA2) - new Date(dateB2);
             case 'authors_asc':
                 const authorsA = (a.authors || '').toLowerCase();
                 const authorsB = (b.authors || '').toLowerCase();
@@ -5687,7 +5695,7 @@ let importEventSource = null;
 let importInProgress = false;
 
 // 初始化导入功能
-function initImportFeature() {
+async function initImportFeature() {
     const dropZone = document.getElementById('import-drop-zone');
     const fileInput = document.getElementById('rdf-file-input');
     
@@ -5724,8 +5732,8 @@ function initImportFeature() {
         }
     });
     
-    // 填充目标目录选择列表
-    populateImportTargetCategories();
+    // 填充目标目录选择列表（获取最新数据）
+    await populateImportTargetCategories();
     
     // 检查是否有正在进行的导入任务（页面刷新后恢复）
     checkExistingImportTask();
@@ -5733,33 +5741,72 @@ function initImportFeature() {
     console.log('Import 功能初始化完成');
 }
 
-// 填充导入目标目录选择列表
-function populateImportTargetCategories() {
+// 填充导入目标目录选择列表（异步获取最新目录数据）
+async function populateImportTargetCategories() {
     const select = document.getElementById('import-target-category');
     if (!select) return;
+    
+    // 保留当前选中的值
+    const currentValue = select.value;
     
     // 保留默认选项
     select.innerHTML = '<option value="">根目录（默认）</option>';
     
-    // 递归添加目录选项
-    function addCategoryOptions(node, level = 0) {
-        if (!node.children) return;
+    try {
+        // 从 API 获取最新的目录数据
+        const response = await fetch('/api/categories');
+        const latestCategories = await response.json();
         
-        node.children.forEach(child => {
-            const indent = '　'.repeat(level); // 使用全角空格缩进
-            const option = document.createElement('option');
-            option.value = child.id;
-            option.textContent = `${indent}📁 ${child.name}`;
-            select.appendChild(option);
+        // 递归添加目录选项
+        function addCategoryOptions(node, level = 0) {
+            if (!node.children) return;
             
-            // 递归添加子目录
-            if (child.children && child.children.length > 0) {
-                addCategoryOptions(child, level + 1);
+            node.children.forEach(child => {
+                const indent = '　'.repeat(level); // 使用全角空格缩进
+                const option = document.createElement('option');
+                option.value = child.id;
+                option.textContent = `${indent}📁 ${child.name}`;
+                select.appendChild(option);
+                
+                // 递归添加子目录
+                if (child.children && child.children.length > 0) {
+                    addCategoryOptions(child, level + 1);
+                }
+            });
+        }
+        
+        addCategoryOptions(latestCategories);
+        
+        // 恢复之前选中的值（如果仍然存在）
+        if (currentValue) {
+            const optionExists = Array.from(select.options).some(opt => opt.value === currentValue);
+            if (optionExists) {
+                select.value = currentValue;
             }
-        });
+        }
+        
+        // 同时更新全局变量，保持一致性
+        categories = latestCategories;
+    } catch (error) {
+        console.error('获取目录数据失败:', error);
+        // 如果获取失败，使用全局变量作为后备
+        function addCategoryOptions(node, level = 0) {
+            if (!node.children) return;
+            
+            node.children.forEach(child => {
+                const indent = '　'.repeat(level);
+                const option = document.createElement('option');
+                option.value = child.id;
+                option.textContent = `${indent}📁 ${child.name}`;
+                select.appendChild(option);
+                
+                if (child.children && child.children.length > 0) {
+                    addCategoryOptions(child, level + 1);
+                }
+            });
+        }
+        addCategoryOptions(categories);
     }
-    
-    addCategoryOptions(categories);
 }
 
 // 检查是否有正在进行的导入任务
@@ -5977,7 +6024,7 @@ function resetImport() {
 }
 
 // 切换到指定的 setting 面板
-function switchSettingPanel(panelName) {
+async function switchSettingPanel(panelName) {
     document.querySelectorAll('.setting-nav-item').forEach(b => b.classList.remove('active'));
     const targetBtn = document.querySelector(`.setting-nav-item[data-setting="${panelName}"]`);
     if (targetBtn) targetBtn.classList.add('active');
@@ -5986,9 +6033,9 @@ function switchSettingPanel(panelName) {
     const targetPanel = document.getElementById(`setting-panel-${panelName}`);
     if (targetPanel) targetPanel.style.display = 'block';
     
-    // 如果切换到 Import 面板，刷新目录选择列表
+    // 如果切换到 Import 面板，刷新目录选择列表（获取最新数据）
     if (panelName === 'import') {
-        populateImportTargetCategories();
+        await populateImportTargetCategories();
     }
     
     // 保存状态

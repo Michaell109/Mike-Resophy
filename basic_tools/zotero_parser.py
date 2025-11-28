@@ -265,10 +265,24 @@ class ZoteroRDFParser:
                 if paper.id in orig_id or orig_id.replace(":", "_") == paper.id:
                     possible_ids.append(orig_subj)
                     possible_ids.append(orig_id)
+                    # 如果原始 ID 包含 urn:isbn，同时添加原始格式和转换格式
+                    if "urn:isbn:" in orig_id:
+                        # 添加原始格式
+                        possible_ids.append(orig_id)
+                        # 添加转换后的格式（如果还没有）
+                        converted_id = orig_id.replace("urn:", "").replace(":", "_")
+                        if converted_id not in possible_ids:
+                            possible_ids.append(converted_id)
                     break
             # 添加 URL
             if "url" in paper.extra:
                 possible_ids.append(paper.extra["url"])
+
+            # 处理 ISBN 格式：如果 paper.id 是 isbn_xxx，也添加 urn:isbn:xxx 格式
+            if paper.id.startswith("isbn_"):
+                isbn_number = paper.id.replace("isbn_", "")
+                possible_ids.append(f"urn:isbn:{isbn_number}")
+                possible_ids.append(f"isbn:{isbn_number}")
 
             for pid in possible_ids:
                 paper_map[pid] = paper
@@ -328,6 +342,51 @@ class ZoteroRDFParser:
                                 if ref_item and id_item and ref_item == id_item:
                                     matched_paper = paper
                                     break
+                            elif "urn:isbn:" in paper_ref or "isbn_" in paper_id:
+                                # 处理 ISBN 格式：urn:isbn:xxx 与 isbn_xxx 的匹配
+                                # 提取 ISBN 号码部分
+                                ref_isbn = ""
+                                if "urn:isbn:" in paper_ref:
+                                    ref_isbn = (
+                                        paper_ref.split("urn:isbn:")[-1]
+                                        .split("/")[0]
+                                        .split("%")[0]
+                                        .strip()
+                                    )
+                                elif "isbn:" in paper_ref:
+                                    ref_isbn = (
+                                        paper_ref.split("isbn:")[-1]
+                                        .split("/")[0]
+                                        .split("%")[0]
+                                        .strip()
+                                    )
+
+                                id_isbn = ""
+                                if paper_id.startswith("isbn_"):
+                                    id_isbn = paper_id.replace("isbn_", "").strip()
+                                elif "isbn" in paper_id.lower():
+                                    # 尝试从其他格式中提取 ISBN
+                                    import re
+
+                                    isbn_match = re.search(r"[\d-]+", paper_id)
+                                    if isbn_match:
+                                        id_isbn = isbn_match.group(0)
+
+                                if ref_isbn and id_isbn:
+                                    # 标准化 ISBN（移除连字符进行比较）
+                                    ref_isbn_normalized = ref_isbn.replace(
+                                        "-", ""
+                                    ).replace(" ", "")
+                                    id_isbn_normalized = id_isbn.replace(
+                                        "-", ""
+                                    ).replace(" ", "")
+                                    if (
+                                        ref_isbn_normalized == id_isbn_normalized
+                                        or ref_isbn in id_isbn
+                                        or id_isbn in ref_isbn
+                                    ):
+                                        matched_paper = paper
+                                        break
 
                 if matched_paper:
                     # 添加 category 到论文
