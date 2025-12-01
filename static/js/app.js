@@ -334,6 +334,20 @@ fileInput.addEventListener('change', handleFileSelect);
     if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
 
+    // Logo 点击返回主界面
+    const navbarBrand = document.getElementById('navbar-brand');
+    const navbarLogo = document.getElementById('navbar-logo');
+    const navbarBrandText = document.getElementById('navbar-brand-text');
+    if (navbarBrand) {
+        navbarBrand.addEventListener('click', returnToHome);
+    }
+    if (navbarLogo) {
+        navbarLogo.addEventListener('click', returnToHome);
+    }
+    if (navbarBrandText) {
+        navbarBrandText.addEventListener('click', returnToHome);
+    }
+
     // 全局搜索
     setupGlobalSearch();
 
@@ -4026,6 +4040,63 @@ function setupNavigation() {
             showReadingList();
         });
     }
+}
+
+// 返回主界面
+function returnToHome() {
+    // 切换到 Paper 视图
+    switchTab('paper');
+    
+    // 清除分类选中状态
+    currentCategoryId = null;
+    currentViewMode = 'category';
+    
+    // 清除分类树中的选中状态
+    document.querySelectorAll('.category-item.selected').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // 清除论文选中状态
+    currentPaperId = null;
+    document.querySelectorAll('.paper-item.selected').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // 清除多选模式
+    if (isMultiSelectMode) {
+        exitMultiSelectMode();
+    }
+    
+    // 清空论文列表，显示空状态
+    const papersList = document.getElementById('papers-list');
+    if (papersList) {
+        papersList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-file-pdf"></i>
+                <p>选择左侧分类查看 PDF 文件</p>
+            </div>
+        `;
+    }
+    
+    // 清空论文信息面板
+    const paperInfo = document.getElementById('paper-info');
+    if (paperInfo) {
+        paperInfo.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-file-alt"></i>
+                <p>选择一篇论文查看详细信息</p>
+            </div>
+        `;
+    }
+    
+    // 更新当前分类标题
+    const currentCategory = document.getElementById('current-category');
+    if (currentCategory) {
+        currentCategory.textContent = '选择一个分类查看 PDF';
+    }
+    
+    // 保存视图状态
+    saveCurrentViewState();
 }
 
 // 切换标签页

@@ -588,8 +588,13 @@ def register_import_routes(
                     skipped_count += 1
                     continue
 
+                # 获取完整的文件夹路径（包含父目录）
+                # full_category_path 格式为 ["Root", "ParentDir", "Category", ...]
+                # 创建文件夹时需要去掉 "Root"
+                folder_path_parts = full_category_path[1:] if len(full_category_path) > 1 else category_path
+                
                 # 检查目标目录是否已有同名论文（重复检测）
-                category_folder = create_category_folder(category_path)
+                category_folder = create_category_folder(folder_path_parts)
                 paper_title = paper_info.get("title", "")
                 if paper_title and _check_duplicate_in_folder(
                     category_folder, paper_title
@@ -607,8 +612,8 @@ def register_import_routes(
 
                 pdf_content, pdf_filename = pdf_result
 
-                # 创建分类文件夹并保存 PDF
-                category_folder = create_category_folder(category_path)
+                # 创建分类文件夹并保存 PDF（使用完整路径）
+                category_folder = create_category_folder(folder_path_parts)
 
                 # 使用论文标题作为文件名
                 clean_title = _clean_filename(paper_info.get("title"))

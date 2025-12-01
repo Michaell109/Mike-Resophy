@@ -4,11 +4,14 @@ import os
 import threading
 from datetime import datetime
 from functools import partial
+from typing import Optional
 
 from flask import Flask, jsonify, render_template, request
 
 from basic_tools import category_manager, paper_repository
+from core.base_paper import Paper
 from core.paper_store import paper_store
+from core.search_index import SearchIndex
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
 from routes.basic_routes.category_tree_route import register_category_routes
@@ -24,13 +27,13 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./papers",
+    default="./test_papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
     "--host",
     type=str,
-    default="192.168.81.140",
+    default="192.168.81.138",
     help="服务器监听地址（默认: 192.168.81.138）",
 )
 parser.add_argument(
@@ -52,6 +55,8 @@ READING_HISTORY_FILE = None  # 每日阅读历史
 TRANSLATION_SETTINGS_FILE = None  # 翻译设置
 ANALYSIS_SETTINGS_FILE = None  # AI 解读设置
 AVATARS_DIR = None  # 头像图片目录
+SEARCH_INDEX_DB = None  # 搜索索引数据库路径
+search_index = None  # 搜索索引实例
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
 
 # 默认通用设置
@@ -93,16 +98,68 @@ get_category_pdf_count = category_manager.get_category_pdf_count
 
 get_papers_in_category = None
 get_paper_json_path = paper_repository.get_paper_json_path
-save_paper_metadata = paper_repository.save_paper_metadata
 load_paper_metadata = paper_repository.load_paper_metadata
-delete_paper_files = paper_repository.delete_paper_files
 scan_papers_in_directory = paper_repository.scan_papers_in_directory
+
+
+def save_paper_metadata(pdf_path: str, paper_data) -> None:
+    """保存论文元数据并更新搜索索引"""
+    paper_repository.save_paper_metadata(pdf_path, paper_data)
+
+    # 更新搜索索引
+    if search_index:
+        try:
+            if isinstance(paper_data, Paper):
+                paper = paper_data
+            else:
+                paper = Paper.from_dict(paper_data) if paper_data else None
+
+            if paper:
+                # 优先从 paper_store 获取最新的分类ID（最准确）
+                category_id = None
+                entry = paper_store.get_entry(paper.id)
+                if entry:
+                    category_id = entry.category_id
+
+                # 如果 paper_store 中没有，尝试从论文数据获取
+                if not category_id:
+                    if hasattr(paper, "category_id") and paper.category_id:
+                        category_id = paper.category_id
+                    elif isinstance(paper_data, dict):
+                        category_id = paper_data.get("category_id")
+
+                search_index.index_paper(paper, category_id)
+        except Exception as e:
+            print(f"更新搜索索引失败: {e}")
+
+
+def delete_paper_files(pdf_path: str) -> None:
+    """删除论文文件并从搜索索引中移除"""
+    # 先获取论文ID（如果可能）
+    paper_id = None
+    try:
+        paper = load_paper_metadata(pdf_path)
+        if paper:
+            paper_id = paper.id
+    except Exception:
+        pass
+
+    # 删除文件
+    paper_repository.delete_paper_files(pdf_path)
+
+    # 从搜索索引中删除
+    if paper_id and search_index:
+        try:
+            search_index.remove_paper(paper_id)
+        except Exception as e:
+            print(f"从搜索索引删除失败: {e}")
 
 
 def init_app(papers_dir=None):
     """初始化应用配置和目录"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE, GENERAL_SETTINGS_FILE
     global USER_SETTINGS_FILE, READING_HISTORY_FILE, TRANSLATION_SETTINGS_FILE, ANALYSIS_SETTINGS_FILE, AVATARS_DIR
+    global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
     # 设置论文目录
@@ -124,10 +181,14 @@ def init_app(papers_dir=None):
     TRANSLATION_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "translation_settings.json")
     ANALYSIS_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "analysis_settings.json")
     AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
+    SEARCH_INDEX_DB = os.path.join(UPLOAD_FOLDER, ".search_index.db")
 
     # 确保必要的目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(AVATARS_DIR, exist_ok=True)
+
+    # 初始化搜索索引
+    search_index = SearchIndex(SEARCH_INDEX_DB)
 
     # 初始化待读列表文件
     if not os.path.exists(READING_LIST_FILE):
@@ -179,6 +240,7 @@ def init_app(papers_dir=None):
     print(f"翻译设置: {TRANSLATION_SETTINGS_FILE}")
     print(f"AI解读设置: {ANALYSIS_SETTINGS_FILE}")
     print(f"头像目录: {AVATARS_DIR}")
+    print(f"搜索索引数据库: {SEARCH_INDEX_DB}")
 
 
 # 翻译任务管理
@@ -219,6 +281,7 @@ def register_routes():
         get_categories=get_categories,
         get_category_path=get_category_path,
         upload_folder=UPLOAD_FOLDER,
+        search_index=search_index,
     )
 
     register_settings_routes(
@@ -341,6 +404,62 @@ if __name__ == "__main__":
 
     # 初始化分类系统
     init_categories()
+
+    # 重建搜索索引（在后台线程中执行，避免阻塞启动）
+    def rebuild_search_index():
+        """在后台线程中重建搜索索引"""
+        import threading
+        import time
+
+        def _rebuild():
+            time.sleep(1)  # 等待1秒，确保其他初始化完成
+            print("开始重建搜索索引...")
+            try:
+                categories = get_categories()
+                papers_with_categories = []
+
+                def collect_papers(node, category_path):
+                    """递归收集所有论文"""
+                    node_path = get_category_path(categories, node.get("id"))
+                    if node_path and len(node_path) > 1:
+                        directory_path = os.path.join(UPLOAD_FOLDER, *node_path[1:])
+                        if os.path.exists(directory_path):
+                            papers = scan_papers_in_directory(
+                                directory_path,
+                                category_id=node.get("id"),
+                                category_path=node_path,
+                            )
+                            for paper in papers:
+                                papers_with_categories.append((paper, node.get("id")))
+
+                    for child in node.get("children", []):
+                        collect_papers(child, node_path or [])
+
+                for child in categories.get("children", []):
+                    collect_papers(child, [])
+
+                if papers_with_categories:
+                    search_index.rebuild_index(papers_with_categories)
+                    print(
+                        f"搜索索引重建完成，共索引 {len(papers_with_categories)} 篇论文"
+                    )
+                else:
+                    print("没有找到论文，跳过索引重建")
+            except Exception as e:
+                print(f"重建搜索索引失败: {e}")
+                import traceback
+
+                traceback.print_exc()
+
+        thread = threading.Thread(target=_rebuild, daemon=True)
+        thread.start()
+
+    # 设置重建索引回调（在定义 rebuild_search_index 之后）
+    if search_index:
+        search_index.set_rebuild_callback(rebuild_search_index)
+
+    # 重建搜索索引
+    rebuild_search_index()
 
     # 论文数据现在直接存储在PDF文件旁边的JSON文件中
     print(f"启动服务器: http://{args.host}:{args.port}")

@@ -20,9 +20,9 @@
     <!-- 导航栏 -->
     <nav class="navbar">
         <div class="navbar-content">
-            <div class="navbar-brand">
-                <img src="{{ url_for('static', filename='images/hompage_logo.png') }}" alt="Resophy" class="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
-                <span class="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> Resophy</span>
+            <div class="navbar-brand" id="navbar-brand" style="cursor: pointer;" title="返回主界面">
+                <img src="{{ url_for('static', filename='images/hompage_logo.png') }}" alt="Resophy" class="navbar-logo" id="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                <span class="navbar-brand-text" id="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> Resophy</span>
             </div>
             <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
                 <button id="btn-show-translating" class="ti-item ti-translate" title="查看翻译中的论文">
