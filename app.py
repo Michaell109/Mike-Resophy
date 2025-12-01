@@ -24,13 +24,13 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./leizhang_papers",
+    default="./papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
     "--host",
     type=str,
-    default="192.168.81.138",
+    default="192.168.81.140",
     help="服务器监听地址（默认: 192.168.81.138）",
 )
 parser.add_argument(

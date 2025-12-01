@@ -5,7 +5,8 @@ let currentPaperId = null;
 let papers = [];
 let expandedCategories = new Set(); // 记录展开的分类
 let draggedPaper = null; // 当前拖拽的论文
-let draggedCategory = null; // 当前拖拽的目录
+let draggedCategory = null; // 当前拖拽的目录（单个）
+let draggedCategories = []; // 当前拖拽的多个目录（批量拖拽）
 let dragExpandTimer = null; // 拖拽展开定时器
 let currentViewMode = 'category'; // 'category' | 'translating' | 'analyzing' | 'reading-list' - 当前视图模式
 let readingListCount = 0; // 待读列表数量
@@ -376,14 +377,26 @@ fileInput.addEventListener('change', handleFileSelect);
         }
     });
 
-    // 点击分类树空白区域，清空选中并展示最近阅读
+    // 点击分类树空白区域
     categoryTree.addEventListener('click', (e) => {
         if (e.target === categoryTree) {
-            document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
-            currentCategoryId = null;
-            currentCategoryTitle.textContent = '选择一个分类查看 PDF';
-            renderRecentIfNoCategory();
-            clearPaperInfo();
+            // 如果有多选目录，不清空，保持多选状态
+            if (!isCategoryMultiSelectMode) {
+                document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
+                currentCategoryId = null;
+                currentCategoryTitle.textContent = '选择一个分类查看 PDF';
+                renderRecentIfNoCategory();
+                clearPaperInfo();
+            }
+        }
+    });
+    
+    // 分类树空白区域右键菜单（支持多选目录的批量操作）
+    categoryTree.addEventListener('contextmenu', (e) => {
+        // 如果点击的是分类树空白区域，且有多选目录，显示批量菜单
+        if (e.target === categoryTree && isCategoryMultiSelectMode && selectedCategoryIds.size > 0) {
+            e.preventDefault();
+            showCategoryBatchContextMenu(e);
         }
     });
 }
@@ -578,14 +591,11 @@ function createCategoryElement(category, level = 0) {
     // 右键菜单
     div.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        // 如果右键点击的目录在多选中，显示批量菜单
-        if (isCategoryMultiSelectMode && selectedCategoryIds.has(category.id)) {
+        // 如果有多选目录，显示批量菜单（无论点击的是哪个目录）
+        if (isCategoryMultiSelectMode && selectedCategoryIds.size > 0) {
             showCategoryBatchContextMenu(e);
         } else {
-            // 如果不在多选中，清除多选并显示单个目录菜单
-            if (isCategoryMultiSelectMode) {
-                exitCategoryMultiSelectMode();
-            }
+            // 如果不在多选中，显示单个目录菜单
             showContextMenu(e, category.id);
         }
     });
@@ -1489,6 +1499,22 @@ function setupDragAndDrop() {
     // 为分类树添加拖拽支持
     categoryTree.addEventListener('dragover', (e) => {
         preventDefaults(e);
+        
+        // 检查是否拖拽的是分类（单个或批量）
+        const isDraggingCategory = draggedCategory || draggedCategories.length > 0;
+        
+        if (isDraggingCategory) {
+            // 如果拖拽的是分类，检查是否在某个category-item上
+            const categoryItem = e.target.closest('.category-item');
+            if (!categoryItem) {
+                // 在空白区域，允许移动到根目录
+                e.dataTransfer.dropEffect = 'move';
+                categoryTree.classList.add('drag-over-root');
+                return;
+            }
+        }
+        
+        // 默认处理文件拖拽
         e.dataTransfer.dropEffect = 'copy';
         const categoryItem = e.target.closest('.category-item');
         if (categoryItem) {
@@ -1501,10 +1527,46 @@ function setupDragAndDrop() {
         if (categoryItem) {
             categoryItem.classList.remove('drag-over');
         }
+        // 检查是否真的离开了categoryTree（而不是进入子元素）
+        const rect = categoryTree.getBoundingClientRect();
+        const x = e.clientX;
+        const y = e.clientY;
+        
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+            categoryTree.classList.remove('drag-over-root');
+        }
     });
 
     categoryTree.addEventListener('drop', (e) => {
         preventDefaults(e);
+        
+        // 检查是否拖拽的是分类（单个或批量）
+        const isDraggingCategory = draggedCategory || draggedCategories.length > 0;
+        
+        if (isDraggingCategory) {
+            const categoryItem = e.target.closest('.category-item');
+            
+            // 如果不在任何category-item上，说明拖到了空白区域，移动到根目录
+            if (!categoryItem) {
+                categoryTree.classList.remove('drag-over-root');
+                
+                // 批量移动
+                if (draggedCategories.length > 0) {
+                    console.log(`批量放置 ${draggedCategories.length} 个目录到根目录`);
+                    moveCategories(draggedCategories.map(c => c.id), 'root');
+                }
+                // 单个移动
+                else if (draggedCategory) {
+                    console.log('放置目录到根目录:', draggedCategory.name);
+                    moveCategory(draggedCategory.id, 'root');
+                }
+                return;
+            }
+            // 如果在category-item上，由setupCategoryDropTarget处理
+            return;
+        }
+        
+        // 处理文件拖拽
         const categoryItem = e.target.closest('.category-item');
         if (categoryItem) {
             categoryItem.classList.remove('drag-over');
@@ -2462,7 +2524,7 @@ function setupPaperDrag(paperElement, paper) {
     });
 }
 
-// 设置目录拖拽功能（使目录可被拖拽）
+// 设置目录拖拽功能（使目录可被拖拽）- 支持批量拖拽
 function setupCategoryDrag(categoryElement, category) {
     // 不允许拖拽根目录
     if (category.id === 'root') return;
@@ -2476,19 +2538,52 @@ function setupCategoryDrag(categoryElement, category) {
             return;
         }
         
-        console.log('开始拖拽目录:', category.name);
-        draggedCategory = category;
+        // 检查是否在多选模式下
+        if (isCategoryMultiSelectMode && selectedCategoryIds.size > 0) {
+            // 批量拖拽：拖拽所有选中的目录
+            draggedCategories = [];
+            selectedCategoryIds.forEach(catId => {
+                const cat = findCategoryById(categories, catId);
+                if (cat && cat.id !== 'root') {
+                    draggedCategories.push(cat);
+                }
+            });
+            
+            if (draggedCategories.length === 0) {
+                e.preventDefault();
+                return;
+            }
+            
+            console.log(`开始批量拖拽 ${draggedCategories.length} 个目录`);
+            draggedCategory = null; // 清空单个拖拽
+            
+            // 为所有选中的目录添加 dragging 样式
+            selectedCategoryIds.forEach(catId => {
+                const el = document.querySelector(`[data-category-id="${catId}"]`);
+                if (el) {
+                    setTimeout(() => el.classList.add('dragging'), 0);
+                }
+            });
+        } else {
+            // 单个拖拽
+            console.log('开始拖拽目录:', category.name);
+            draggedCategory = category;
+            draggedCategories = []; // 清空批量拖拽
+            
+            // 延迟添加 dragging 类
+            setTimeout(() => {
+                categoryElement.classList.add('dragging');
+            }, 0);
+        }
         
         // 阻止事件冒泡，避免触发父元素的拖拽
         e.stopPropagation();
         
-        // 延迟添加 dragging 类
-        setTimeout(() => {
-            categoryElement.classList.add('dragging');
-        }, 0);
-        
         // 设置拖拽数据
-        e.dataTransfer.setData('text/plain', `category:${category.id}`);
+        const categoryIds = draggedCategories.length > 0 
+            ? draggedCategories.map(c => c.id).join(',')
+            : category.id;
+        e.dataTransfer.setData('text/plain', `category:${categoryIds}`);
         e.dataTransfer.effectAllowed = 'move';
         
         // 创建自定义拖拽图像
@@ -2507,7 +2602,13 @@ function setupCategoryDrag(categoryElement, category) {
         dragImage.style.display = 'flex';
         dragImage.style.alignItems = 'center';
         dragImage.style.gap = '6px';
-        dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${category.name}`;
+        
+        if (draggedCategories.length > 0) {
+            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${draggedCategories.length} 个目录`;
+        } else {
+            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${category.name}`;
+        }
+        
         document.body.appendChild(dragImage);
         
         const rect = categoryElement.getBoundingClientRect();
@@ -2526,12 +2627,18 @@ function setupCategoryDrag(categoryElement, category) {
     categoryElement.addEventListener('dragend', (e) => {
         console.log('结束拖拽目录');
         categoryElement.classList.remove('dragging');
-        draggedCategory = null;
         
         // 清理所有拖拽状态
-        document.querySelectorAll('.category-item.drag-over, .category-item.drag-target').forEach(el => {
-            el.classList.remove('drag-over', 'drag-target');
+        document.querySelectorAll('.category-item.dragging, .category-item.drag-over, .category-item.drag-target').forEach(el => {
+            el.classList.remove('dragging', 'drag-over', 'drag-target');
         });
+        
+        // 清除根目录的拖拽样式
+        categoryTree.classList.remove('drag-over-root');
+        
+        // 清空拖拽数据
+        draggedCategory = null;
+        draggedCategories = [];
         
         // 清理定时器
         if (dragExpandTimer) {
@@ -2550,19 +2657,21 @@ function setupCategoryDropTarget(categoryElement, category) {
         e.preventDefault();
         e.stopPropagation();
         
-        // 检查是否有拖拽的论文或目录
-        if (!draggedPaper && !draggedCategory) {
+        // 检查是否有拖拽的论文或目录（单个或批量）
+        if (!draggedPaper && !draggedCategory && draggedCategories.length === 0) {
             return;
         }
         
-        // 如果拖拽的是目录，不能拖到自己或自己的子目录
-        if (draggedCategory) {
-            if (draggedCategory.id === category.id) {
+        // 如果拖拽的是目录（单个或批量），不能拖到自己或自己的子目录
+        const categoriesToCheck = draggedCategories.length > 0 ? draggedCategories : (draggedCategory ? [draggedCategory] : []);
+        
+        for (const draggedCat of categoriesToCheck) {
+            if (draggedCat.id === category.id) {
                 e.dataTransfer.dropEffect = 'none';
                 return;
             }
             // 检查是否是子目录（简单检查：目标是否在拖拽元素的 DOM 子树中）
-            const draggedElement = document.querySelector(`[data-category-id="${draggedCategory.id}"]`);
+            const draggedElement = document.querySelector(`[data-category-id="${draggedCat.id}"]`);
             if (draggedElement) {
                 const draggedContainer = draggedElement.closest('.category-container');
                 if (draggedContainer && draggedContainer.contains(categoryElement)) {
@@ -2573,6 +2682,9 @@ function setupCategoryDropTarget(categoryElement, category) {
         }
         
         e.dataTransfer.dropEffect = 'move';
+        
+        // 清除根目录的拖拽样式（如果存在）
+        categoryTree.classList.remove('drag-over-root');
         
         // 添加拖拽悬停样式
         categoryElement.classList.add('drag-over');
@@ -2608,7 +2720,7 @@ function setupCategoryDropTarget(categoryElement, category) {
     categoryElement.addEventListener('dragover', onDragOver);
     
     categoryElement.addEventListener('dragleave', (e) => {
-        if (!draggedPaper && !draggedCategory) return;
+        if (!draggedPaper && !draggedCategory && draggedCategories.length === 0) return;
         
         // 检查是否真的离开了元素（而不是进入子元素）
         const rect = categoryElement.getBoundingClientRect();
@@ -2633,6 +2745,9 @@ function setupCategoryDropTarget(categoryElement, category) {
         categoryElement.classList.remove('drag-over');
         categoryElement.classList.add('drag-target');
         
+        // 清除根目录的拖拽样式
+        categoryTree.classList.remove('drag-over-root');
+        
         // 清除定时器
         if (dragExpandTimer) {
             clearTimeout(dragExpandTimer);
@@ -2644,7 +2759,11 @@ function setupCategoryDropTarget(categoryElement, category) {
             console.log('放置论文到分类:', category.name, '论文:', draggedPaper.title || draggedPaper.filename);
             movePaper(draggedPaper.id, category.id);
         }
-        // 处理目录拖放
+        // 处理目录拖放（批量或单个）
+        else if (draggedCategories.length > 0) {
+            console.log(`批量放置 ${draggedCategories.length} 个目录到分类:`, category.name);
+            moveCategories(draggedCategories.map(c => c.id), category.id);
+        }
         else if (draggedCategory) {
             console.log('放置目录到分类:', category.name, '目录:', draggedCategory.name);
             moveCategory(draggedCategory.id, category.id);
@@ -2733,6 +2852,66 @@ async function moveCategory(categoryId, targetParentId) {
     } catch (error) {
         console.error('移动目录失败:', error);
         showMessage('移动目录失败', 'error');
+    }
+}
+
+// 批量移动多个目录到新的父目录
+async function moveCategories(categoryIds, targetParentId) {
+    if (!categoryIds || categoryIds.length === 0) return;
+    
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+    
+    // 逐个移动目录
+    for (const categoryId of categoryIds) {
+        try {
+            const response = await fetch(`/api/categories/${categoryId}/move`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    target_parent_id: targetParentId
+                })
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                successCount++;
+                console.log(`目录移动成功: ${categoryId}`);
+            } else {
+                failCount++;
+                errors.push(result.error || '未知错误');
+            }
+        } catch (error) {
+            failCount++;
+            errors.push(error.message || '网络错误');
+            console.error(`移动目录失败 ${categoryId}:`, error);
+        }
+    }
+    
+    // 显示结果
+    if (successCount > 0) {
+        if (failCount === 0) {
+            showMessage(`成功移动 ${successCount} 个目录`, 'success');
+        } else {
+            showMessage(`成功移动 ${successCount} 个目录，失败 ${failCount} 个`, 'warning');
+        }
+    } else {
+        showMessage(`移动失败: ${errors[0] || '未知错误'}`, 'error');
+    }
+    
+    // 更新本地数据并重新渲染分类树
+    if (successCount > 0) {
+        await updateCategoriesData();
+        await renderCategoryTreeWithState();
+    }
+    
+    // 无论成功与否，都退出多选模式（因为已经完成操作）
+    if (isCategoryMultiSelectMode) {
+        exitCategoryMultiSelectMode();
     }
 }
 
