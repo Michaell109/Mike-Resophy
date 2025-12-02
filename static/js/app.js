@@ -125,6 +125,10 @@ function saveCurrentViewState() {
     const settingView = document.getElementById('setting-view');
     const isSettingView = settingView && settingView.style.display !== 'none';
     
+    // 检查是否在 Daily arXiv 界面
+    const dailyArxivView = document.getElementById('daily-arxiv-view');
+    const isDailyArxivView = dailyArxivView && dailyArxivView.style.display !== 'none';
+    
     // 获取当前激活的 setting 面板
     let settingPanel = null;
     if (isSettingView) {
@@ -132,11 +136,17 @@ function saveCurrentViewState() {
         settingPanel = activeNav?.dataset.setting || 'overview';
     }
     
+    let tabName = 'paper';
+    if (isSettingView) tabName = 'setting';
+    else if (isDailyArxivView) tabName = 'daily-arxiv';
+    
     const state = {
         viewMode: currentViewMode,
         categoryId: currentCategoryId,
-        tabName: isSettingView ? 'setting' : 'paper',
-        settingPanel: settingPanel
+        tabName: tabName,
+        settingPanel: settingPanel,
+        dailyArxivCategory: dailyArxivCurrentCategory,
+        dailyArxivDate: dailyArxivCurrentDate
     };
     try {
         sessionStorage.setItem('currentViewState', JSON.stringify(state));
@@ -158,6 +168,19 @@ async function restoreViewState() {
                 if (state.settingPanel) {
                     switchSettingPanel(state.settingPanel);
                 }
+                return;
+            }
+            
+            // 恢复 Daily arXiv 视图
+            if (state.tabName === 'daily-arxiv') {
+                // 恢复选中的分区和日期
+                if (state.dailyArxivCategory) {
+                    dailyArxivCurrentCategory = state.dailyArxivCategory;
+                }
+                if (state.dailyArxivDate) {
+                    dailyArxivCurrentDate = state.dailyArxivDate;
+                }
+                switchTab('daily-arxiv');
                 return;
             }
 
@@ -249,6 +272,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadAnalysisSettings();
     loadGeneralSettings();
     await initImportFeature();
+    // 初始化 Daily arXiv
+    await initDailyArxiv();
     // 初始化导航栏头像
     updateAvatars();
     // 先恢复队列状态，再恢复运行中的任务
@@ -4103,6 +4128,7 @@ function returnToHome() {
 function switchTab(tabName) {
     const paperView = document.getElementById('paper-view');
     const settingView = document.getElementById('setting-view');
+    const dailyArxivView = document.getElementById('daily-arxiv-view');
     const navTabs = document.querySelectorAll('.nav-tab');
     const navAvatar = document.getElementById('nav-avatar');
     
@@ -4126,12 +4152,21 @@ function switchTab(tabName) {
     if (tabName === 'paper') {
         paperView.style.display = 'flex';
         settingView.style.display = 'none';
+        if (dailyArxivView) dailyArxivView.style.display = 'none';
         // 不调用 renderRecentIfNoCategory，让调用者决定显示什么
     } else if (tabName === 'setting') {
         paperView.style.display = 'none';
         settingView.style.display = 'flex';
+        if (dailyArxivView) dailyArxivView.style.display = 'none';
         // 初始化 Settings 页面
         initSettingsPage();
+    } else if (tabName === 'daily-arxiv') {
+        paperView.style.display = 'none';
+        settingView.style.display = 'none';
+        if (dailyArxivView) dailyArxivView.style.display = 'block';
+        // 初始化 Daily arXiv 页面
+        showDailyArxivView();
+        return; // showDailyArxivView 会自己保存状态
     }
     saveCurrentViewState();
 }
@@ -6346,6 +6381,15 @@ async function switchSettingPanel(panelName) {
         await populateImportTargetCategories();
     }
     
+    // 如果切换到 Daily arXiv 面板，加载设置
+    if (panelName === 'daily-arxiv') {
+        await loadDailyArxivSettings();
+        const maxPapersInput = document.getElementById('daily-arxiv-max-papers');
+        if (maxPapersInput) {
+            maxPapersInput.value = dailyArxivSettings.maxPapersPerCategory || 12;
+        }
+    }
+    
     // 保存状态
     saveCurrentViewState();
 }
@@ -7523,5 +7567,1338 @@ function cancelAnalysis(paperId, event) {
     } else {
         renderAllPapers();
     }
+}
+
+// ========================================
+// Daily arXiv 功能
+// ========================================
+
+let dailyArxivPapers = {};  // 按日期和分区存储: {date: {category: [papers]}}
+let dailyArxivCategories = [];
+let dailyArxivCurrentCategory = 'all';  // 当前选中的分区，'all' 表示显示所有分区
+let dailyArxivCurrentDate = null;  // 当前选中的日期
+let dailyArxivAvailableDates = [];  // 可用的日期列表
+let dailyArxivSettings = {
+    categories: [],
+    maxPapersPerCategory: 3,  // 测试模式：3篇
+    retentionDays: 7,
+    checkIntervalMinutes: 10,
+};
+let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
+
+// 生成字符串的 hash 值（用于颜色生成）
+function stringHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash);
+}
+
+// 根据字符串生成颜色
+function getColorForString(str) {
+    const hash = stringHash(str);
+    // 使用 HSL 颜色空间，固定饱和度和亮度，只变化色相
+    const hue = hash % 360;
+    return `hsl(${hue}, 70%, 45%)`;
+}
+
+// 根据字符串生成背景色（浅色版本）
+function getBgColorForString(str) {
+    const hash = stringHash(str);
+    const hue = hash % 360;
+    return `hsl(${hue}, 70%, 92%)`;
+}
+
+// 初始化 Daily arXiv
+async function initDailyArxiv() {
+    // 加载设置
+    await loadDailyArxivSettings();
+    
+    // 加载可用日期
+    await loadAvailableDates();
+    
+    // 绑定事件
+    const settingsBtn = document.getElementById('daily-arxiv-settings');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', showDailyArxivSettingsModal);
+    }
+    
+    // 日期导航按钮
+    const prevDateBtn = document.getElementById('daily-arxiv-prev-date');
+    const nextDateBtn = document.getElementById('daily-arxiv-next-date');
+    if (prevDateBtn) {
+        prevDateBtn.addEventListener('click', () => navigateDate(-1));
+    }
+    if (nextDateBtn) {
+        nextDateBtn.addEventListener('click', () => navigateDate(1));
+    }
+    
+    const emptyEl = document.getElementById('daily-arxiv-empty');
+    const gridEl = document.getElementById('daily-arxiv-grid');
+    
+    // 如果有配置分区，初始化显示并尝试加载论文
+    if (dailyArxivCategories.length > 0) {
+        // 隐藏未配置分区的空状态提示
+        if (emptyEl) emptyEl.style.display = 'none';
+        
+        // 默认显示所有分区
+        dailyArxivCurrentCategory = 'all';
+        renderDailyArxivCategoryTags();
+        
+        // 加载论文
+        await loadPapersForCurrentDate();
+        
+        // 检查是否有分区正在抓取，如果有则开始轮询
+        checkAndStartProgressPolling();
+    } else {
+        // 没有配置分区，显示空状态
+        if (emptyEl) emptyEl.style.display = 'flex';
+        if (gridEl) gridEl.innerHTML = '';
+    }
+}
+
+// 检查是否有分区正在抓取，如果有则开始轮询
+async function checkAndStartProgressPolling() {
+    for (const cat of dailyArxivCategories) {
+        try {
+            const res = await fetch(`/api/daily-arxiv/progress/${cat}`);
+            if (res.ok) {
+                const data = await res.json();
+                const progress = data.progress;
+                if (progress.status === 'fetching' || progress.status === 'processing') {
+                    startProgressPolling(cat);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.error(`检查 ${cat} 进度失败:`, err);
+        }
+    }
+}
+
+// 加载可用日期列表
+async function loadAvailableDates() {
+    try {
+        const res = await fetch('/api/daily-arxiv/dates');
+        if (res.ok) {
+            const data = await res.json();
+            dailyArxivAvailableDates = data.dates || [];
+            const today = data.today;
+            
+            // 默认显示有论文的最新日期，如果没有则显示今天
+            if (dailyArxivAvailableDates.length > 0) {
+                dailyArxivCurrentDate = dailyArxivAvailableDates[0];  // 最新日期
+            } else {
+                dailyArxivCurrentDate = today;
+                dailyArxivAvailableDates = [today];
+            }
+            
+            updateDateDisplay();
+            updateDateNavButtons();
+        }
+    } catch (err) {
+        console.error('加载可用日期失败:', err);
+    }
+}
+
+// 更新日期显示
+function updateDateDisplay() {
+    const dateEl = document.getElementById('daily-arxiv-current-date');
+    if (dateEl && dailyArxivCurrentDate) {
+        const date = new Date(dailyArxivCurrentDate + 'T00:00:00');
+        const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+        dateEl.textContent = date.toLocaleDateString('zh-CN', options);
+    }
+}
+
+// 更新日期导航按钮状态
+function updateDateNavButtons() {
+    const prevBtn = document.getElementById('daily-arxiv-prev-date');
+    const nextBtn = document.getElementById('daily-arxiv-next-date');
+    
+    if (!dailyArxivAvailableDates.length) {
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
+        return;
+    }
+    
+    const currentIndex = dailyArxivAvailableDates.indexOf(dailyArxivCurrentDate);
+    
+    // 日期列表是降序的（最新在前）
+    if (prevBtn) {
+        prevBtn.disabled = currentIndex >= dailyArxivAvailableDates.length - 1;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = currentIndex <= 0;
+    }
+}
+
+// 日期导航
+async function navigateDate(direction) {
+    const currentIndex = dailyArxivAvailableDates.indexOf(dailyArxivCurrentDate);
+    // direction: -1 表示往前（更旧），1 表示往后（更新）
+    // 日期列表是降序的，所以 -1 对应 index+1，1 对应 index-1
+    const newIndex = currentIndex - direction;
+    
+    if (newIndex >= 0 && newIndex < dailyArxivAvailableDates.length) {
+        dailyArxivCurrentDate = dailyArxivAvailableDates[newIndex];
+        saveCurrentViewState();  // 保存状态
+        updateDateDisplay();
+        updateDateNavButtons();
+        
+        // 加载该日期的论文（即使有分区正在抓取，也能切换查看其他日期）
+        await loadPapersForCurrentDate();
+        
+        // 检查切换到的日期是否有分区正在抓取
+        if (dailyArxivCurrentCategory) {
+            checkCategoryProgress(dailyArxivCurrentCategory);
+        }
+    }
+}
+
+// 加载当前日期的论文
+async function loadPapersForCurrentDate() {
+    if (!dailyArxivCurrentDate) {
+        return;
+    }
+    
+    const emptyEl = document.getElementById('daily-arxiv-empty');
+    
+    // 已配置分区，隐藏空状态提示
+    if (dailyArxivCategories.length > 0 && emptyEl) {
+        emptyEl.style.display = 'none';
+    }
+    
+    // 如果是"全部"，加载所有分区；否则加载指定分区
+    const categoriesToLoad = dailyArxivCurrentCategory === 'all' 
+        ? dailyArxivCategories 
+        : [dailyArxivCurrentCategory];
+    
+    const loadingEl = document.getElementById('daily-arxiv-loading');
+    let needsLoading = false;
+    
+    // 检查是否需要从服务器加载
+    for (const cat of categoriesToLoad) {
+        const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+        if (!dailyArxivPapers[cacheKey]) {
+            needsLoading = true;
+            break;
+        }
+    }
+    
+    if (needsLoading) {
+        if (loadingEl) loadingEl.style.display = 'flex';
+        
+        try {
+            // 加载所有需要的分区
+            await Promise.all(categoriesToLoad.map(async (cat) => {
+                const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+                if (!dailyArxivPapers[cacheKey]) {
+                    const res = await fetch(`/api/daily-arxiv/papers/${dailyArxivCurrentDate}?category=${cat}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        dailyArxivPapers[cacheKey] = data.papers || [];
+                    }
+                }
+            }));
+        } catch (err) {
+            console.error('加载论文失败:', err);
+        } finally {
+            if (loadingEl) loadingEl.style.display = 'none';
+        }
+    }
+    
+    renderDailyArxivGrid();
+    renderDailyArxivCategoryTags();
+}
+
+// 加载 Daily arXiv 设置
+async function loadDailyArxivSettings() {
+    try {
+        const res = await fetch('/api/settings/daily-arxiv');
+        if (res.ok) {
+            dailyArxivSettings = await res.json();
+            dailyArxivCategories = dailyArxivSettings.categories || [];
+            
+            // 更新设置面板的值
+            const maxPapersEl = document.getElementById('daily-arxiv-max-papers');
+            const retentionDaysEl = document.getElementById('daily-arxiv-retention-days');
+            const checkIntervalEl = document.getElementById('daily-arxiv-check-interval');
+            
+            if (maxPapersEl) maxPapersEl.value = dailyArxivSettings.maxPapersPerCategory || 3;
+            if (retentionDaysEl) retentionDaysEl.value = dailyArxivSettings.retentionDays || 7;
+            if (checkIntervalEl) checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
+            
+            renderDailyArxivCategoryTags();
+            renderDailyArxivSettingsCategoryList();
+        }
+    } catch (err) {
+        console.error('加载 Daily arXiv 设置失败:', err);
+    }
+}
+
+// 保存 Daily arXiv 设置
+async function saveDailyArxivSettings() {
+    try {
+        const maxPapers = parseInt(document.getElementById('daily-arxiv-max-papers')?.value) || 3;
+        const retentionDays = parseInt(document.getElementById('daily-arxiv-retention-days')?.value) || 7;
+        const checkInterval = parseInt(document.getElementById('daily-arxiv-check-interval')?.value) || 10;
+        
+        dailyArxivSettings.categories = dailyArxivCategories;
+        dailyArxivSettings.maxPapersPerCategory = maxPapers;
+        dailyArxivSettings.retentionDays = retentionDays;
+        dailyArxivSettings.checkIntervalMinutes = checkInterval;
+        
+        const res = await fetch('/api/settings/daily-arxiv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dailyArxivSettings)
+        });
+        
+        if (res.ok) {
+            showMessage('Daily arXiv 设置已保存', 'success');
+            renderDailyArxivCategoryTags();
+        } else {
+            showMessage('保存设置失败', 'error');
+        }
+    } catch (err) {
+        console.error('保存 Daily arXiv 设置失败:', err);
+        showMessage('保存设置失败', 'error');
+    }
+}
+
+// 添加 arXiv 分区
+function addDailyArxivCategory() {
+    const input = document.getElementById('daily-arxiv-new-category');
+    if (!input) return;
+    
+    const category = input.value.trim().toLowerCase();
+    if (!category) {
+        showMessage('请输入分区名称', 'warning');
+        return;
+    }
+    
+    if (dailyArxivCategories.includes(category)) {
+        showMessage('该分区已存在', 'warning');
+        return;
+    }
+    
+    dailyArxivCategories.push(category);
+    input.value = '';
+    renderDailyArxivSettingsCategoryList();
+    renderDailyArxivCategoryTags();
+}
+
+// 快速添加分区
+function addDailyArxivCategoryQuick(category) {
+    if (dailyArxivCategories.includes(category)) {
+        showMessage('该分区已存在', 'warning');
+        return;
+    }
+    
+    dailyArxivCategories.push(category);
+    renderDailyArxivSettingsCategoryList();
+    renderDailyArxivCategoryTags();
+}
+
+// 移除 arXiv 分区
+function removeDailyArxivCategory(category) {
+    const index = dailyArxivCategories.indexOf(category);
+    if (index > -1) {
+        dailyArxivCategories.splice(index, 1);
+        renderDailyArxivSettingsCategoryList();
+        renderDailyArxivCategoryTags();
+    }
+}
+
+// 渲染设置面板中的分区列表
+function renderDailyArxivSettingsCategoryList() {
+    const container = document.getElementById('daily-arxiv-category-list');
+    if (!container) return;
+    
+    if (dailyArxivCategories.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    container.innerHTML = dailyArxivCategories.map(cat => `
+        <div class="daily-arxiv-category-item">
+            <span>${cat}</span>
+            <button class="remove-btn" onclick="removeDailyArxivCategory('${cat}')" title="移除">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// 渲染 Daily arXiv 界面的分区标签
+function renderDailyArxivCategoryTags() {
+    const container = document.getElementById('daily-arxiv-categories');
+    if (!container) return;
+    
+    // 计算每个分区的论文数量
+    let allCount = 0;
+    const categoryCounts = {};
+    
+    dailyArxivCategories.forEach(cat => {
+        const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+        const papers = dailyArxivPapers[cacheKey] || [];
+        categoryCounts[cat] = papers.length;
+        allCount += papers.length;
+    });
+    
+    // 添加"全部"标签
+    const allTag = `
+        <span class="daily-arxiv-category-tag ${dailyArxivCurrentCategory === 'all' ? 'active' : ''}" 
+              onclick="switchDailyArxivCategory('all')"
+              title="${allCount ? allCount + ' 篇论文' : '全部分区'}">
+            全部${allCount ? ' (' + allCount + ')' : ''}
+        </span>
+    `;
+    
+    // 生成各个分区标签
+    const categoryTags = dailyArxivCategories.map(cat => {
+        const isActive = cat === dailyArxivCurrentCategory;
+        const count = categoryCounts[cat];
+        return `
+            <span class="daily-arxiv-category-tag ${isActive ? 'active' : ''}" 
+                  onclick="switchDailyArxivCategory('${cat}')"
+                  title="${count ? count + ' 篇论文' : '点击加载'}">
+                ${cat}${count ? ' (' + count + ')' : ''}
+            </span>
+        `;
+    }).join('');
+    
+    container.innerHTML = allTag + categoryTags;
+}
+
+// 触发抓取论文（当前分区）
+async function triggerFetchPapers(force = false) {
+    if (dailyArxivCategories.length === 0) {
+        showMessage('请先配置 arXiv 分区', 'warning');
+        return;
+    }
+    
+    if (!dailyArxivCurrentCategory) {
+        dailyArxivCurrentCategory = dailyArxivCategories[0];
+    }
+    
+    try {
+        // 触发后台抓取
+        const res = await fetch('/api/daily-arxiv/fetch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                category: dailyArxivCurrentCategory,
+                max_papers: dailyArxivSettings.maxPapersPerCategory || 3,
+                force: force,
+            })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+            showMessage(`开始抓取 ${dailyArxivCurrentCategory} 论文...`, 'info');
+            // 开始轮询进度
+            startProgressPolling(dailyArxivCurrentCategory);
+        } else {
+            showMessage(data.error || '抓取失败', 'error');
+        }
+    } catch (err) {
+        console.error('触发抓取失败:', err);
+        showMessage('触发抓取失败', 'error');
+    }
+}
+
+// 触发抓取所有分区的论文
+async function triggerFetchAllCategories(force = false) {
+    if (dailyArxivCategories.length === 0) {
+        showMessage('请先配置 arXiv 分区', 'warning');
+        return;
+    }
+    
+    try {
+        // 触发后台抓取所有分区
+        const res = await fetch('/api/daily-arxiv/fetch-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: force })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+            showMessage(`开始抓取 ${dailyArxivCategories.length} 个分区的论文...`, 'info');
+            // 为每个分区开始独立的进度轮询
+            dailyArxivCategories.forEach(cat => {
+                startProgressPolling(cat);
+            });
+        } else {
+            showMessage(data.error || '抓取失败', 'error');
+        }
+    } catch (err) {
+        console.error('触发抓取失败:', err);
+        showMessage('触发抓取失败', 'error');
+    }
+}
+
+// 开始进度轮询（独立管理每个分区）
+function startProgressPolling(category) {
+    // 如果该分区已经在轮询，先停止
+    if (dailyArxivProgressIntervals[category]) {
+        clearInterval(dailyArxivProgressIntervals[category]);
+    }
+    
+    let idleCount = 0;
+    
+    // 开始轮询
+    dailyArxivProgressIntervals[category] = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/daily-arxiv/progress/${category}`);
+            if (res.ok) {
+                const data = await res.json();
+                const progress = data.progress;
+                
+                // 如果正在处理
+                if (progress.status === 'fetching' || progress.status === 'processing') {
+                    idleCount = 0;
+                    
+                    // 当前选中分区或"全部"时更新进度条UI
+                    const shouldShowProgress = dailyArxivCurrentCategory === 'all' || category === dailyArxivCurrentCategory;
+                    if (shouldShowProgress) {
+                        const progressEl = document.getElementById('daily-arxiv-progress');
+                        const loadingEl = document.getElementById('daily-arxiv-loading');
+                        if (progressEl) progressEl.style.display = 'block';
+                        if (loadingEl) loadingEl.style.display = 'none';
+                        updateProgressUI(category, progress);
+                    }
+                    
+                    // 实时显示已抓取的论文（所有分区都更新数据）
+                    if (progress.papers && progress.papers.length > 0) {
+                        let hasNewPaper = false;
+                        let hasNewPaperForCurrentView = false;
+                        const newDates = new Set();
+                        
+                        progress.papers.forEach(paper => {
+                            const paperDate = paper.announced 
+                                ? paper.announced.split('T')[0] 
+                                : dailyArxivCurrentDate;
+                            const cacheKey = `${paperDate}_${category}`;
+                            
+                            // 调试日志
+                            if (!dailyArxivPapers[cacheKey] || !dailyArxivPapers[cacheKey].some(p => p.arxiv_id === paper.arxiv_id)) {
+                                console.log(`[Daily arXiv] 新论文: ${paper.title.substring(0, 50)}... | 日期: ${paperDate} | 分区: ${category} | 当前查看: ${dailyArxivCurrentDate}`);
+                            }
+                            
+                            // 记录新日期
+                            if (paperDate && !dailyArxivAvailableDates.includes(paperDate)) {
+                                newDates.add(paperDate);
+                            }
+                            
+                            if (!dailyArxivPapers[cacheKey]) {
+                                dailyArxivPapers[cacheKey] = [];
+                            }
+                            const exists = dailyArxivPapers[cacheKey].some(p => p.arxiv_id === paper.arxiv_id);
+                            if (!exists) {
+                                dailyArxivPapers[cacheKey].push(paper);
+                                hasNewPaper = true;
+                                // 检查是否是当前查看的日期和分区
+                                const isCurrentDate = paperDate === dailyArxivCurrentDate;
+                                const isCurrentCategory = dailyArxivCurrentCategory === 'all' || category === dailyArxivCurrentCategory;
+                                if (isCurrentDate && isCurrentCategory) {
+                                    hasNewPaperForCurrentView = true;
+                                }
+                            }
+                        });
+                        
+                        // 更新可用日期列表
+                        if (newDates.size > 0) {
+                            newDates.forEach(date => {
+                                if (!dailyArxivAvailableDates.includes(date)) {
+                                    dailyArxivAvailableDates.push(date);
+                                }
+                            });
+                            // 重新排序（降序，最新在前）
+                            dailyArxivAvailableDates.sort((a, b) => b.localeCompare(a));
+                            updateDateNavButtons();
+                        }
+                        
+                        // 只有当前分区和日期有新论文时才实时更新显示
+                        if (hasNewPaperForCurrentView) {
+                            renderDailyArxivGrid();
+                        }
+                        
+                        // 更新所有分区标签（显示论文数量）
+                        if (hasNewPaper) {
+                            renderDailyArxivCategoryTags();
+                        }
+                    }
+                }
+                
+                // 如果完成或出错，停止该分区的轮询
+                if (progress.status === 'done' || progress.status === 'error') {
+                    stopProgressPolling(category);
+                    await loadAvailableDates();
+                    // 如果当前是"全部"或该分区，刷新显示
+                    if (dailyArxivCurrentCategory === 'all' || category === dailyArxivCurrentCategory) {
+                        await loadPapersForCurrentDate();
+                    }
+                    // 更新分区标签显示
+                    renderDailyArxivCategoryTags();
+                }
+                
+                // 如果空闲状态，增加计数
+                if (progress.status === 'idle') {
+                    idleCount++;
+                    if (idleCount >= 3) {
+                        stopProgressPolling(category);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error(`获取 ${category} 进度失败:`, err);
+        }
+    }, 1000);
+}
+
+// 停止进度轮询（可以停止特定分区或所有分区）
+function stopProgressPolling(category = null) {
+    if (category) {
+        // 停止特定分区
+        if (dailyArxivProgressIntervals[category]) {
+            clearInterval(dailyArxivProgressIntervals[category]);
+            delete dailyArxivProgressIntervals[category];
+        }
+        
+        // 如果是当前分区或"全部"，且没有其他分区在抓取，隐藏进度条
+        const shouldHideProgress = (dailyArxivCurrentCategory === 'all' || category === dailyArxivCurrentCategory) 
+            && Object.keys(dailyArxivProgressIntervals).length === 0;
+        
+        if (shouldHideProgress) {
+            const progressEl = document.getElementById('daily-arxiv-progress');
+            const loadingEl = document.getElementById('daily-arxiv-loading');
+            
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (progressEl) {
+                setTimeout(() => {
+                    progressEl.style.display = 'none';
+                }, 1000);
+            }
+        }
+    } else {
+        // 停止所有分区
+        Object.keys(dailyArxivProgressIntervals).forEach(cat => {
+            clearInterval(dailyArxivProgressIntervals[cat]);
+        });
+        dailyArxivProgressIntervals = {};
+        
+        const progressEl = document.getElementById('daily-arxiv-progress');
+        const loadingEl = document.getElementById('daily-arxiv-loading');
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (progressEl) {
+            setTimeout(() => {
+                progressEl.style.display = 'none';
+            }, 1000);
+        }
+    }
+}
+
+// 更新进度 UI
+function updateProgressUI(category, progress) {
+    const titleEl = document.getElementById('daily-arxiv-progress-title');
+    const countEl = document.getElementById('daily-arxiv-progress-count');
+    const barEl = document.getElementById('daily-arxiv-progress-bar');
+    const currentEl = document.getElementById('daily-arxiv-progress-current');
+    
+    if (titleEl) titleEl.textContent = `正在抓取 ${category} 论文...`;
+    if (countEl) countEl.textContent = `${progress.current}/${progress.total}`;
+    
+    const percent = progress.total > 0 ? (progress.current / progress.total * 100) : 0;
+    if (barEl) barEl.style.width = `${percent}%`;
+    
+    if (currentEl) {
+        currentEl.textContent = progress.current_paper 
+            ? `正在处理: ${progress.current_paper}` 
+            : '';
+    }
+}
+
+
+// 获取 Daily arXiv 论文（从缓存或服务器）
+async function fetchDailyArxivPapers(forceRefresh = false) {
+    const loadingEl = document.getElementById('daily-arxiv-loading');
+    const emptyEl = document.getElementById('daily-arxiv-empty');
+    const gridEl = document.getElementById('daily-arxiv-grid');
+    
+    // 只有在没有配置分区时才显示空状态
+    if (dailyArxivCategories.length === 0) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'flex';
+        if (gridEl) gridEl.innerHTML = '';
+        return;
+    }
+    
+    // 已配置分区，隐藏空状态提示
+    if (emptyEl) emptyEl.style.display = 'none';
+    
+    // 如果没有选中分区，选中第一个
+    if (!dailyArxivCurrentCategory) {
+        dailyArxivCurrentCategory = dailyArxivCategories[0];
+    }
+    
+    const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+    
+    // 如果缓存中已有数据且不强制刷新，直接显示
+    if (!forceRefresh && dailyArxivPapers[cacheKey] && dailyArxivPapers[cacheKey].length > 0) {
+        renderDailyArxivGrid();
+        renderDailyArxivCategoryTags();
+        return;
+    }
+    
+    // 从服务器加载
+    await loadPapersForCurrentDate();
+}
+
+// 切换分区
+async function switchDailyArxivCategory(category) {
+    dailyArxivCurrentCategory = category;
+    saveCurrentViewState();  // 保存状态
+    renderDailyArxivCategoryTags();
+    
+    // 加载该分区（或所有分区）的论文
+    await loadPapersForCurrentDate();
+    
+    // 检查该分区是否正在抓取，如果是则显示进度条
+    if (category !== 'all') {
+        checkCategoryProgress(category);
+    } else {
+        // 检查所有分区
+        dailyArxivCategories.forEach(cat => {
+            checkCategoryProgress(cat);
+        });
+    }
+}
+
+// 检查分区进度状态
+async function checkCategoryProgress(category) {
+    try {
+        const res = await fetch(`/api/daily-arxiv/progress/${category}`);
+        if (res.ok) {
+            const data = await res.json();
+            const progress = data.progress;
+            
+            // 如果该分区正在抓取，显示进度条
+            if (progress.status === 'fetching' || progress.status === 'processing') {
+                const progressEl = document.getElementById('daily-arxiv-progress');
+                const loadingEl = document.getElementById('daily-arxiv-loading');
+                if (progressEl) progressEl.style.display = 'block';
+                if (loadingEl) loadingEl.style.display = 'none';
+                updateProgressUI(category, progress);
+            }
+        }
+    } catch (err) {
+        console.error(`检查 ${category} 进度失败:`, err);
+    }
+}
+
+// 渲染论文网格
+function renderDailyArxivGrid() {
+    const gridEl = document.getElementById('daily-arxiv-grid');
+    const emptyEl = document.getElementById('daily-arxiv-empty');
+    
+    if (!gridEl) return;
+    
+    // 获取论文：如果是"全部"，合并所有分区；否则只获取指定分区
+    let papers = [];
+    if (dailyArxivCurrentCategory === 'all') {
+        // 合并所有分区的论文
+        dailyArxivCategories.forEach(cat => {
+            const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+            const catPapers = dailyArxivPapers[cacheKey] || [];
+            papers = papers.concat(catPapers);
+        });
+    } else {
+        // 单个分区
+        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+        papers = dailyArxivPapers[cacheKey] || [];
+    }
+    
+    if (papers.length === 0) {
+        // 检查是否有任何分区正在抓取
+        const isFetching = dailyArxivCurrentCategory === 'all'
+            ? Object.keys(dailyArxivProgressIntervals).length > 0
+            : dailyArxivProgressIntervals[dailyArxivCurrentCategory] !== undefined;
+        
+        // 如果有配置分区但没有论文
+        if (dailyArxivCategories.length > 0) {
+            // 如果正在抓取，显示空白（等待论文出现）
+            if (isFetching) {
+                gridEl.innerHTML = '';
+            } else {
+                // 不在抓取，检查其他日期是否有论文
+                const today = new Date().toISOString().split('T')[0];
+                const isToday = dailyArxivCurrentDate === today;
+                const hasOtherDates = dailyArxivAvailableDates.length > 1 || (dailyArxivAvailableDates.length === 1 && dailyArxivAvailableDates[0] !== today);
+                
+                let hint = '';
+                if (isToday && hasOtherDates) {
+                    hint = '<p style="margin-top: 15px; font-size: 0.9em; color: #2196F3;"><i class="fas fa-info-circle"></i> 提示：点击上方日期导航查看历史论文</p>';
+                }
+                
+                // 显示"等待中"提示
+                gridEl.innerHTML = `
+                    <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666;">
+                        <i class="fas fa-clock fa-3x" style="margin-bottom: 20px; color: #999;"></i>
+                        <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">暂无新论文</h3>
+                        <p style="margin-bottom: 30px; font-size: 1em; color: #888;">等待自动抓取，或点击下方按钮手动触发</p>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                            <button class="btn btn-primary" onclick="triggerFetchPapers(false)">
+                                <i class="fas fa-sync"></i> 抓取当前分区
+                            </button>
+                            <button class="btn btn-secondary" onclick="triggerFetchAllCategories(false)">
+                                <i class="fas fa-sync-alt"></i> 抓取所有分区
+                            </button>
+                        </div>
+                        ${hint}
+                    </div>
+                `;
+            }
+            if (emptyEl) emptyEl.style.display = 'none';
+        } else {
+            // 未配置分区，显示配置提示
+            gridEl.innerHTML = '';
+            if (emptyEl) emptyEl.style.display = 'flex';
+        }
+        return;
+    }
+    
+    if (emptyEl) emptyEl.style.display = 'none';
+    
+    // 按 published 时间排序（越新越前面，和 arXiv 页面顺序一致）
+    const sortedPapers = [...papers].sort((a, b) => {
+        const timeA = a.published ? new Date(a.published).getTime() : 0;
+        const timeB = b.published ? new Date(b.published).getTime() : 0;
+        return timeB - timeA;  // 降序，越新越前面
+    });
+    
+    gridEl.innerHTML = sortedPapers.map((paper, index) => {
+        // 使用 announced 日期（公布日期）而不是 published（提交日期）
+        const date = paper.announced 
+            ? new Date(paper.announced).toLocaleDateString('zh-CN') 
+            : (paper.updated ? new Date(paper.updated).toLocaleDateString('zh-CN') : '');
+        const authors = paper.authors ? (paper.authors.length > 50 ? paper.authors.substring(0, 50) + '...' : paper.authors) : '';
+        
+        // 机构信息显示（完整显示，灰色圆角边框，不同单位不同颜色）
+        let affiliationsHtml = '';
+        if (paper.affiliations && paper.affiliations.length > 0) {
+            const affTags = paper.affiliations.map(aff => {
+                const color = getColorForString(aff);
+                return `<span class="aff-mini-tag" style="color: ${color};">${escapeHtml(aff)}</span>`;
+            }).join('');
+            affiliationsHtml = `<div class="daily-arxiv-card-affiliations">
+                ${affTags}
+            </div>`;
+        }
+        
+        // 使用当前分区（fetch_category）而不是论文主分类
+        const displayCategory = paper.fetch_category || dailyArxivCurrentCategory || paper.primary_category || '';
+        
+        // 关键词显示（在日期下方，黑色字体，每个单词首字母大写）
+        let keywordsHtml = '';
+        if (paper.keywords && paper.keywords.length > 0) {
+            const kwTags = paper.keywords.map(kw => {
+                // 每个单词首字母大写 (Title Case)
+                const titleCaseKw = kw.split(' ').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                return `<span class="keyword-mini-tag">${escapeHtml(titleCaseKw)}</span>`;
+            }).join('');
+            keywordsHtml = `<div class="daily-arxiv-card-keywords">${kwTags}</div>`;
+        }
+        
+        // 生成缩略图URL
+        let thumbnailHtml = '';
+        if (paper.thumbnail_path) {
+            // 从thumbnail_path提取信息构建URL
+            // thumbnail_path格式: /path/to/date/category/arxiv_id_thumbnail.jpg
+            const thumbnailUrl = `/api/daily-arxiv/thumbnail/${dailyArxivCurrentDate}/${encodeURIComponent(displayCategory)}/${encodeURIComponent(paper.arxiv_id)}`;
+            thumbnailHtml = `
+                <img src="${thumbnailUrl}" alt="${escapeHtml(paper.title)}" 
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                     style="width: 100%; height: 100%; object-fit: cover;" />
+                <div class="thumbnail-fallback" style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center; background: #f5f5f5;">
+                    <i class="fas fa-file-pdf placeholder-icon"></i>
+                </div>
+            `;
+        } else {
+            thumbnailHtml = `
+                <i class="fas fa-file-pdf placeholder-icon"></i>
+            `;
+        }
+        
+        return `
+            <div class="daily-arxiv-card" data-index="${index}" onclick="showDailyArxivDetail(${index})">
+                <div class="daily-arxiv-card-thumbnail">
+                    ${thumbnailHtml}
+                    <span class="daily-arxiv-card-category">${displayCategory}</span>
+                </div>
+                <div class="daily-arxiv-card-body">
+                    <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</div>
+                    <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${escapeHtml(authors)}</div>
+                    ${affiliationsHtml}
+                    <div class="daily-arxiv-card-meta">
+                        <span class="daily-arxiv-card-date">${date}</span>
+                        <div class="daily-arxiv-card-actions">
+                            ${paper.homepage ? `<button class="daily-arxiv-card-action" onclick="event.stopPropagation(); window.open('${paper.homepage.startsWith('http') ? paper.homepage : 'https://' + paper.homepage}', '_blank')" title="项目主页">
+                                <i class="fas fa-home"></i>
+                            </button>` : ''}
+                            ${paper.github ? `<button class="daily-arxiv-card-action" onclick="event.stopPropagation(); window.open('${paper.github.startsWith('http') ? paper.github : 'https://' + paper.github}', '_blank')" title="GitHub 仓库">
+                                <i class="fab fa-github"></i>
+                            </button>` : ''}
+                            <button class="daily-arxiv-card-action" onclick="event.stopPropagation(); window.open('https://arxiv.org/abs/${paper.arxiv_id}', '_blank')" title="在 arXiv 查看">
+                                <i class="fas fa-external-link-alt"></i>
+                            </button>
+                            <button class="daily-arxiv-card-action add-to-library" onclick="event.stopPropagation(); showAddToLibraryModal(${index})" title="添加到文库">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    ${keywordsHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 显示论文详情
+function showDailyArxivDetail(index) {
+    // 获取当前显示的论文列表（与 renderDailyArxivGrid 逻辑完全一致）
+    let papers = [];
+    if (dailyArxivCurrentCategory === 'all') {
+        dailyArxivCategories.forEach(cat => {
+            const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+            const catPapers = dailyArxivPapers[cacheKey] || [];
+            papers = papers.concat(catPapers);
+        });
+    } else {
+        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+        papers = dailyArxivPapers[cacheKey] || [];
+    }
+    
+    // 按 published 时间排序（与 renderDailyArxivGrid 完全一致）
+    papers = [...papers].sort((a, b) => {
+        const timeA = a.published ? new Date(a.published).getTime() : 0;
+        const timeB = b.published ? new Date(b.published).getTime() : 0;
+        return timeB - timeA;  // 降序，越新越前面
+    });
+    
+    const paper = papers[index];
+    if (!paper) return;
+    
+    // 使用 announced 日期（公布日期）
+    const announcedDate = paper.announced 
+        ? new Date(paper.announced).toLocaleDateString('zh-CN') 
+        : '';
+    const submitDate = paper.published ? new Date(paper.published).toLocaleDateString('zh-CN') : '';
+    
+    // 机构信息区域（带颜色）
+    let affiliationsHtml = '';
+    if (paper.affiliations && paper.affiliations.length > 0) {
+        const affTags = paper.affiliations.map(aff => {
+            const bgColor = getBgColorForString(aff);
+            const textColor = getColorForString(aff);
+            return `<span class="affiliation-tag" style="background: ${bgColor}; color: ${textColor};">${escapeHtml(aff)}</span>`;
+        }).join('');
+        affiliationsHtml = `
+            <div class="daily-arxiv-detail-affiliations">
+                <h4><i class="fas fa-building"></i> Affiliations</h4>
+                <div class="affiliation-tags">${affTags}</div>
+            </div>
+        `;
+    } else {
+        affiliationsHtml = `
+            <div class="daily-arxiv-detail-affiliations">
+                <h4><i class="fas fa-building"></i> Affiliations</h4>
+                <div class="affiliation-extract-prompt">
+                    <p>机构信息尚未提取</p>
+                    <button class="btn btn-secondary btn-sm" onclick="extractAffiliationsForPaper(${index})">
+                        <i class="fas fa-magic"></i> 提取机构信息
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+    
+    // 关键词区域（黑色字体，每个单词首字母大写）
+    let keywordsHtml = '';
+    if (paper.keywords && paper.keywords.length > 0) {
+        const kwTags = paper.keywords.map(kw => {
+            // 每个单词首字母大写 (Title Case)
+            const titleCaseKw = kw.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+            ).join(' ');
+            return `<span class="keyword-tag">${escapeHtml(titleCaseKw)}</span>`;
+        }).join('');
+        keywordsHtml = `
+            <div class="daily-arxiv-detail-keywords">
+                <h4><i class="fas fa-key"></i> Keywords</h4>
+                <div class="keyword-tags">${kwTags}</div>
+            </div>
+        `;
+    }
+    
+    // 摘要总结区域（先显示 summary，再显示 abstract）
+    let summaryHtml = '';
+    if (paper.summary) {
+        summaryHtml = `
+            <div class="daily-arxiv-detail-summary">
+                <h4><i class="fas fa-lightbulb"></i> 简要总结</h4>
+                <p>${escapeHtml(paper.summary)}</p>
+            </div>
+        `;
+    }
+    
+    const modalHtml = `
+        <div class="daily-arxiv-detail-modal" onclick="if(event.target === this) closeDailyArxivDetail()">
+            <div class="daily-arxiv-detail-content">
+                <div class="daily-arxiv-detail-header">
+                    <h3>${escapeHtml(paper.title)}</h3>
+                    <button class="daily-arxiv-detail-close" onclick="closeDailyArxivDetail()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="daily-arxiv-detail-body">
+                    <div class="daily-arxiv-detail-meta">
+                        <div class="daily-arxiv-detail-meta-item">
+                            <i class="fas fa-users"></i>
+                            <span>${escapeHtml(paper.authors)}</span>
+                        </div>
+                        <div class="daily-arxiv-detail-meta-item">
+                            <i class="fas fa-tag"></i>
+                            <span>${(paper.categories || []).join(', ')}</span>
+                        </div>
+                        <div class="daily-arxiv-detail-meta-item">
+                            <i class="fas fa-calendar"></i>
+                            <span>公布: ${announcedDate} | 提交: ${submitDate}</span>
+                        </div>
+                        ${paper.homepage ? `<div class="daily-arxiv-detail-meta-item">
+                            <i class="fas fa-home"></i>
+                            <span><a href="${paper.homepage.startsWith('http') ? paper.homepage : 'https://' + paper.homepage}" target="_blank" style="color: #2196F3; text-decoration: none;">${escapeHtml(paper.homepage)}</a></span>
+                        </div>` : ''}
+                        ${paper.github ? `<div class="daily-arxiv-detail-meta-item">
+                            <i class="fab fa-github"></i>
+                            <span><a href="${paper.github.startsWith('http') ? paper.github : 'https://' + paper.github}" target="_blank" style="color: #2196F3; text-decoration: none;">${escapeHtml(paper.github)}</a></span>
+                        </div>` : ''}
+                    </div>
+                    ${affiliationsHtml}
+                    ${keywordsHtml}
+                    ${summaryHtml}
+                    <div class="daily-arxiv-detail-abstract">
+                        <h4><i class="fas fa-file-alt"></i> Abstract</h4>
+                        <p>${escapeHtml(paper.abstract)}</p>
+                    </div>
+                </div>
+                <div class="daily-arxiv-detail-footer">
+                    <div class="daily-arxiv-detail-links">
+                        ${paper.homepage ? `<a href="${paper.homepage.startsWith('http') ? paper.homepage : 'https://' + paper.homepage}" target="_blank" title="项目主页">
+                            <i class="fas fa-home"></i> Homepage
+                        </a>` : ''}
+                        ${paper.github ? `<a href="${paper.github.startsWith('http') ? paper.github : 'https://' + paper.github}" target="_blank" title="GitHub 仓库">
+                            <i class="fab fa-github"></i> GitHub
+                        </a>` : ''}
+                        <a href="https://arxiv.org/abs/${paper.arxiv_id}" target="_blank">
+                            <i class="fas fa-external-link-alt"></i> arXiv
+                        </a>
+                        <a href="${paper.pdf_url}" target="_blank">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </a>
+                    </div>
+                    <button class="daily-arxiv-add-btn" onclick="showAddToLibraryModal(${index}); closeDailyArxivDetail();">
+                        <i class="fas fa-plus"></i> 添加到文库
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+// 关闭论文详情
+function closeDailyArxivDetail() {
+    const modal = document.querySelector('.daily-arxiv-detail-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// 提取论文机构信息
+async function extractAffiliationsForPaper(paperIndex) {
+    // 获取当前显示的论文列表（与 renderDailyArxivGrid 逻辑完全一致）
+    let papers = [];
+    if (dailyArxivCurrentCategory === 'all') {
+        dailyArxivCategories.forEach(cat => {
+            const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+            const catPapers = dailyArxivPapers[cacheKey] || [];
+            papers = papers.concat(catPapers);
+        });
+    } else {
+        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+        papers = dailyArxivPapers[cacheKey] || [];
+    }
+    
+    // 按 published 时间排序（与 renderDailyArxivGrid 完全一致）
+    papers = [...papers].sort((a, b) => {
+        const timeA = a.published ? new Date(a.published).getTime() : 0;
+        const timeB = b.published ? new Date(b.published).getTime() : 0;
+        return timeB - timeA;  // 降序，越新越前面
+    });
+    
+    const paper = papers[paperIndex];
+    if (!paper) return;
+    
+    // 获取 AI 解读设置中的 LLM 配置
+    let analysisSettings = {};
+    try {
+        const res = await fetch('/api/settings/analysis');
+        if (res.ok) {
+            analysisSettings = await res.json();
+        }
+    } catch (err) {
+        console.error('获取 AI 解读设置失败:', err);
+    }
+    
+    const openaiBaseUrl = analysisSettings.openaiBaseUrl;
+    const openaiApiKey = analysisSettings.openaiApiKey;
+    
+    if (!openaiBaseUrl || !openaiApiKey) {
+        showMessage('请先在设置中配置 AI Analysis 的 OpenAI API', 'warning');
+        return;
+    }
+    
+    // 更新按钮状态
+    const extractBtn = document.querySelector('.affiliation-extract-prompt button');
+    if (extractBtn) {
+        extractBtn.disabled = true;
+        extractBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在提取...';
+    }
+    
+    try {
+        // 获取论文的日期和分区信息
+        const paperDate = paper.fetch_date || dailyArxivCurrentDate;
+        const paperCategory = paper.fetch_category || dailyArxivCurrentCategory;
+        
+        const res = await fetch('/api/daily-arxiv/extract-affiliations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                arxiv_id: paper.arxiv_id,
+                openai_base_url: openaiBaseUrl,
+                openai_api_key: openaiApiKey,
+                date: paperDate,
+                fetch_category: paperCategory,
+            })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+            // 更新本地缓存（使用正确的缓存键）
+            const cacheKey = dailyArxivCurrentCategory === 'all' 
+                ? null  // 全部模式需要找到对应的缓存
+                : `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+            
+            if (cacheKey && dailyArxivPapers[cacheKey]) {
+                // 找到对应的论文并更新
+                const cachedPaper = dailyArxivPapers[cacheKey].find(p => p.arxiv_id === paper.arxiv_id);
+                if (cachedPaper) {
+                    cachedPaper.affiliations = data.affiliations || [];
+                    cachedPaper.homepage = data.homepage || null;
+                    cachedPaper.github = data.github || null;
+                    cachedPaper.affiliations_extracted = true;
+                }
+            } else if (dailyArxivCurrentCategory === 'all') {
+                // 全部模式：需要在所有分区的缓存中查找并更新
+                dailyArxivCategories.forEach(cat => {
+                    const catCacheKey = `${dailyArxivCurrentDate}_${cat}`;
+                    if (dailyArxivPapers[catCacheKey]) {
+                        const cachedPaper = dailyArxivPapers[catCacheKey].find(p => p.arxiv_id === paper.arxiv_id);
+                        if (cachedPaper) {
+                            cachedPaper.affiliations = data.affiliations || [];
+                            cachedPaper.homepage = data.homepage || null;
+                            cachedPaper.github = data.github || null;
+                            cachedPaper.affiliations_extracted = true;
+                        }
+                    }
+                });
+            }
+            
+            // 刷新详情模态框
+            closeDailyArxivDetail();
+            showDailyArxivDetail(paperIndex);
+            
+            // 刷新网格显示
+            renderDailyArxivGrid();
+            
+            const msgParts = [];
+            if (data.affiliations && data.affiliations.length > 0) {
+                msgParts.push(`提取到 ${data.affiliations.length} 个机构`);
+            }
+            if (data.homepage) {
+                msgParts.push('提取到 Homepage');
+            }
+            if (data.github) {
+                msgParts.push('提取到 GitHub');
+            }
+            
+            if (msgParts.length > 0) {
+                showMessage(msgParts.join('，'), 'success');
+            } else {
+                showMessage('未能提取到机构信息、homepage 或 github', 'info');
+            }
+        } else {
+            showMessage(data.error || '提取机构信息失败', 'error');
+            // 恢复按钮
+            if (extractBtn) {
+                extractBtn.disabled = false;
+                extractBtn.innerHTML = '<i class="fas fa-magic"></i> 提取机构信息';
+            }
+        }
+    } catch (err) {
+        console.error('提取机构信息失败:', err);
+        const errorMsg = err.message || '提取机构信息失败，请检查网络连接和API配置';
+        showMessage(errorMsg, 'error');
+        // 恢复按钮
+        if (extractBtn) {
+            extractBtn.disabled = false;
+            extractBtn.innerHTML = '<i class="fas fa-magic"></i> 提取机构信息';
+        }
+    }
+}
+
+// 显示添加到文库的模态框
+function showAddToLibraryModal(paperIndex) {
+    // 获取当前显示的论文列表（与 renderDailyArxivGrid 逻辑完全一致）
+    let papers = [];
+    if (dailyArxivCurrentCategory === 'all') {
+        dailyArxivCategories.forEach(cat => {
+            const cacheKey = `${dailyArxivCurrentDate}_${cat}`;
+            const catPapers = dailyArxivPapers[cacheKey] || [];
+            papers = papers.concat(catPapers);
+        });
+    } else {
+        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+        papers = dailyArxivPapers[cacheKey] || [];
+    }
+    
+    // 按 published 时间排序（与 renderDailyArxivGrid 完全一致）
+    papers = [...papers].sort((a, b) => {
+        const timeA = a.published ? new Date(a.published).getTime() : 0;
+        const timeB = b.published ? new Date(b.published).getTime() : 0;
+        return timeB - timeA;  // 降序，越新越前面
+    });
+    
+    const paper = papers[paperIndex];
+    if (!paper) return;
+    
+    // 构建分类选择下拉框
+    let categoryOptions = '<option value="">请选择目标分类</option>';
+    
+    function buildCategoryOptions(node, level = 0) {
+        if (node.id === 'root') {
+            (node.children || []).forEach(child => buildCategoryOptions(child, level));
+            return;
+        }
+        const indent = '　'.repeat(level);
+        categoryOptions += `<option value="${node.id}">${indent}${node.name}</option>`;
+        (node.children || []).forEach(child => buildCategoryOptions(child, level + 1));
+    }
+    
+    if (categories) {
+        buildCategoryOptions(categories);
+    }
+    
+    showModal('添加到文库', `
+        <p style="margin-bottom: 16px;">将论文 <strong>${escapeHtml(paper.title)}</strong> 添加到您的文库</p>
+        <select class="add-to-library-category-select" id="add-to-library-category">
+            ${categoryOptions}
+        </select>
+    `, async () => {
+        const categoryId = document.getElementById('add-to-library-category')?.value;
+        if (!categoryId) {
+            showMessage('请选择目标分类', 'warning');
+            return false;
+        }
+        
+        try {
+            const res = await fetch('/api/daily-arxiv/add-to-library', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    arxiv_id: paper.arxiv_id,
+                    category_id: categoryId,
+                    date: dailyArxivCurrentDate,
+                    fetch_category: dailyArxivCurrentCategory
+                })
+            });
+            
+            const data = await res.json();
+            
+            if (data.success) {
+                showMessage(data.message || '已添加到文库', 'success');
+                return true;
+            } else {
+                showMessage(data.error || '添加失败', 'error');
+                return false;
+            }
+        } catch (err) {
+            console.error('添加到文库失败:', err);
+            showMessage('添加失败', 'error');
+            return false;
+        }
+    });
+}
+
+// 显示 Daily arXiv 设置模态框
+function showDailyArxivSettingsModal() {
+    // 切换到设置界面的 Daily arXiv 面板
+    switchTab('setting');
+    switchSettingPanel('daily-arxiv');
+}
+
+// 切换到 Daily arXiv 视图
+function showDailyArxivView() {
+    // 隐藏其他视图
+    document.getElementById('paper-view').style.display = 'none';
+    document.getElementById('setting-view').style.display = 'none';
+    document.getElementById('daily-arxiv-view').style.display = 'block';
+    
+    // 更新导航栏状态
+    document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
+    const dailyArxivTab = document.querySelector('.nav-tab[data-tab="daily-arxiv"]');
+    if (dailyArxivTab) dailyArxivTab.classList.add('active');
+    
+    // 加载设置和论文
+    loadDailyArxivSettings().then(() => {
+        if (dailyArxivPapers.length === 0 && dailyArxivCategories.length > 0) {
+            fetchDailyArxivPapers();
+        } else {
+            renderDailyArxivGrid();
+        }
+    });
+    
+    saveCurrentViewState();
 }
 

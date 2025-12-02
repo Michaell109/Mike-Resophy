@@ -1,0 +1,512 @@
+"""
+Daily arXiv 路由模块
+
+提供 Daily arXiv 功能的 API 接口
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
+
+from flask import Flask, jsonify, request, send_file
+
+from basic_tools.daily_arxiv import (
+    DailyArxivManager,
+    extract_affiliations_with_llm,
+    extract_pdf_first_page_text,
+    get_manager,
+    get_today_arxiv_date,
+)
+from core.base_paper import Paper
+from core.paper_store import paper_store
+
+
+def register_daily_arxiv_routes(
+    app: Flask,
+    *,
+    daily_arxiv_settings_file: str,
+    default_daily_arxiv_settings: Dict[str, Any],
+    temp_papers_dir: str,
+    get_categories: Callable[[], dict],
+    get_category_path: Callable[[dict, str], List[str] | None],
+    create_category_folder: Callable[[List[str]], str],
+    save_paper_metadata: Callable[[str, Any], None],
+    reading_list_file: str,
+    analysis_settings_file: str = None,
+) -> None:
+    """
+    注册 Daily arXiv 相关路由
+    """
+
+    # 确保临时目录存在
+    os.makedirs(temp_papers_dir, exist_ok=True)
+
+    # 获取管理器实例
+    manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+
+    # 设置 LLM 配置回调
+    def get_llm_config():
+        if analysis_settings_file:
+            try:
+                with open(analysis_settings_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except:
+                pass
+        return {}
+
+    manager.set_llm_config_callback(get_llm_config)
+
+    # 启动调度器
+    manager.start_scheduler()
+
+    # ========================================
+    # Daily arXiv Settings
+    # ========================================
+    @app.route("/api/settings/daily-arxiv", methods=["GET", "POST"])
+    def api_daily_arxiv_settings():
+        """获取或设置 Daily arXiv 配置"""
+        if request.method == "GET":
+            try:
+                with open(daily_arxiv_settings_file, "r", encoding="utf-8") as fp:
+                    settings = json.load(fp)
+            except FileNotFoundError:
+                settings = {}
+            except Exception as exc:
+                print(f"读取 Daily arXiv 设置失败: {exc}")
+                settings = {}
+            # 合并默认设置，但对于 categories，如果设置文件中为空则使用默认值
+            merged = default_daily_arxiv_settings.copy()
+            for key, value in settings.items():
+                if key == "categories":
+                    # 只有当用户设置的 categories 非空时才覆盖
+                    if value and len(value) > 0:
+                        merged[key] = value
+                else:
+                    merged[key] = value
+            return jsonify(merged)
+
+        # POST: 保存设置
+        data = request.json or {}
+        try:
+            with open(daily_arxiv_settings_file, "w", encoding="utf-8") as fp:
+                json.dump(data, fp, ensure_ascii=False, indent=2)
+            return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Get Available Dates
+    # ========================================
+    @app.route("/api/daily-arxiv/dates", methods=["GET"])
+    def api_get_available_dates():
+        """获取有论文的日期列表"""
+        try:
+            dates = manager.get_available_dates()
+            today = get_today_arxiv_date()
+            return jsonify(
+                {
+                    "success": True,
+                    "dates": dates,
+                    "today": today,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Get Papers for Date
+    # ========================================
+    @app.route("/api/daily-arxiv/papers/<date_str>", methods=["GET"])
+    def api_get_papers_for_date(date_str: str):
+        """获取某日期的论文"""
+        try:
+            category = request.args.get("category")
+            papers = manager.get_papers_for_date(date_str, category)
+            return jsonify(
+                {
+                    "success": True,
+                    "papers": papers,
+                    "date": date_str,
+                    "category": category,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Fetch Papers (Trigger Manual Fetch)
+    # ========================================
+    @app.route("/api/daily-arxiv/fetch", methods=["POST"])
+    def api_fetch_daily_arxiv():
+        """手动触发抓取论文"""
+        try:
+            data = request.json or {}
+            category = data.get("category")
+            date_str = data.get("date", get_today_arxiv_date())
+            max_papers = data.get("max_papers", 3)
+            force = data.get("force", False)
+
+            if not category:
+                return jsonify({"success": False, "error": "请指定 arXiv 分区"}), 400
+
+            # 在后台线程中执行抓取
+            def do_fetch():
+                manager.fetch_papers(
+                    category,
+                    date_str=date_str,
+                    max_results=max_papers,
+                    force=force,
+                )
+
+            thread = threading.Thread(target=do_fetch, daemon=True)
+            thread.start()
+
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f"开始抓取 {category} 论文",
+                    "category": category,
+                    "date": date_str,
+                }
+            )
+
+        except Exception as exc:
+            print(f"获取 Daily arXiv 论文失败: {exc}")
+            import traceback
+
+            traceback.print_exc()
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Get Fetch Progress
+    # ========================================
+    @app.route("/api/daily-arxiv/progress/<category>", methods=["GET"])
+    def api_get_fetch_progress(category: str):
+        """获取抓取进度"""
+        try:
+            progress = manager.get_progress(category)
+            return jsonify(
+                {
+                    "success": True,
+                    "progress": progress,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Fetch All Categories
+    # ========================================
+    @app.route("/api/daily-arxiv/fetch-all", methods=["POST"])
+    def api_fetch_all_categories():
+        """抓取所有配置的分区"""
+        try:
+            data = request.json or {}
+            force = data.get("force", False)
+
+            settings = manager.get_settings()
+            categories = settings.get("categories", [])
+            max_papers = settings.get("maxPapersPerCategory", 3)
+
+            if not categories:
+                return jsonify({"success": False, "error": "未配置分区"}), 400
+
+            date_str = get_today_arxiv_date()
+
+            # 在后台线程中执行抓取
+            def do_fetch_all():
+                for cat in categories:
+                    manager.fetch_papers(
+                        cat,
+                        date_str=date_str,
+                        max_results=max_papers,
+                        force=force,
+                    )
+
+            thread = threading.Thread(target=do_fetch_all, daemon=True)
+            thread.start()
+
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f"开始抓取 {len(categories)} 个分区",
+                    "categories": categories,
+                    "date": date_str,
+                }
+            )
+
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Add Paper to Library
+    # ========================================
+    @app.route("/api/daily-arxiv/add-to-library", methods=["POST"])
+    def api_add_arxiv_to_library():
+        """将 arXiv 论文添加到文库"""
+        try:
+            data = request.json or {}
+            arxiv_id = data.get("arxiv_id")
+            category_id = data.get("category_id")
+            date_str = data.get("date", get_today_arxiv_date())
+            fetch_category = data.get("fetch_category")
+
+            if not arxiv_id:
+                return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
+
+            if not category_id:
+                return jsonify({"success": False, "error": "请选择目标分类"}), 400
+
+            # 获取分类路径
+            categories = get_categories()
+            category_path = get_category_path(categories, category_id)
+            if not category_path:
+                return jsonify({"success": False, "error": "分类不存在"}), 404
+
+            # 创建分类文件夹
+            folder_path = create_category_folder(category_path[1:])
+
+            # 从存储中获取论文信息
+            paper_info = None
+            papers = manager.get_papers_for_date(date_str, fetch_category)
+            for p in papers:
+                if p.get("arxiv_id") == arxiv_id:
+                    paper_info = p
+                    break
+
+            if not paper_info:
+                return jsonify({"success": False, "error": "论文信息未找到"}), 404
+
+            # 构造安全文件名
+            safe_title = paper_info.get("title", arxiv_id)
+            for char in ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]:
+                safe_title = safe_title.replace(char, "")
+            safe_title = safe_title[:100].strip()
+
+            pdf_filename = f"{safe_title}.pdf"
+            target_path = os.path.join(folder_path, pdf_filename)
+
+            # 检查是否已存在
+            if os.path.exists(target_path):
+                return (
+                    jsonify({"success": False, "error": "该论文已存在于目标分类中"}),
+                    400,
+                )
+
+            # 复制或下载 PDF
+            source_pdf = paper_info.get("local_pdf_path")
+            if source_pdf and os.path.exists(source_pdf):
+                import shutil
+
+                shutil.copy2(source_pdf, target_path)
+            else:
+                # 下载
+                import urllib.request
+
+                pdf_url = (
+                    paper_info.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                )
+                print(f"[DailyArxiv] 下载论文到文库: {arxiv_id} -> {target_path}")
+                urllib.request.urlretrieve(pdf_url, target_path)
+
+            # 创建论文元数据
+            import uuid
+
+            paper = Paper(
+                id=str(uuid.uuid4()),
+                filename=pdf_filename,
+                original_filename=pdf_filename,
+                file_path=target_path,
+                upload_date=datetime.now().isoformat(),
+                title=paper_info.get("title", ""),
+                authors=paper_info.get("authors", ""),
+                abstract=paper_info.get("abstract", ""),
+                arxiv_id=arxiv_id,
+                arxiv_url=f"https://arxiv.org/abs/{arxiv_id}",
+                arxiv_published_date=paper_info.get("published"),
+                upload_source="daily_arxiv",
+            )
+
+            # 保存元数据
+            save_paper_metadata(target_path, paper)
+
+            # 注册到 paper_store
+            paper_store.upsert(
+                paper,
+                category_id=category_id,
+                category_path=category_path,
+            )
+
+            return jsonify(
+                {
+                    "success": True,
+                    "paper_id": paper.id,
+                    "file_path": target_path,
+                    "message": f"已添加到 {'/'.join(category_path[1:])}",
+                }
+            )
+
+        except Exception as exc:
+            print(f"添加论文到文库失败: {exc}")
+            import traceback
+
+            traceback.print_exc()
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Extract Affiliations
+    # ========================================
+    @app.route("/api/daily-arxiv/extract-affiliations", methods=["POST"])
+    def api_extract_affiliations():
+        """手动提取论文机构信息、homepage 和 github"""
+        try:
+            data = request.json or {}
+            arxiv_id = data.get("arxiv_id")
+            openai_base_url = data.get("openai_base_url")
+            openai_api_key = data.get("openai_api_key")
+            date_str = data.get("date", get_today_arxiv_date())
+            fetch_category = data.get("fetch_category")
+
+            if not arxiv_id:
+                return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
+
+            if not openai_base_url or not openai_api_key:
+                return jsonify({"success": False, "error": "缺少 OpenAI API 配置"}), 400
+
+            # 获取论文信息
+            papers = manager.get_papers_for_date(date_str, fetch_category)
+            paper_info = None
+            for p in papers:
+                if p.get("arxiv_id") == arxiv_id:
+                    paper_info = p
+                    break
+
+            if not paper_info:
+                return jsonify({"success": False, "error": "论文信息未找到"}), 404
+
+            # 获取PDF路径
+            pdf_path = paper_info.get("local_pdf_path")
+            if not pdf_path or not os.path.exists(pdf_path):
+                return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+
+            # 获取自定义 prompt
+            settings = manager.get_settings()
+            affiliation_prompt = settings.get("affiliationPrompt")
+
+            # 提取机构、homepage 和 github
+            extraction_result = extract_affiliations_with_llm(
+                extract_pdf_first_page_text(pdf_path) or "",
+                openai_base_url,
+                openai_api_key,
+                prompt=affiliation_prompt,
+            )
+
+            if not extraction_result:
+                return (
+                    jsonify({"success": False, "error": "提取失败，无法获取结果"}),
+                    500,
+                )
+
+            # 更新论文信息
+            paper_info["affiliations"] = extraction_result.get("affiliations", [])
+            paper_info["homepage"] = extraction_result.get("homepage")
+            paper_info["github"] = extraction_result.get("github")
+            paper_info["affiliations_extracted"] = True
+
+            # 保存更新后的论文信息
+            safe_id = arxiv_id.replace("/", "_").replace(":", "_")
+            if fetch_category:
+                paper_cat_dir = manager.get_category_dir(date_str, fetch_category)
+            else:
+                # 如果没有指定分区，尝试从论文信息中获取
+                paper_cat_dir = os.path.dirname(pdf_path)
+
+            json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
+            if os.path.exists(json_path):
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(paper_info, f, ensure_ascii=False, indent=2)
+
+            return jsonify(
+                {
+                    "success": True,
+                    "affiliations": extraction_result.get("affiliations", []),
+                    "homepage": extraction_result.get("homepage"),
+                    "github": extraction_result.get("github"),
+                }
+            )
+
+        except Exception as exc:
+            print(f"提取机构信息失败: {exc}")
+            import traceback
+
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"提取失败: {str(exc)}"}), 500
+
+    # ========================================
+    # Get Thumbnail
+    # ========================================
+    @app.route("/api/daily-arxiv/thumbnail/<date_str>/<category>/<arxiv_id>")
+    def api_get_thumbnail(date_str: str, category: str, arxiv_id: str):
+        """获取论文缩略图"""
+        try:
+            # URL解码
+            from urllib.parse import unquote
+
+            category = unquote(category)
+            arxiv_id = unquote(arxiv_id)
+
+            # 获取论文信息
+            papers = manager.get_papers_for_date(date_str, category)
+            paper = None
+            for p in papers:
+                if p.get("arxiv_id") == arxiv_id:
+                    paper = p
+                    break
+
+            if not paper:
+                return jsonify({"success": False, "error": "论文未找到"}), 404
+
+            thumbnail_path = paper.get("thumbnail_path")
+            if not thumbnail_path:
+                return jsonify({"success": False, "error": "缩略图不存在"}), 404
+
+            # 确保路径是绝对路径
+            if not os.path.isabs(thumbnail_path):
+                thumbnail_path = os.path.abspath(thumbnail_path)
+
+            if not os.path.exists(thumbnail_path):
+                return jsonify({"success": False, "error": "缩略图文件不存在"}), 404
+
+            return send_file(thumbnail_path, mimetype="image/jpeg", as_attachment=False)
+        except Exception as exc:
+            print(f"获取缩略图失败: {exc}")
+            import traceback
+
+            traceback.print_exc()
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Cleanup Old Papers
+    # ========================================
+    @app.route("/api/daily-arxiv/cleanup", methods=["POST"])
+    def api_cleanup_old_papers():
+        """清理过期论文"""
+        try:
+            data = request.json or {}
+            retention_days = data.get("retention_days")
+
+            if retention_days is None:
+                settings = manager.get_settings()
+                retention_days = settings.get("retentionDays", 7)
+
+            manager.cleanup_old_papers(retention_days)
+
+            return jsonify(
+                {"success": True, "message": f"已清理 {retention_days} 天前的论文"}
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500

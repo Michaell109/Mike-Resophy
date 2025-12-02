@@ -43,6 +43,9 @@
                 <button class="nav-tab active" data-tab="paper">
                     <i class="fas fa-file-pdf"></i> Paper
                 </button>
+                <button class="nav-tab" data-tab="daily-arxiv">
+                    <i class="fas fa-newspaper"></i> Daily arXiv
+                </button>
                 <div class="nav-avatar" id="nav-avatar" data-tab="setting" title="Settings">
                     <canvas id="nav-avatar-canvas" width="32" height="32"></canvas>
                 </div>
@@ -139,6 +142,70 @@
         </div>
     </div>
 
+    <!-- Daily arXiv 界面 -->
+    <div class="daily-arxiv-view" id="daily-arxiv-view" style="display: none;">
+        <div class="daily-arxiv-header">
+            <div class="daily-arxiv-title">
+                <h2><i class="fas fa-newspaper"></i> Daily arXiv</h2>
+                <!-- 日期选择器 -->
+                <div class="daily-arxiv-date-selector" id="daily-arxiv-date-selector">
+                    <button class="date-nav-btn" id="daily-arxiv-prev-date" title="前一天">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <span class="daily-arxiv-current-date" id="daily-arxiv-current-date">
+                        <!-- 日期将在这里动态显示 -->
+                    </span>
+                    <button class="date-nav-btn" id="daily-arxiv-next-date" title="后一天">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="daily-arxiv-actions">
+                <div class="daily-arxiv-categories" id="daily-arxiv-categories">
+                    <!-- 分区标签将在这里动态生成 -->
+                </div>
+                <button class="btn btn-secondary" id="daily-arxiv-settings" title="配置 arXiv 分区">
+                    <i class="fas fa-cog"></i> 配置
+                </button>
+            </div>
+        </div>
+        
+        <!-- 进度条 -->
+        <div class="daily-arxiv-progress" id="daily-arxiv-progress" style="display: none;">
+            <div class="progress-header">
+                <span class="progress-title" id="daily-arxiv-progress-title">正在抓取论文...</span>
+                <span class="progress-count" id="daily-arxiv-progress-count">0/0</span>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="daily-arxiv-progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="progress-current" id="daily-arxiv-progress-current"></div>
+        </div>
+        
+        <!-- 加载状态 -->
+        <div class="daily-arxiv-loading" id="daily-arxiv-loading" style="display: none;">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+            <p>正在获取最新论文...</p>
+        </div>
+        
+        <!-- 空状态：未配置分区 -->
+        <div class="daily-arxiv-empty" id="daily-arxiv-empty" style="display: none;">
+            <i class="fas fa-cog fa-3x"></i>
+            <h3>请先配置 arXiv 分区</h3>
+            <p>点击右上角的「配置」按钮添加您感兴趣的 arXiv 分区，例如：cs.CV、cs.AI</p>
+            <button class="btn btn-primary" onclick="showDailyArxivSettingsModal()">
+                <i class="fas fa-plus"></i> 添加分区
+            </button>
+        </div>
+        
+        <!-- 论文网格 -->
+        <div class="daily-arxiv-grid" id="daily-arxiv-grid">
+            <!-- 论文卡片将在这里动态生成 -->
+        </div>
+    </div>
+
     <!-- Setting 界面 -->
     <div class="setting-view" id="setting-view" style="display: none;">
         <!-- 左侧导航 -->
@@ -172,6 +239,10 @@
                 <button class="setting-nav-item" data-setting="analysis">
                     <i class="fas fa-brain"></i>
                     <span>AI Analysis</span>
+                </button>
+                <button class="setting-nav-item" data-setting="daily-arxiv">
+                    <i class="fas fa-newspaper"></i>
+                    <span>Daily arXiv</span>
                 </button>
                 <button class="setting-nav-item" data-setting="import">
                     <i class="fas fa-file-import"></i>
@@ -404,6 +475,80 @@
                     </div>
                     <div class="setting-card-footer">
                         <button class="btn btn-primary" onclick="saveAnalysisSettings()">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily arXiv Panel -->
+            <div class="setting-panel" id="setting-panel-daily-arxiv" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-newspaper"></i> Daily arXiv Settings</h2>
+                    <p>配置每日 arXiv 论文推送</p>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-tags"></i>
+                        <span>arXiv 分区</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row full-width">
+                            <div class="setting-info">
+                                <label>已配置的分区</label>
+                                <small>添加您感兴趣的 arXiv 分区，如 cs.CV、cs.AI、cs.LG 等</small>
+                            </div>
+                            <div class="daily-arxiv-category-list" id="daily-arxiv-category-list">
+                                <!-- 分区标签将在这里动态生成 -->
+                            </div>
+                            <div class="daily-arxiv-add-category">
+                                <input type="text" id="daily-arxiv-new-category" placeholder="输入分区名称，如 cs.CV" class="setting-input" />
+                                <button class="btn btn-secondary" onclick="addDailyArxivCategory()">
+                                    <i class="fas fa-plus"></i> 添加
+                                </button>
+                            </div>
+                        </div>
+                        <div class="arxiv-category-suggestions">
+                            <span class="suggestion-label">常用分区：</span>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.CV')">cs.CV</button>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.AI')">cs.AI</button>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.LG')">cs.LG</button>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.CL')">cs.CL</button>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.RO')">cs.RO</button>
+                            <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('stat.ML')">stat.ML</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-sliders-h"></i>
+                        <span>抓取设置</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="daily-arxiv-max-papers">每分区最大论文数</label>
+                                <small>每个分区获取的最新论文数量</small>
+                            </div>
+                            <input type="number" id="daily-arxiv-max-papers" min="1" max="100" value="3" class="setting-input" />
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="daily-arxiv-retention-days">论文保留天数</label>
+                                <small>超过此天数的论文将被自动清理</small>
+                            </div>
+                            <input type="number" id="daily-arxiv-retention-days" min="1" max="30" value="7" class="setting-input" />
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="daily-arxiv-check-interval">检查间隔（分钟）</label>
+                                <small>自动检查新论文的时间间隔</small>
+                            </div>
+                            <input type="number" id="daily-arxiv-check-interval" min="5" max="60" value="10" class="setting-input" />
+                        </div>
+                    </div>
+                    <div class="setting-card-footer">
+                        <button class="btn btn-primary" onclick="saveDailyArxivSettings()">
                             <i class="fas fa-save"></i> 保存设置
                         </button>
                     </div>

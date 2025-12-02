@@ -3155,3 +3155,879 @@ mark { background: #fff59d; }
     border-radius: 3px;
     font-size: 12px;
 }
+
+/* ========================================
+   Daily arXiv 界面
+   ======================================== */
+.daily-arxiv-view {
+    height: calc(100vh - 60px);
+    background: #f8fafc;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.daily-arxiv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.daily-arxiv-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.daily-arxiv-title h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.daily-arxiv-title h2 i {
+    color: #3b82f6;
+}
+
+.daily-arxiv-date {
+    color: #64748b;
+    font-size: 14px;
+}
+
+/* 日期选择器 */
+.daily-arxiv-date-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px 8px;
+}
+
+.date-nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.date-nav-btn:hover:not(:disabled) {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.date-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.daily-arxiv-current-date {
+    font-size: 14px;
+    font-weight: 500;
+    color: #1e293b;
+    min-width: 140px;
+    text-align: center;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.daily-arxiv-current-date:hover {
+    background: #e2e8f0;
+}
+
+/* 进度条 */
+.daily-arxiv-progress {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid #93c5fd;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.progress-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #1e293b;
+}
+
+.progress-count {
+    font-size: 13px;
+    color: #64748b;
+}
+
+.progress-bar-container {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.progress-current {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.daily-arxiv-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.daily-arxiv-categories {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.daily-arxiv-category-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-category-tag:hover {
+    background: #bae6fd;
+}
+
+.daily-arxiv-category-tag.active {
+    background: #0284c7;
+    color: white;
+}
+
+.daily-arxiv-category-tag .remove-category {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.1);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-category-tag .remove-category:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* 加载状态 */
+.daily-arxiv-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    color: #64748b;
+}
+
+.daily-arxiv-loading .loading-spinner {
+    font-size: 48px;
+    color: #3b82f6;
+    margin-bottom: 16px;
+}
+
+.daily-arxiv-loading p {
+    font-size: 16px;
+}
+
+/* 空状态 */
+.daily-arxiv-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.daily-arxiv-empty i {
+    margin-bottom: 20px;
+    color: #cbd5e1;
+}
+
+.daily-arxiv-empty h3 {
+    margin-bottom: 12px;
+    color: #475569;
+    font-size: 20px;
+}
+
+.daily-arxiv-empty p {
+    margin-bottom: 24px;
+    max-width: 400px;
+    line-height: 1.6;
+}
+
+/* 论文网格 */
+.daily-arxiv-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 1800px) {
+    .daily-arxiv-grid {
+        grid-template-columns: repeat(5, 1fr);
+    }
+}
+
+@media (max-width: 1500px) {
+    .daily-arxiv-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 1200px) {
+    .daily-arxiv-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .daily-arxiv-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .daily-arxiv-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 论文卡片 */
+.daily-arxiv-card {
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+}
+
+.daily-arxiv-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.daily-arxiv-card-thumbnail {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 48px;
+    position: relative;
+    overflow: hidden;
+}
+
+.daily-arxiv-card-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.daily-arxiv-card-thumbnail .placeholder-icon {
+    position: absolute;
+    opacity: 0.5;
+}
+
+.daily-arxiv-card-category {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 4px 8px;
+    background: rgba(59, 130, 246, 0.9);
+    color: white;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.daily-arxiv-card-body {
+    padding: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.daily-arxiv-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.daily-arxiv-card-authors {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.daily-arxiv-card-affiliations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.daily-arxiv-card-affiliations .aff-mini-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* 卡片上的 keywords 样式（在日期下方） */
+.daily-arxiv-card-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.daily-arxiv-card-keywords .keyword-mini-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #1e293b;
+}
+
+.daily-arxiv-card-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.daily-arxiv-card-date {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.daily-arxiv-card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.daily-arxiv-card-action {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: #f1f5f9;
+    color: #64748b;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-card-action:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.daily-arxiv-card-action.add-to-library {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
+.daily-arxiv-card-action.add-to-library:hover {
+    background: #bfdbfe;
+    color: #1d4ed8;
+}
+
+.daily-arxiv-card-action.added {
+    background: #dcfce7;
+    color: #16a34a;
+    cursor: default;
+}
+
+/* Daily arXiv 详情模态框 */
+.daily-arxiv-detail-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 40px;
+}
+
+.daily-arxiv-detail-content {
+    background: white;
+    border-radius: 16px;
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.daily-arxiv-detail-header {
+    padding: 24px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.daily-arxiv-detail-header h3 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.4;
+    margin: 0;
+    padding-right: 40px;
+}
+
+.daily-arxiv-detail-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #f1f5f9;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.daily-arxiv-detail-close:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.daily-arxiv-detail-body {
+    padding: 24px;
+}
+
+.daily-arxiv-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.daily-arxiv-detail-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #64748b;
+}
+
+.daily-arxiv-detail-meta-item i {
+    color: #94a3b8;
+}
+
+.daily-arxiv-detail-affiliations {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    border: 1px solid #e2e8f0;
+}
+
+.daily-arxiv-detail-affiliations h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.daily-arxiv-detail-affiliations h4 i {
+    color: #64748b;
+}
+
+.affiliation-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.affiliation-tag {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: transform 0.2s;
+}
+
+.affiliation-tag:hover {
+    transform: scale(1.05);
+}
+
+.affiliation-extract-prompt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.affiliation-extract-prompt p {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.affiliation-extract-prompt button {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* 详情面板中的 keywords 样式 */
+.daily-arxiv-detail-keywords {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+
+.daily-arxiv-detail-keywords h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.daily-arxiv-detail-keywords h4 i {
+    color: #64748b;
+}
+
+.keyword-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.keyword-tag {
+    display: inline-block;
+    padding: 6px 14px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1e293b;
+    transition: transform 0.2s;
+}
+
+.keyword-tag:hover {
+    transform: scale(1.05);
+    background: #e2e8f0;
+}
+
+/* 详情面板中的 summary 样式 */
+.daily-arxiv-detail-summary {
+    background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-left: 4px solid #f59e0b;
+}
+
+.daily-arxiv-detail-summary h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.daily-arxiv-detail-summary h4 i {
+    color: #d97706;
+}
+
+.daily-arxiv-detail-summary p {
+    font-size: 14px;
+    line-height: 1.8;
+    color: #78350f;
+    margin: 0;
+}
+
+.daily-arxiv-detail-abstract {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.daily-arxiv-detail-abstract h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.daily-arxiv-detail-abstract h4 i {
+    color: #64748b;
+}
+
+.daily-arxiv-detail-abstract p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #334155;
+    margin: 0;
+}
+
+.daily-arxiv-detail-footer {
+    padding: 20px 24px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.daily-arxiv-detail-links {
+    display: flex;
+    gap: 12px;
+}
+
+.daily-arxiv-detail-links a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #f1f5f9;
+    color: #475569;
+    text-decoration: none;
+    border-radius: 8px;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-detail-links a:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.daily-arxiv-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-add-btn:hover {
+    background: #2563eb;
+}
+
+.daily-arxiv-add-btn:disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Daily arXiv 设置面板中的样式 */
+.daily-arxiv-category-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    min-height: 40px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px dashed #e2e8f0;
+}
+
+.daily-arxiv-category-list:empty::before {
+    content: "暂未添加分区";
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.daily-arxiv-category-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.daily-arxiv-category-item .remove-btn {
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: rgba(0, 0, 0, 0.1);
+    color: inherit;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-category-item .remove-btn:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.daily-arxiv-add-category {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.daily-arxiv-add-category input {
+    flex: 1;
+}
+
+.arxiv-category-suggestions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.suggestion-label {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.suggestion-tag {
+    padding: 4px 10px;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.suggestion-tag:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+}
+
+/* 添加到文库的分类选择 */
+.add-to-library-category-select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    background: white;
+}
+
+.add-to-library-category-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}

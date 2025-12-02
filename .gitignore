@@ -7,3 +7,4 @@ vllm_server/MinerU/
 vllm_server/Embedding_server/
 *.rdf
 papers_backup/
+vllm_server/Qwen3-4B-Instruct-2507/

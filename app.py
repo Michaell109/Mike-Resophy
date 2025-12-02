@@ -15,6 +15,7 @@ from core.search_index import SearchIndex
 from routes.agent_routes.agent_summary_route import register_agent_summary_routes
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
 from routes.basic_routes.category_tree_route import register_category_routes
+from routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
 from routes.basic_routes.import_route import register_import_routes
 from routes.basic_routes.paper_operation_route import register_paper_operation_routes
 from routes.basic_routes.search_route import register_search_routes
@@ -54,7 +55,9 @@ USER_SETTINGS_FILE = None  # 用户设置（名字、头像等）
 READING_HISTORY_FILE = None  # 每日阅读历史
 TRANSLATION_SETTINGS_FILE = None  # 翻译设置
 ANALYSIS_SETTINGS_FILE = None  # AI 解读设置
+DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv 设置
 AVATARS_DIR = None  # 头像图片目录
+TEMP_PAPERS_DIR = None  # Daily arXiv 临时论文目录
 SEARCH_INDEX_DB = None  # 搜索索引数据库路径
 search_index = None  # 搜索索引实例
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
@@ -84,6 +87,37 @@ DEFAULT_ANALYSIS_SETTINGS = {
     "openaiBaseUrl": "",
     "openaiApiKey": "",
     "systemPrompt": "",
+}
+
+# 默认 Daily arXiv 设置
+DEFAULT_DAILY_ARXIV_SETTINGS = {
+    "categories": ["cs.CV", "cs.AI"],  # arXiv 分区列表
+    "checkIntervalMinutes": 10,  # 检查间隔（分钟）
+    "maxPapersPerCategory": 3,  # 每个分区最大论文数（测试模式）
+    "retentionDays": 7,  # 保留论文天数
+    "affiliationPrompt": """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and github repo url if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
+
+Output the result directly in JSON format, and make sure it is valid JSON. For example:
+{"affiliations": ["Google Brain", "Google Research", "Fudan University"], "homepage": "transformer.github.io", "github": "github.com/transformer"}
+
+Notes:
+1. If there is no homepage or github url, use the JSON value null (not the string "null" and not Python None).
+2. Do NOT add a trailing comma after the last field.
+3. Do not include any explanation or extra text, only output the JSON object.
+
+Now the input is:
+""",
+    "summaryPrompt": """我会给你一篇 AI 文章的英文摘要，你需要简要的总结这篇文章在解决怎样的问题，是如何解决的，然后在最后提供关于这篇文章的 3个英文关键词，以如下的 JSON 格式输出:
+
+{"summary": "这篇文章主要解决...的问题。作者提出...方法，通过...实现了...", "keywords": ["Keyword1", "Keyword2", "Keyword3"]}
+
+注意：
+1. summary 用中文简洁描述，控制在 100-200 字
+2. keywords 用英文，提供 3 个最能代表文章核心的关键词
+3. 直接输出 JSON，不要有任何其他解释
+
+现在输入的摘要是:
+""",
 }
 
 # 全局变量（将在 init_app 中初始化）
@@ -159,6 +193,7 @@ def init_app(papers_dir=None):
     """初始化应用配置和目录"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE, GENERAL_SETTINGS_FILE
     global USER_SETTINGS_FILE, READING_HISTORY_FILE, TRANSLATION_SETTINGS_FILE, ANALYSIS_SETTINGS_FILE, AVATARS_DIR
+    global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR
     global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
@@ -180,12 +215,15 @@ def init_app(papers_dir=None):
     READING_HISTORY_FILE = os.path.join(UPLOAD_FOLDER, "reading_history.json")
     TRANSLATION_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "translation_settings.json")
     ANALYSIS_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "analysis_settings.json")
+    DAILY_ARXIV_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "daily_arxiv_settings.json")
     AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
+    TEMP_PAPERS_DIR = os.path.join(UPLOAD_FOLDER, ".daily_arxiv_temp")
     SEARCH_INDEX_DB = os.path.join(UPLOAD_FOLDER, ".search_index.db")
 
     # 确保必要的目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(AVATARS_DIR, exist_ok=True)
+    os.makedirs(TEMP_PAPERS_DIR, exist_ok=True)
 
     # 初始化搜索索引
     search_index = SearchIndex(SEARCH_INDEX_DB)
@@ -220,6 +258,11 @@ def init_app(papers_dir=None):
         with open(ANALYSIS_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_ANALYSIS_SETTINGS, f, ensure_ascii=False, indent=2)
 
+    # 初始化 Daily arXiv 设置文件
+    if not os.path.exists(DAILY_ARXIV_SETTINGS_FILE):
+        with open(DAILY_ARXIV_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_DAILY_ARXIV_SETTINGS, f, ensure_ascii=False, indent=2)
+
     # 基础工具函数绑定
     init_categories = partial(category_manager.init_categories, CATEGORIES_FILE)
     get_categories = partial(category_manager.get_categories, CATEGORIES_FILE)
@@ -239,7 +282,9 @@ def init_app(papers_dir=None):
     print(f"阅读历史: {READING_HISTORY_FILE}")
     print(f"翻译设置: {TRANSLATION_SETTINGS_FILE}")
     print(f"AI解读设置: {ANALYSIS_SETTINGS_FILE}")
+    print(f"Daily arXiv设置: {DAILY_ARXIV_SETTINGS_FILE}")
     print(f"头像目录: {AVATARS_DIR}")
+    print(f"Daily arXiv临时目录: {TEMP_PAPERS_DIR}")
     print(f"搜索索引数据库: {SEARCH_INDEX_DB}")
 
 
@@ -367,6 +412,19 @@ def register_routes():
         reading_list_file=READING_LIST_FILE,
         paper_store=paper_store,
         upload_folder=UPLOAD_FOLDER,
+    )
+
+    register_daily_arxiv_routes(
+        app,
+        daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
+        default_daily_arxiv_settings=DEFAULT_DAILY_ARXIV_SETTINGS,
+        temp_papers_dir=TEMP_PAPERS_DIR,
+        get_categories=get_categories,
+        get_category_path=get_category_path,
+        create_category_folder=create_category_folder,
+        save_paper_metadata=save_paper_metadata,
+        reading_list_file=READING_LIST_FILE,
+        analysis_settings_file=ANALYSIS_SETTINGS_FILE,
     )
 
 

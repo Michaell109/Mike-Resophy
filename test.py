@@ -7,7 +7,7 @@ try:
     with pdfplumber.open(pdf_path) as pdf:
         # 遍历前两页 (索引 0 和 1)
         # 注意：首先检查文件页数是否足够
-        max_pages = min(2, len(pdf.pages))
+        max_pages = min(1, len(pdf.pages))
 
         for i in range(max_pages):
             page = pdf.pages[i]  # page 1 是 pages[0], page 2 是 pages[1]
