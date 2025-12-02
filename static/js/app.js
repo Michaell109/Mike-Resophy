@@ -8410,7 +8410,9 @@ function renderDailyArxivGrid() {
         // 关键词显示（在日期下方，黑色字体，每个单词首字母大写）
         let keywordsHtml = '';
         if (paper.keywords && paper.keywords.length > 0) {
-            const kwTags = paper.keywords.map(kw => {
+            // 按关键词长度升序排序（最短的排在前面，节约空间）
+            const sortedKeywords = [...paper.keywords].sort((a, b) => a.length - b.length);
+            const kwTags = sortedKeywords.map(kw => {
                 // 每个单词首字母大写 (Title Case)
                 const titleCaseKw = kw.split(' ').map(word => 
                     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
@@ -8462,8 +8464,8 @@ function renderDailyArxivGrid() {
                             <button class="daily-arxiv-card-action" onclick="event.stopPropagation(); window.open('https://arxiv.org/abs/${paper.arxiv_id}', '_blank')" title="在 arXiv 查看">
                                 <i class="fas fa-external-link-alt"></i>
                             </button>
-                            <button class="daily-arxiv-card-action add-to-library" onclick="event.stopPropagation(); showAddToLibraryModal(${index})" title="添加到文库">
-                                <i class="fas fa-plus"></i>
+                            <button class="daily-arxiv-card-action add-to-reading-list paper-col-btn reading icon-only" onclick="onDailyArxivAddToReadingList(${index}, event)" title="添加到待读列表">
+                                <i class="fas fa-book-open"></i>
                             </button>
                         </div>
                     </div>
@@ -8544,7 +8546,9 @@ function showDailyArxivDetail(index) {
     // 关键词区域（黑色字体，每个单词首字母大写）
     let keywordsHtml = '';
     if (paper.keywords && paper.keywords.length > 0) {
-        const kwTags = paper.keywords.map(kw => {
+        // 按关键词长度升序排序（最短的排在前面）
+        const sortedKeywords = [...paper.keywords].sort((a, b) => a.length - b.length);
+        const kwTags = sortedKeywords.map(kw => {
             // 每个单词首字母大写 (Title Case)
             const titleCaseKw = kw.split(' ').map(word => 
                 word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
@@ -8625,8 +8629,8 @@ function showDailyArxivDetail(index) {
                             <i class="fas fa-file-pdf"></i> PDF
                         </a>
                     </div>
-                    <button class="daily-arxiv-add-btn" onclick="showAddToLibraryModal(${index}); closeDailyArxivDetail();">
-                        <i class="fas fa-plus"></i> 添加到文库
+                    <button class="daily-arxiv-add-btn" onclick="onDailyArxivAddToReadingList(${index}, event); closeDailyArxivDetail();">
+                        <i class="fas fa-book-open"></i> 添加到待读列表
                     </button>
                 </div>
             </div>
@@ -8788,9 +8792,14 @@ async function extractAffiliationsForPaper(paperIndex) {
     }
 }
 
-// 显示添加到文库的模态框
-function showAddToLibraryModal(paperIndex) {
-    // 获取当前显示的论文列表（与 renderDailyArxivGrid 逻辑完全一致）
+// Daily arXiv：一键添加到待读列表（不弹窗）
+function onDailyArxivAddToReadingList(paperIndex, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+
+    // 一键直接添加到待读列表（不弹出选择分类的弹窗）
+    // 1. 获取当前显示的论文列表（与 renderDailyArxivGrid 逻辑完全一致）
     let papers = [];
     if (dailyArxivCurrentCategory === 'all') {
         dailyArxivCategories.forEach(cat => {
@@ -8802,73 +8811,131 @@ function showAddToLibraryModal(paperIndex) {
         const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
         papers = dailyArxivPapers[cacheKey] || [];
     }
-    
+
     // 按 published 时间排序（与 renderDailyArxivGrid 完全一致）
     papers = [...papers].sort((a, b) => {
         const timeA = a.published ? new Date(a.published).getTime() : 0;
         const timeB = b.published ? new Date(b.published).getTime() : 0;
         return timeB - timeA;  // 降序，越新越前面
     });
-    
+
     const paper = papers[paperIndex];
     if (!paper) return;
-    
-    // 构建分类选择下拉框
-    let categoryOptions = '<option value="">请选择目标分类</option>';
-    
-    function buildCategoryOptions(node, level = 0) {
-        if (node.id === 'root') {
-            (node.children || []).forEach(child => buildCategoryOptions(child, level));
-            return;
-        }
-        const indent = '　'.repeat(level);
-        categoryOptions += `<option value="${node.id}">${indent}${node.name}</option>`;
-        (node.children || []).forEach(child => buildCategoryOptions(child, level + 1));
+
+    // 2. 选择一个默认分类：如果有分类树，就取第一个顶层分类；否则直接提示配置分类
+    let defaultCategoryId = null;
+    if (categories && Array.isArray(categories.children) && categories.children.length > 0) {
+        defaultCategoryId = categories.children[0].id;
     }
-    
-    if (categories) {
-        buildCategoryOptions(categories);
+
+    if (!defaultCategoryId) {
+        showMessage('请先在左侧创建一个分类，再添加到待读列表', 'warning');
+        return;
     }
-    
-    showModal('添加到文库', `
-        <p style="margin-bottom: 16px;">将论文 <strong>${escapeHtml(paper.title)}</strong> 添加到您的文库</p>
-        <select class="add-to-library-category-select" id="add-to-library-category">
-            ${categoryOptions}
-        </select>
-    `, async () => {
-        const categoryId = document.getElementById('add-to-library-category')?.value;
-        if (!categoryId) {
-            showMessage('请选择目标分类', 'warning');
-            return false;
-        }
-        
+
+    // 3. 调用后端：先导入到默认分类，再加入待读列表
+    (async () => {
         try {
+            // 使用论文自身的抓取分区；如果当前视图是 "all"，不要把 "all" 传给后端
+            const fetchCategory =
+                paper.fetch_category ||
+                (dailyArxivCurrentCategory === 'all' ? null : dailyArxivCurrentCategory);
+
+            const body = {
+                arxiv_id: paper.arxiv_id,
+                category_id: defaultCategoryId,
+                date: dailyArxivCurrentDate,
+            };
+            if (fetchCategory) {
+                body.fetch_category = fetchCategory;
+            }
+
             const res = await fetch('/api/daily-arxiv/add-to-library', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    arxiv_id: paper.arxiv_id,
-                    category_id: categoryId,
-                    date: dailyArxivCurrentDate,
-                    fetch_category: dailyArxivCurrentCategory
-                })
+                body: JSON.stringify(body),
             });
-            
+
             const data = await res.json();
-            
-            if (data.success) {
-                showMessage(data.message || '已添加到文库', 'success');
-                return true;
-            } else {
+
+            if (!data.success) {
                 showMessage(data.error || '添加失败', 'error');
-                return false;
+                return;
+            }
+
+            // 成功导入后，再加入待读列表
+            if (data.paper_id) {
+                try {
+                    const readingRes = await fetch(`/api/reading-list/${data.paper_id}/add`, {
+                        method: 'POST',
+                    });
+                    if (!readingRes.ok) {
+                        console.warn('添加到待读列表失败:', await readingRes.text());
+                    } else {
+                        await updateReadingListCount();
+
+                        // 更新当前卡片按钮为“从待读列表移除”的紫色按钮
+                        const card = document.querySelector(`.daily-arxiv-card[data-index="${paperIndex}"]`);
+                        if (card) {
+                            const btn = card.querySelector('.daily-arxiv-card-action.add-to-reading-list');
+                            if (btn) {
+                                btn.dataset.paperId = data.paper_id;
+                                btn.title = '从待读列表移除';
+                                btn.innerHTML = '<i class="fas fa-times"></i>';
+                                btn.classList.add('in-list');
+                                btn.onclick = (e) => onDailyArxivRemoveFromReadingList(paperIndex, e);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('添加到待读列表异常:', e);
+                }
             }
         } catch (err) {
             console.error('添加到文库失败:', err);
             showMessage('添加失败', 'error');
-            return false;
         }
-    });
+    })();
+}
+
+// Daily arXiv：从待读列表移除
+async function onDailyArxivRemoveFromReadingList(paperIndex, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+
+    // 找到当前卡片上的按钮，读取 paper_id
+    const card = document.querySelector(`.daily-arxiv-card[data-index="${paperIndex}"]`);
+    if (!card) return;
+
+    const btn = card.querySelector('.daily-arxiv-card-action.add-to-reading-list');
+    if (!btn) return;
+
+    const paperId = btn.dataset.paperId;
+    if (!paperId) return;
+
+    try {
+        const res = await fetch(`/api/reading-list/${paperId}/remove`, {
+            method: 'POST',
+        });
+
+        if (!res.ok) {
+            showMessage('移除失败', 'error');
+            return;
+        }
+
+        await updateReadingListCount();
+
+        // 恢复为“添加到待读列表”的紫色书本按钮
+        btn.removeAttribute('data-paper-id');
+        btn.title = '添加到待读列表';
+        btn.innerHTML = '<i class="fas fa-book-open"></i>';
+        btn.classList.remove('in-list');
+        btn.onclick = (e) => onDailyArxivAddToReadingList(paperIndex, e);
+    } catch (error) {
+        console.error('从待读列表移除失败:', error);
+        showMessage('移除失败', 'error');
+    }
 }
 
 // 显示 Daily arXiv 设置模态框

@@ -290,8 +290,39 @@ def register_daily_arxiv_routes(
             pdf_filename = f"{safe_title}.pdf"
             target_path = os.path.join(folder_path, pdf_filename)
 
-            # 检查是否已存在
+            # 检查是否已存在：如果已存在，则复用已有的 Paper，而不是报错
             if os.path.exists(target_path):
+                # 尝试在 paper_store 中找到对应的论文（通过 arxiv_id 或 file_path）
+                existing_paper = None
+                try:
+                    all_papers = paper_store.iter_all()
+                    for p in all_papers:
+                        if (
+                            getattr(p, "arxiv_id", None) == arxiv_id
+                            or getattr(p, "file_path", None) == target_path
+                        ):
+                            existing_paper = p
+                            break
+                except Exception as e:
+                    print(f"查找已有论文失败: {e}")
+
+                if existing_paper:
+                    # 确保该论文在指定分类下注册
+                    paper_store.upsert(
+                        existing_paper,
+                        category_id=category_id,
+                        category_path=category_path,
+                    )
+                    return jsonify(
+                        {
+                            "success": True,
+                            "paper_id": existing_paper.id,
+                            "file_path": existing_paper.file_path,
+                            "message": f"该论文已存在于 {'/'.join(category_path[1:])}",
+                        }
+                    )
+
+                # 找不到对应 Paper，则保持原有报错逻辑
                 return (
                     jsonify({"success": False, "error": "该论文已存在于目标分类中"}),
                     400,
