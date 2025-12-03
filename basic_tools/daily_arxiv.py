@@ -728,6 +728,7 @@ class DailyArxivManager:
             openai_base_url,
             openai_api_key,
             prompt=prompt,
+            settings_file=self.settings_file,
         )
 
     def _save_paper(self, paper_dict: Dict, cat_dir: str):
@@ -957,6 +958,7 @@ def extract_affiliations_with_llm(
     openai_base_url: str,
     openai_api_key: str,
     prompt: str = None,
+    settings_file: str = None,
 ) -> Dict[str, Any]:
     """
     使用 LLM 从 PDF 第一页文本中提取机构信息、homepage 和 github
@@ -966,6 +968,7 @@ def extract_affiliations_with_llm(
         openai_base_url: OpenAI API 基础 URL
         openai_api_key: OpenAI API 密钥
         prompt: 自定义提示词（可选）
+        settings_file: 配置文件路径（可选，用于读取自定义机构映射）
 
     Returns:
         包含 affiliations, homepage, github 的字典
@@ -1132,11 +1135,8 @@ def extract_affiliations_with_llm(
 
             from institution_normalizer import InstitutionNormalizer  # type: ignore
 
-            # 获取用户自定义映射文件路径
-            settings = self.get_settings()
-            settings_file = getattr(self, "_settings_file", None)
-
             # 创建标准化器实例（包含系统映射 + 用户自定义映射）
+            # settings_file 参数传入的是配置文件路径（如果有）
             normalizer = InstitutionNormalizer(custom_mapping_file=settings_file)
             normalized_affiliations = normalizer.normalize_list(unique_affiliations)
 

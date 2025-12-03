@@ -7604,6 +7604,9 @@ let dailyArxivSelectedKeywords = new Set(); // 当前选中的关键词过滤条
 let dailyArxivExcludedAffiliations = new Set(); // 被排除的单位（反向过滤）
 let dailyArxivExcludedCountries = new Set(); // 被排除的地区（反向过滤）
 let dailyArxivExcludedKeywords = new Set(); // 被排除的关键词（反向过滤）
+let dailyArxivKnownInstitutions = new Set(); // 所有已知机构（系统预设 + 用户自定义）
+let dailyArxivFilterFirstAffiliation = false; // 是否过滤第一单位
+let dailyArxivFilterKnownInstitutions = false; // 是否只显示常见机构
 
 // 地区名称标准化映射表
 function normalizeCountryName(countryName) {
@@ -8179,8 +8182,27 @@ async function loadDailyArxivSettings() {
             renderDailyArxivSettingsCategoryList();
             renderDailyArxivKeywordList();
         }
+        
+        // 加载已知机构列表
+        await loadKnownInstitutions();
     } catch (err) {
         console.error('加载 Daily arXiv 设置失败:', err);
+    }
+}
+
+// 加载所有已知机构列表（系统预设 + 用户自定义）
+async function loadKnownInstitutions() {
+    try {
+        const res = await fetch('/api/all-known-institutions');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                dailyArxivKnownInstitutions = new Set(data.institutions || []);
+                console.log(`[DailyArxiv] 已加载 ${dailyArxivKnownInstitutions.size} 个已知机构`);
+            }
+        }
+    } catch (err) {
+        console.error('加载已知机构列表失败:', err);
     }
 }
 
@@ -8789,11 +8811,24 @@ function getCurrentDailyArxivPapers(applyFilters = true) {
         papers = Array.from(mergedMap.values());
     }
 
+    // 应用"第一单位"过滤
+    if (applyFilters && dailyArxivFilterFirstAffiliation) {
+        papers = papers.filter(paper => {
+            const affs = paper.affiliations || [];
+            // 只保留第一个单位（如果有的话）
+            return affs.length > 0;
+        });
+    }
+
     // 应用单位过滤：如果有选中的单位，则只保留 affiliations 里包含任一选中单位的论文
     if (applyFilters && dailyArxivSelectedAffiliations.size > 0) {
         const selected = new Set(dailyArxivSelectedAffiliations);
         papers = papers.filter(paper => {
             const affs = paper.affiliations || [];
+            // 如果启用了"第一单位"过滤，只检查第一个单位
+            if (dailyArxivFilterFirstAffiliation && affs.length > 0) {
+                return selected.has(affs[0]);
+            }
             return affs.some(aff => selected.has(aff));
         });
     }
@@ -8872,6 +8907,29 @@ function renderDailyArxivGrid() {
     const papers = getCurrentDailyArxivPapers();
     
     if (papers.length === 0) {
+        // 检查是否有激活的过滤条件
+        const hasActiveFilters = 
+            dailyArxivFilterFirstAffiliation || 
+            dailyArxivSelectedAffiliations.size > 0 || 
+            dailyArxivExcludedAffiliations.size > 0 ||
+            dailyArxivSelectedCountries.size > 0 ||
+            dailyArxivExcludedCountries.size > 0 ||
+            dailyArxivSelectedKeywords.size > 0 ||
+            dailyArxivExcludedKeywords.size > 0;
+        
+        // 如果有过滤条件导致没有论文，显示"没有符合条件的论文"
+        if (hasActiveFilters) {
+            gridEl.innerHTML = `
+                <div class="daily-arxiv-no-results" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666;">
+                    <i class="fas fa-filter fa-3x" style="margin-bottom: 20px; color: #bbb;"></i>
+                    <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">没有符合条件的论文</h3>
+                    <p style="font-size: 1em; color: #888;">请尝试调整过滤条件</p>
+                </div>
+            `;
+            if (emptyEl) emptyEl.style.display = 'none';
+            return;
+        }
+        
         // 检查是否有任何分区正在抓取
         const isFetching = dailyArxivCurrentCategory === 'all'
             ? Object.keys(dailyArxivProgressIntervals).length > 0
@@ -9050,15 +9108,39 @@ function renderDailyArxivFilterAffiliations() {
 
     // 基于当前视图下的论文计算单位统计（不应用现有过滤条件）
     const papers = getCurrentDailyArxivPapers(false);
-    const stats = new Map(); // aff -> { count, color }
+    const stats = new Map(); // aff -> { count, color, isKnown }
+
+    // 统计第一单位数量（用于显示总数）
+    let firstAffCount = 0;
+    // 统计常见机构数量（用于显示总数）
+    let knownInstCount = 0;
 
     papers.forEach(paper => {
         const affs = paper.affiliations || [];
-        affs.forEach(aff => {
+        if (affs.length > 0) {
+            firstAffCount++;
+            
+            // 检查是否有常见机构
+            if (affs.some(aff => dailyArxivKnownInstitutions.has(aff))) {
+                knownInstCount++;
+            }
+        }
+        
+        // 根据特殊过滤条件决定统计哪些机构
+        let affsToCount = affs;
+        
+        // 如果启用了"第一单位"过滤，只统计第一个机构
+        if (dailyArxivFilterFirstAffiliation && affs.length > 0) {
+            affsToCount = [affs[0]];
+        }
+        
+        affsToCount.forEach(aff => {
             if (!aff) return;
             const key = aff;
+            const isKnown = dailyArxivKnownInstitutions.has(aff);
+            
             if (!stats.has(key)) {
-                stats.set(key, { count: 1, color: getColorForString(key) });
+                stats.set(key, { count: 1, color: getColorForString(key), isKnown });
             } else {
                 stats.get(key).count += 1;
             }
@@ -9072,14 +9154,83 @@ function renderDailyArxivFilterAffiliations() {
         return;
     }
 
+    // 分组：常见机构 vs 其他机构
+    const knownEntries = entries.filter(([aff, info]) => info.isKnown);
+    const unknownEntries = entries.filter(([aff, info]) => !info.isKnown);
+
     // 按数量降序，再按名称排序
-    entries.sort((a, b) => {
+    const sortFn = (a, b) => {
         const countDiff = b[1].count - a[1].count;
         if (countDiff !== 0) return countDiff;
         return a[0].localeCompare(b[0]);
-    });
+    };
+    knownEntries.sort(sortFn);
+    unknownEntries.sort(sortFn);
 
-    container.innerHTML = entries.map(([aff, info]) => {
+    // 生成 HTML：特殊过滤项 + 常见机构 + 其他机构
+    let html = '';
+
+    // 特殊过滤项
+    html += `
+        <div class="daily-arxiv-filter-special-items">
+            <button 
+                class="daily-arxiv-filter-special ${dailyArxivFilterFirstAffiliation ? 'active' : ''}" 
+                onclick="toggleFirstAffiliationFilter()"
+                title="只显示有第一单位的论文">
+                <span class="label">第一单位</span>
+                <span class="count">(${firstAffCount})</span>
+            </button>
+        </div>
+    `;
+
+    // 决定是否显示分组标题
+    // 如果两种机构都有，才显示分组标题
+    const shouldShowGroupTitles = knownEntries.length > 0 && unknownEntries.length > 0;
+
+    // 常见机构列表
+    if (knownEntries.length > 0) {
+        if (shouldShowGroupTitles) {
+            html += '<div class="filter-section-divider">常见机构</div>';
+        }
+        html += knownEntries.map(([aff, info]) => {
+            const isSelected = dailyArxivSelectedAffiliations.has(aff);
+            const isExcluded = dailyArxivExcludedAffiliations.has(aff);
+            const countLabel = info.count > 1 ? ` (${info.count})` : '';
+            const bgColor = getBgColorForString(aff);
+            const textColor = info.color;
+            const activeClass = isSelected ? 'active' : '';
+            const excludedClass = isExcluded ? 'excluded' : '';
+            return `
+                <button 
+                    class="daily-arxiv-filter-affiliation ${activeClass} ${excludedClass}" 
+                    data-affiliation="${escapeHtml(aff)}"
+                    title="${escapeHtml(aff)}${countLabel}"
+                    style="${!isExcluded ? `border-color: ${textColor}; color: ${textColor}; background: ${isSelected ? bgColor : 'transparent'};` : ''}"
+                >
+                    <span class="dot" style="background:${isExcluded ? '#9ca3af' : textColor};"></span>
+                    <span class="label">${escapeHtml(aff)}</span>
+                    ${countLabel}
+                    <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeAffiliation('${escapeHtml(aff).replace(/'/g, "\\'")}');" title="排除此单位">
+                        <i class="fas fa-times"></i>
+                    </span>
+                </button>
+            `;
+        }).join('');
+    }
+
+    // 其他机构列表
+    if (unknownEntries.length > 0) {
+        if (shouldShowGroupTitles) {
+            html += `
+                <div class="filter-section-divider">
+                    <span>其他机构</span>
+                    <button class="hide-all-unknown-btn" onclick="hideAllUnknownInstitutions()" title="隐藏所有其他机构的论文">
+                        全部隐藏
+                    </button>
+                </div>
+            `;
+        }
+        html += unknownEntries.map(([aff, info]) => {
         const isSelected = dailyArxivSelectedAffiliations.has(aff);
         const isExcluded = dailyArxivExcludedAffiliations.has(aff);
         const countLabel = info.count > 1 ? ` (${info.count})` : '';
@@ -9103,6 +9254,9 @@ function renderDailyArxivFilterAffiliations() {
             </button>
         `;
     }).join('');
+    }
+
+    container.innerHTML = html;
 
     // 绑定点击事件（多选）
     container.querySelectorAll('.daily-arxiv-filter-affiliation').forEach(btn => {
@@ -9231,6 +9385,44 @@ function renderDailyArxivFilterCountries() {
 }
 
 // 切换单位排除状态
+// 切换"第一单位"过滤
+function toggleFirstAffiliationFilter() {
+    dailyArxivFilterFirstAffiliation = !dailyArxivFilterFirstAffiliation;
+    renderDailyArxivFilterAffiliations();
+    renderDailyArxivGrid();
+}
+
+// 切换"常见机构"过滤
+// 隐藏所有不常见机构（即不在已知列表中的机构）
+function hideAllUnknownInstitutions() {
+    // 获取当前所有论文
+    const papers = getCurrentDailyArxivPapers(false);
+    const unknownAffs = new Set();
+    
+    // 收集所有不常见的机构
+    papers.forEach(paper => {
+        const affs = paper.affiliations || [];
+        affs.forEach(aff => {
+            if (aff && !dailyArxivKnownInstitutions.has(aff)) {
+                unknownAffs.add(aff);
+            }
+        });
+    });
+    
+    // 将所有不常见机构添加到排除列表
+    unknownAffs.forEach(aff => {
+        // 如果已选中，先取消选中
+        if (dailyArxivSelectedAffiliations.has(aff)) {
+            dailyArxivSelectedAffiliations.delete(aff);
+        }
+        dailyArxivExcludedAffiliations.add(aff);
+    });
+    
+    // 重新渲染
+    renderDailyArxivFilterAffiliations();
+    renderDailyArxivGrid();
+}
+
 function toggleExcludeAffiliation(aff) {
     if (!aff) return;
     // 如果已选中，先取消选中

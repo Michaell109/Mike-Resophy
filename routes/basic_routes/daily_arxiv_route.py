@@ -434,6 +434,7 @@ def register_daily_arxiv_routes(
                 openai_base_url,
                 openai_api_key,
                 prompt=affiliation_prompt,
+                settings_file=daily_arxiv_settings_file,
             )
 
             if not extraction_result:
