@@ -8902,6 +8902,9 @@ function renderDailyArxivGrid() {
     const emptyEl = document.getElementById('daily-arxiv-empty');
     
     if (!gridEl) return;
+
+    // 每次渲染前先恢复网格的默认布局样式
+    gridEl.classList.remove('daily-arxiv-grid-no-results');
     
     // 获取当前视图下的论文（已按时间排序，并在 "全部" 视图下去重合并标签）
     const papers = getCurrentDailyArxivPapers();
@@ -8919,8 +8922,10 @@ function renderDailyArxivGrid() {
         
         // 如果有过滤条件导致没有论文，显示"没有符合条件的论文"
         if (hasActiveFilters) {
+            // 让整个网格区域改为居中布局
+            gridEl.classList.add('daily-arxiv-grid-no-results');
             gridEl.innerHTML = `
-                <div class="daily-arxiv-no-results" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666;">
+                <div class="daily-arxiv-no-results">
                     <i class="fas fa-filter fa-3x" style="margin-bottom: 20px; color: #bbb;"></i>
                     <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">没有符合条件的论文</h3>
                     <p style="font-size: 1em; color: #888;">请尝试调整过滤条件</p>

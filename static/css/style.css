@@ -3845,6 +3845,13 @@ mark { background: #fff59d; }
     flex: 1;
 }
 
+/* 无匹配结果时，让网格区域改为居中布局 */
+.daily-arxiv-grid.daily-arxiv-grid-no-results {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 /* 大屏幕：4-5列 */
 @media (min-width: 1800px) {
     .daily-arxiv-grid {
