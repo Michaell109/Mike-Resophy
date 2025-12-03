@@ -3308,6 +3308,105 @@ mark { background: #fff59d; }
     flex-wrap: wrap;
 }
 
+/* Daily arXiv 过滤器布局 */
+.daily-arxiv-main {
+    display: flex;
+    gap: 16px;
+}
+
+.daily-arxiv-filter-panel {
+    width: 260px;
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    padding: 14px 16px;
+    align-self: flex-start;
+    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+}
+
+.daily-arxiv-filter-panel .filter-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.daily-arxiv-filter-panel .filter-section-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.daily-arxiv-filter-panel .filter-section-header h4 i {
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.daily-arxiv-filter-panel .filter-section-body {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.daily-arxiv-filter-panel .filter-empty {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.daily-arxiv-filter-affiliation {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin: 2px 4px 4px 0;
+    border-radius: 999px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 11px;
+    color: #4b5563;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.daily-arxiv-filter-affiliation .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.daily-arxiv-filter-affiliation .label {
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.daily-arxiv-filter-affiliation.active {
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+
+.daily-arxiv-filter-affiliation:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 4px 10px rgba(148, 163, 184, 0.25);
+}
+
+@media (max-width: 1200px) {
+    .daily-arxiv-main {
+        flex-direction: column;
+    }
+
+    .daily-arxiv-filter-panel {
+        width: 100%;
+        order: -1;
+    }
+}
+
 .daily-arxiv-categories {
     display: flex;
     gap: 8px;

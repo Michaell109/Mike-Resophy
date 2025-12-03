@@ -161,6 +161,9 @@
                 </div>
             </div>
             <div class="daily-arxiv-actions">
+                <button class="btn btn-outline" id="daily-arxiv-filter" title="过滤当前论文">
+                    <i class="fas fa-filter"></i> 过滤
+                </button>
                 <div class="daily-arxiv-categories" id="daily-arxiv-categories">
                     <!-- 分区标签将在这里动态生成 -->
                 </div>
@@ -200,9 +203,25 @@
             </button>
         </div>
         
-        <!-- 论文网格 -->
-        <div class="daily-arxiv-grid" id="daily-arxiv-grid">
-            <!-- 论文卡片将在这里动态生成 -->
+        <!-- 过滤器 + 论文网格 -->
+        <div class="daily-arxiv-main">
+            <!-- 过滤器面板 -->
+            <div class="daily-arxiv-filter-panel" id="daily-arxiv-filter-panel" style="display: none;">
+                <div class="filter-section">
+                    <div class="filter-section-header">
+                        <h4><i class="fas fa-building"></i> 单位过滤</h4>
+                        <button class="btn-link" id="daily-arxiv-filter-clear" type="button">清除</button>
+                    </div>
+                    <div class="filter-section-body" id="daily-arxiv-filter-affiliations">
+                        <!-- 单位标签将在这里动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 论文网格 -->
+            <div class="daily-arxiv-grid" id="daily-arxiv-grid">
+                <!-- 论文卡片将在这里动态生成 -->
+            </div>
         </div>
     </div>
 
