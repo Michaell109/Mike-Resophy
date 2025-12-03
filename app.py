@@ -109,10 +109,22 @@ DEFAULT_DAILY_ARXIV_SETTINGS = {
         "Audio & Speech",
         "ML Fundamentals & RL",
     ],  # 关键词列表
-    "affiliationPrompt": """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and github repo url if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
+    "affiliationPrompt": """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and GitHub repo URL if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
 
-Output the result directly in JSON format, and make sure it is valid JSON. For example:
-{"affiliations": ["Google Brain", "Google Research", "Fudan University"], "homepage": "transformer.github.io", "github": "github.com/transformer"}
+Additional rules:
+
+If the institution is well-known and has a commonly used abbreviation (e.g., University of Illinois Urbana–Champaign → UIUC), return the abbreviation instead of the full name. If the institution is not well-known or does not have a standard abbreviation, keep the full name.
+
+You must also return the nationality (country) for each affiliation, in the same order.
+
+Output the result directly in JSON format, and make sure it is valid JSON. The structure should be:
+
+{
+"affiliations": ["Affiliation1", "Affiliation2", ...],
+"countries": ["Country_of_Affiliation1", "Country_of_Affiliation2", ...],
+"homepage": "homepage_url_or_null",
+"github": "github_url_or_null"
+}
 
 Notes:
 1. If there is no homepage or github url, use the JSON value null (not the string "null" and not Python None).

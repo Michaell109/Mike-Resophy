@@ -444,6 +444,7 @@ def register_daily_arxiv_routes(
 
             # 更新论文信息
             paper_info["affiliations"] = extraction_result.get("affiliations", [])
+            paper_info["countries"] = extraction_result.get("countries", [])
             paper_info["homepage"] = extraction_result.get("homepage")
             paper_info["github"] = extraction_result.get("github")
             paper_info["affiliations_extracted"] = True
@@ -465,6 +466,7 @@ def register_daily_arxiv_routes(
                 {
                     "success": True,
                     "affiliations": extraction_result.get("affiliations", []),
+                    "countries": extraction_result.get("countries", []),
                     "homepage": extraction_result.get("homepage"),
                     "github": extraction_result.get("github"),
                 }

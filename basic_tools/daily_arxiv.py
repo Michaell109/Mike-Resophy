@@ -115,6 +115,7 @@ class ArxivPaper:
 
     # 机构信息
     affiliations: List[str] = field(default_factory=list)
+    countries: List[str] = field(default_factory=list)  # 国家列表，与 affiliations 对应
     affiliations_extracted: bool = False
 
     # 项目链接
@@ -147,6 +148,7 @@ class ArxivPaper:
             "local_pdf_path": self.local_pdf_path,
             "thumbnail_path": self.thumbnail_path,
             "affiliations": self.affiliations,
+            "countries": self.countries,
             "affiliations_extracted": self.affiliations_extracted,
             "homepage": self.homepage,
             "github": self.github,
@@ -187,6 +189,7 @@ class ArxivPaper:
             local_pdf_path=data.get("local_pdf_path"),
             thumbnail_path=data.get("thumbnail_path"),
             affiliations=data.get("affiliations", []),
+            countries=data.get("countries", []),
             affiliations_extracted=data.get("affiliations_extracted", False),
             homepage=data.get("homepage"),
             github=data.get("github"),
@@ -541,14 +544,18 @@ class DailyArxivManager:
             summary_prompt = settings.get("summaryPrompt")
             keyword_list = settings.get("keywordList", [])
             max_keywords = settings.get("maxKeywords", 1)
-            
+
             # 将关键词列表和最多关键词数插入到 prompt 中
             if summary_prompt:
                 if keyword_list:
                     keyword_list_str = ", ".join(keyword_list)
-                    summary_prompt = summary_prompt.replace("{keyword_list}", keyword_list_str)
+                    summary_prompt = summary_prompt.replace(
+                        "{keyword_list}", keyword_list_str
+                    )
                 # 替换最多关键词数占位符
-                summary_prompt = summary_prompt.replace("{max_keywords}", str(max_keywords))
+                summary_prompt = summary_prompt.replace(
+                    "{max_keywords}", str(max_keywords)
+                )
 
             papers = []
             skipped_count = 0
@@ -620,6 +627,7 @@ class DailyArxivManager:
                             prompt=affiliation_prompt,
                         )
                         paper.affiliations = extraction_result.get("affiliations", [])
+                        paper.countries = extraction_result.get("countries", [])
                         paper.homepage = extraction_result.get("homepage")
                         paper.github = extraction_result.get("github")
                         paper.affiliations_extracted = True
@@ -705,10 +713,15 @@ class DailyArxivManager:
         openai_api_key: str,
         prompt: str = None,
     ) -> Dict[str, Any]:
-        """提取机构信息、homepage 和 github"""
+        """提取机构信息、国家、homepage 和 github"""
         first_page_text = extract_pdf_first_page_text(pdf_path)
         if not first_page_text:
-            return {"affiliations": [], "homepage": None, "github": None}
+            return {
+                "affiliations": [],
+                "countries": [],
+                "homepage": None,
+                "github": None,
+            }
 
         return extract_affiliations_with_llm(
             first_page_text,
@@ -971,10 +984,20 @@ def extract_affiliations_with_llm(
             model = models.data[0].id if models.data else None
             if not model:
                 print("[DailyArxiv] 无法获取模型列表")
-                return {"affiliations": [], "homepage": None, "github": None}
+                return {
+                    "affiliations": [],
+                    "countries": [],
+                    "homepage": None,
+                    "github": None,
+                }
         except Exception as e:
             print(f"[DailyArxiv] 获取模型列表失败: {e}")
-            return {"affiliations": [], "homepage": None, "github": None}
+            return {
+                "affiliations": [],
+                "countries": [],
+                "homepage": None,
+                "github": None,
+            }
 
         # 构造提示词（使用自定义或默认）
         system_prompt = prompt if prompt else AFFILIATION_EXTRACTION_PROMPT
@@ -1011,16 +1034,27 @@ def extract_affiliations_with_llm(
                         affiliations = json.loads(result_content)
                         result = {
                             "affiliations": affiliations,
+                            "countries": [],
                             "homepage": None,
                             "github": None,
                         }
                     else:
                         print(f"[DailyArxiv] 无法解析结果: {result_content[:200]}")
-                        return {"affiliations": [], "homepage": None, "github": None}
+                        return {
+                            "affiliations": [],
+                            "countries": [],
+                            "homepage": None,
+                            "github": None,
+                        }
         except json.JSONDecodeError as e:
             print(f"[DailyArxiv] JSON 解析失败: {e}")
             print(f"[DailyArxiv] 原始内容: {result_content[:200]}")
-            return {"affiliations": [], "homepage": None, "github": None}
+            return {
+                "affiliations": [],
+                "countries": [],
+                "homepage": None,
+                "github": None,
+            }
 
         # 提取 affiliations（兼容旧格式）
         affiliations = result.get("affiliations", [])
@@ -1034,6 +1068,27 @@ def extract_affiliations_with_llm(
             if isinstance(aff, str) and aff.strip() and aff.strip() not in seen:
                 seen.add(aff.strip())
                 unique_affiliations.append(aff.strip())
+
+        # 提取 countries（与 affiliations 对应）
+        countries = result.get("countries", [])
+        if not isinstance(countries, list):
+            countries = []
+
+        # 确保 countries 列表长度与 affiliations 一致（如果长度不一致，截断或填充）
+        if len(countries) > len(unique_affiliations):
+            countries = countries[: len(unique_affiliations)]
+        elif len(countries) < len(unique_affiliations):
+            countries.extend([""] * (len(unique_affiliations) - len(countries)))
+
+        # 去重 countries（使用 set，但保持顺序）
+        unique_countries = []
+        seen_countries = set()
+        for country in countries:
+            if isinstance(country, str) and country.strip():
+                country_clean = country.strip()
+                if country_clean not in seen_countries:
+                    seen_countries.add(country_clean)
+                    unique_countries.append(country_clean)
 
         # 提取 homepage 和 github
         homepage = result.get("homepage")
@@ -1054,6 +1109,10 @@ def extract_affiliations_with_llm(
         print(
             f"[DailyArxiv] 提取到 {len(unique_affiliations)} 个机构: {unique_affiliations}"
         )
+        if unique_countries:
+            print(
+                f"[DailyArxiv] 提取到 {len(unique_countries)} 个国家: {unique_countries}"
+            )
         if homepage:
             print(f"[DailyArxiv] Homepage: {homepage}")
         if github:
@@ -1061,6 +1120,7 @@ def extract_affiliations_with_llm(
 
         return {
             "affiliations": unique_affiliations,
+            "countries": unique_countries,
             "homepage": homepage,
             "github": github,
         }

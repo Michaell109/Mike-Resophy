@@ -3639,6 +3639,52 @@ mark { background: #fff59d; }
     white-space: nowrap;
 }
 
+/* 国家国旗显示 */
+.daily-arxiv-card-countries {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-bottom: 6px;
+    align-items: center;
+    margin-top: -2px;
+}
+
+.daily-arxiv-card-countries .country-flag {
+    font-size: 12px;
+    line-height: 1;
+    cursor: help;
+    display: inline-block;
+    opacity: 0.9;
+}
+
+.country-flags-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.country-flags-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #6b7280;
+}
+
+.country-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.country-flag-large {
+    font-size: 24px;
+    line-height: 1;
+    cursor: help;
+}
+
 /* 卡片上的 keywords 样式（在日期下方） */
 .daily-arxiv-card-keywords {
     display: flex;

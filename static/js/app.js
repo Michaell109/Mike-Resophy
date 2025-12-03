@@ -7600,6 +7600,77 @@ let dailyArxivSettings = {
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
 
+// 国家名称到国旗 emoji 的映射
+function getCountryFlag(countryName) {
+    if (!countryName) return '';
+    
+    const countryMap = {
+        'United States': '🇺🇸', 'USA': '🇺🇸', 'US': '🇺🇸',
+        'China': '🇨🇳', 'PRC': '🇨🇳',
+        'United Kingdom': '🇬🇧', 'UK': '🇬🇧',
+        'Germany': '🇩🇪',
+        'France': '🇫🇷',
+        'Japan': '🇯🇵',
+        'Canada': '🇨🇦',
+        'Australia': '🇦🇺',
+        'Italy': '🇮🇹',
+        'Spain': '🇪🇸',
+        'Netherlands': '🇳🇱',
+        'Switzerland': '🇨🇭',
+        'Sweden': '🇸🇪',
+        'Singapore': '🇸🇬',
+        'South Korea': '🇰🇷', 'Korea': '🇰🇷',
+        'India': '🇮🇳',
+        'Israel': '🇮🇱',
+        'Belgium': '🇧🇪',
+        'Austria': '🇦🇹',
+        'Denmark': '🇩🇰',
+        'Finland': '🇫🇮',
+        'Norway': '🇳🇴',
+        'Poland': '🇵🇱',
+        'Russia': '🇷🇺',
+        'Brazil': '🇧🇷',
+        'Mexico': '🇲🇽',
+        'Taiwan': '🇹🇼',
+        'Hong Kong': '🇭🇰',
+        'New Zealand': '🇳🇿',
+        'Ireland': '🇮🇪',
+        'Portugal': '🇵🇹',
+        'Greece': '🇬🇷',
+        'Czech Republic': '🇨🇿',
+        'Hungary': '🇭🇺',
+        'Romania': '🇷🇴',
+        'Turkey': '🇹🇷',
+        'Saudi Arabia': '🇸🇦',
+        'United Arab Emirates': '🇦🇪', 'UAE': '🇦🇪',
+        'Thailand': '🇹🇭',
+        'Malaysia': '🇲🇾',
+        'Indonesia': '🇮🇩',
+        'Philippines': '🇵🇭',
+        'Vietnam': '🇻🇳',
+        'Chile': '🇨🇱',
+        'Argentina': '🇦🇷',
+        'South Africa': '🇿🇦',
+        'Egypt': '🇪🇬',
+    };
+    
+    // 精确匹配
+    if (countryMap[countryName]) {
+        return countryMap[countryName];
+    }
+    
+    // 模糊匹配（不区分大小写）
+    const countryLower = countryName.toLowerCase();
+    for (const [key, flag] of Object.entries(countryMap)) {
+        if (key.toLowerCase() === countryLower) {
+            return flag;
+        }
+    }
+    
+    // 如果找不到，返回空字符串
+    return '';
+}
+
 // 生成字符串的 hash 值（用于颜色生成）
 function stringHash(str) {
     let hash = 0;
@@ -8585,6 +8656,21 @@ function renderDailyArxivGrid() {
             </div>`;
         }
         
+        // 国家国旗显示（去重，使用 set）
+        let countriesHtml = '';
+        if (paper.countries && paper.countries.length > 0) {
+            const uniqueCountries = [...new Set(paper.countries.filter(c => c && c.trim()))];
+            if (uniqueCountries.length > 0) {
+                const flagTags = uniqueCountries.map(country => {
+                    const flag = getCountryFlag(country);
+                    return flag ? `<span class="country-flag" title="${escapeHtml(country)}">${flag}</span>` : '';
+                }).filter(tag => tag).join('');
+                if (flagTags) {
+                    countriesHtml = `<div class="daily-arxiv-card-countries">${flagTags}</div>`;
+                }
+            }
+        }
+        
         // 计算用于展示的分类标签：
         // - 优先使用合并后的 all_fetch_categories
         // - 否则退回到单个 fetch_category / 当前分区 / 论文主分类
@@ -8645,6 +8731,7 @@ function renderDailyArxivGrid() {
                     <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</div>
                     <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${escapeHtml(authors)}</div>
                     ${affiliationsHtml}
+                    ${countriesHtml}
                     <div class="daily-arxiv-card-meta">
                         <span class="daily-arxiv-card-date">${date}</span>
                         <div class="daily-arxiv-card-actions">
@@ -8771,10 +8858,30 @@ function showDailyArxivDetail(index) {
             const textColor = getColorForString(aff);
             return `<span class="affiliation-tag" style="background: ${bgColor}; color: ${textColor};">${escapeHtml(aff)}</span>`;
         }).join('');
+        
+        // 国家国旗显示（去重）
+        let countriesFlagsHtml = '';
+        if (paper.countries && paper.countries.length > 0) {
+            const uniqueCountries = [...new Set(paper.countries.filter(c => c && c.trim()))];
+            if (uniqueCountries.length > 0) {
+                const flagTags = uniqueCountries.map(country => {
+                    const flag = getCountryFlag(country);
+                    return flag ? `<span class="country-flag-large" title="${escapeHtml(country)}">${flag}</span>` : '';
+                }).filter(tag => tag).join('');
+                if (flagTags) {
+                    countriesFlagsHtml = `<div class="country-flags-section">
+                        <span class="country-flags-label">Countries:</span>
+                        <div class="country-flags">${flagTags}</div>
+                    </div>`;
+                }
+            }
+        }
+        
         affiliationsHtml = `
             <div class="daily-arxiv-detail-affiliations">
                 <h4><i class="fas fa-building"></i> Affiliations</h4>
                 <div class="affiliation-tags">${affTags}</div>
+                ${countriesFlagsHtml}
             </div>
         `;
     } else {
@@ -8956,6 +9063,7 @@ async function extractAffiliationsForPaper(paperIndex) {
                 const cachedPaper = dailyArxivPapers[cacheKey].find(p => p.arxiv_id === paper.arxiv_id);
                 if (cachedPaper) {
                     cachedPaper.affiliations = data.affiliations || [];
+                    cachedPaper.countries = data.countries || [];
                     cachedPaper.homepage = data.homepage || null;
                     cachedPaper.github = data.github || null;
                     cachedPaper.affiliations_extracted = true;
@@ -8968,6 +9076,7 @@ async function extractAffiliationsForPaper(paperIndex) {
                         const cachedPaper = dailyArxivPapers[catCacheKey].find(p => p.arxiv_id === paper.arxiv_id);
                         if (cachedPaper) {
                             cachedPaper.affiliations = data.affiliations || [];
+                            cachedPaper.countries = data.countries || [];
                             cachedPaper.homepage = data.homepage || null;
                             cachedPaper.github = data.github || null;
                             cachedPaper.affiliations_extracted = true;
