@@ -3579,16 +3579,40 @@ mark { background: #fff59d; }
     opacity: 0.5;
 }
 
-.daily-arxiv-card-category {
+.daily-arxiv-card-thumbnail-badges {
     position: absolute;
     top: 8px;
     left: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.daily-arxiv-card-category {
     padding: 4px 8px;
     background: rgba(59, 130, 246, 0.9);
     color: white;
     border-radius: 4px;
     font-size: 11px;
     font-weight: 500;
+}
+
+.daily-arxiv-card-countries-thumbnail {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.daily-arxiv-card-countries-thumbnail .country-flag-in-thumbnail {
+    font-size: 20px;
+    line-height: 1;
+    cursor: help;
+    display: inline-block;
 }
 
 .daily-arxiv-card-body {
@@ -3639,7 +3663,7 @@ mark { background: #fff59d; }
     white-space: nowrap;
 }
 
-/* 国家国旗显示 */
+/* 国家国旗显示 - 旧样式保留用于其他地方（如果有） */
 .daily-arxiv-card-countries {
     display: flex;
     flex-wrap: wrap;

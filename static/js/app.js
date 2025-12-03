@@ -8656,17 +8656,17 @@ function renderDailyArxivGrid() {
             </div>`;
         }
         
-        // 国家国旗显示（去重，使用 set）
-        let countriesHtml = '';
+        // 国家国旗显示（去重，使用 set）- 将显示在图片左上角，分类标签右侧
+        let countriesFlagsHtml = '';
         if (paper.countries && paper.countries.length > 0) {
             const uniqueCountries = [...new Set(paper.countries.filter(c => c && c.trim()))];
             if (uniqueCountries.length > 0) {
                 const flagTags = uniqueCountries.map(country => {
                     const flag = getCountryFlag(country);
-                    return flag ? `<span class="country-flag" title="${escapeHtml(country)}">${flag}</span>` : '';
+                    return flag ? `<span class="country-flag-in-thumbnail" title="${escapeHtml(country)}">${flag}</span>` : '';
                 }).filter(tag => tag).join('');
                 if (flagTags) {
-                    countriesHtml = `<div class="daily-arxiv-card-countries">${flagTags}</div>`;
+                    countriesFlagsHtml = `<div class="daily-arxiv-card-countries-thumbnail">${flagTags}</div>`;
                 }
             }
         }
@@ -8725,13 +8725,15 @@ function renderDailyArxivGrid() {
             <div class="daily-arxiv-card" data-index="${index}" onclick="showDailyArxivDetail(${index})">
                 <div class="daily-arxiv-card-thumbnail">
                     ${thumbnailHtml}
-                    <span class="daily-arxiv-card-category">${displayCategoryLabel}</span>
+                    <div class="daily-arxiv-card-thumbnail-badges">
+                        <span class="daily-arxiv-card-category">${displayCategoryLabel}</span>
+                        ${countriesFlagsHtml}
+                    </div>
                 </div>
                 <div class="daily-arxiv-card-body">
                     <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</div>
                     <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${escapeHtml(authors)}</div>
                     ${affiliationsHtml}
-                    ${countriesHtml}
                     <div class="daily-arxiv-card-meta">
                         <span class="daily-arxiv-card-date">${date}</span>
                         <div class="daily-arxiv-card-actions">
