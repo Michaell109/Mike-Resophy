@@ -7599,11 +7599,87 @@ let dailyArxivSettings = {
 };
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
-let dailyArxivSelectedCountries = new Set(); // 当前选中的国家过滤条件
+let dailyArxivSelectedCountries = new Set(); // 当前选中的地区过滤条件
+let dailyArxivSelectedKeywords = new Set(); // 当前选中的关键词过滤条件
 let dailyArxivExcludedAffiliations = new Set(); // 被排除的单位（反向过滤）
-let dailyArxivExcludedCountries = new Set(); // 被排除的国家（反向过滤）
+let dailyArxivExcludedCountries = new Set(); // 被排除的地区（反向过滤）
+let dailyArxivExcludedKeywords = new Set(); // 被排除的关键词（反向过滤）
 
-// 国家名称到国旗 emoji 的映射
+// 地区名称标准化映射表
+function normalizeCountryName(countryName) {
+    if (!countryName) return '';
+    
+    const normalized = countryName.trim();
+    
+    // 标准化映射表：将各种变体映射到标准名称
+    const normalizationMap = {
+        // 美国的各种变体 -> United States
+        'USA': 'United States',
+        'US': 'United States',
+        'U.S.': 'United States',
+        'U.S.A.': 'United States',
+        'United States of America': 'United States',
+        
+        // 英国的各种变体 -> United Kingdom
+        'UK': 'United Kingdom',
+        'U.K.': 'United Kingdom',
+        'Great Britain': 'United Kingdom',
+        'Britain': 'United Kingdom',
+        
+        // 中国的各种变体 -> China
+        'PRC': 'China',
+        'P.R.C.': 'China',
+        "People's Republic of China": 'China',
+        
+        // 韩国的各种变体 -> South Korea
+        'Korea': 'South Korea',
+        'Republic of Korea': 'South Korea',
+        'ROK': 'South Korea',
+        
+        // 香港的各种变体 -> Hong Kong
+        'Hong Kong SAR': 'Hong Kong',
+        'Hong Kong SAR China': 'Hong Kong',
+        'Hong Kong, SAR China': 'Hong Kong',
+        'Hong Kong SAR, China': 'Hong Kong',
+        'Hong Kong, China': 'Hong Kong',
+        'HK': 'Hong Kong',
+        
+        // 澳门的各种变体 -> Macao
+        'Macau': 'Macao',
+        'Macao SAR': 'Macao',
+        'Macao SAR China': 'Macao',
+        'Macao, SAR China': 'Macao',
+        'Macao SAR, China': 'Macao',
+        'Macao, China': 'Macao',
+        'Macau SAR': 'Macao',
+        'Macau SAR China': 'Macao',
+        'Macau, SAR China': 'Macao',
+        'Macau SAR, China': 'Macao',
+        'Macau, China': 'Macao',
+        
+        // 阿联酋的各种变体 -> United Arab Emirates
+        'UAE': 'United Arab Emirates',
+        'U.A.E.': 'United Arab Emirates',
+    };
+    
+    // 先尝试精确匹配
+    if (normalizationMap[normalized]) {
+        return normalizationMap[normalized];
+    }
+    
+    // 不区分大小写匹配
+    const normalizedLower = normalized.toLowerCase();
+    for (const [variant, standard] of Object.entries(normalizationMap)) {
+        if (variant.toLowerCase() === normalizedLower) {
+            return standard;
+        }
+    }
+    
+    // 如果没有找到映射，返回原始名称
+    return normalized;
+}
+
+// 地区名称到国旗 emoji 的映射
 function getCountryFlag(countryName) {
     if (!countryName) return '';
     
@@ -7636,6 +7712,24 @@ function getCountryFlag(countryName) {
         'Mexico': '🇲🇽',
         'Taiwan': '🇹🇼',
         'Hong Kong': '🇭🇰',
+        'Hong Kong SAR': '🇭🇰',
+        'Hong Kong SAR China': '🇭🇰',
+        'Hong Kong, SAR China': '🇭🇰',
+        'Hong Kong SAR, China': '🇭🇰',
+        'Hong Kong, China': '🇭🇰',
+        'HK': '🇭🇰',
+        'Macao': '🇲🇴',
+        'Macao SAR': '🇲🇴',
+        'Macao SAR China': '🇲🇴',
+        'Macao, SAR China': '🇲🇴',
+        'Macao SAR, China': '🇲🇴',
+        'Macao, China': '🇲🇴',
+        'Macau': '🇲🇴',
+        'Macau SAR': '🇲🇴',
+        'Macau SAR China': '🇲🇴',
+        'Macau, SAR China': '🇲🇴',
+        'Macau SAR, China': '🇲🇴',
+        'Macau, China': '🇲🇴',
         'New Zealand': '🇳🇿',
         'Ireland': '🇮🇪',
         'Portugal': '🇵🇹',
@@ -7666,6 +7760,16 @@ function getCountryFlag(countryName) {
     const countryLower = countryName.toLowerCase();
     for (const [key, flag] of Object.entries(countryMap)) {
         if (key.toLowerCase() === countryLower) {
+            return flag;
+        }
+    }
+    
+    // 部分匹配（用于处理 "Hong Kong SAR China" 这样的情况）
+    // 检查是否包含已知地区名称
+    for (const [key, flag] of Object.entries(countryMap)) {
+        const keyLower = key.toLowerCase();
+        // 如果输入包含关键词，且关键词长度大于3（避免误匹配）
+        if (keyLower.length > 3 && countryLower.includes(keyLower)) {
             return flag;
         }
     }
@@ -7733,11 +7837,13 @@ async function initDailyArxiv() {
     // 过滤按钮：展开/收起过滤器面板
     if (filterBtn && filterPanel) {
         filterBtn.addEventListener('click', () => {
-            // 每次打开前，基于当前分区 & 日期重新渲染一遍单位列表和国家列表
+            // 每次打开前，基于当前分区 & 日期重新渲染一遍单位列表、地区列表和关键词列表
             if (filterPanel.style.display === 'none' || !filterPanel.style.display) {
                 renderDailyArxivFilterAffiliations();
-    renderDailyArxivFilterCountries();
                 renderDailyArxivFilterCountries();
+                renderDailyArxivFilterKeywords();
+                // 第一次显示时初始化resizer
+                setTimeout(() => setupDailyArxivFilterResizing(), 50);
             }
             const isVisible = filterPanel.style.display !== 'none';
             filterPanel.style.display = isVisible ? 'none' : 'block';
@@ -7749,10 +7855,13 @@ async function initDailyArxiv() {
         filterClearBtn.addEventListener('click', () => {
             dailyArxivSelectedAffiliations.clear();
             dailyArxivSelectedCountries.clear();
+            dailyArxivSelectedKeywords.clear();
             dailyArxivExcludedAffiliations.clear();
             dailyArxivExcludedCountries.clear();
+            dailyArxivExcludedKeywords.clear();
             renderDailyArxivFilterAffiliations();
             renderDailyArxivFilterCountries();
+            renderDailyArxivFilterKeywords();
             renderDailyArxivGrid();
         });
     }
@@ -7775,6 +7884,113 @@ async function initDailyArxiv() {
         // 没有配置分区，显示空状态
         if (emptyEl) emptyEl.style.display = 'flex';
         if (gridEl) gridEl.innerHTML = '';
+    }
+    
+    // 设置过滤器面板的拖动调整宽度功能
+    setupDailyArxivFilterResizing();
+}
+
+// 设置 Daily arXiv 过滤器面板的拖动调整宽度功能
+let filterResizerInitialized = false;
+function setupDailyArxivFilterResizing() {
+    // 防止重复初始化
+    if (filterResizerInitialized) {
+        console.log('过滤器resizer已经初始化过了');
+        return;
+    }
+    
+    const filterPanel = document.getElementById('daily-arxiv-filter-panel');
+    const resizer = document.getElementById('daily-arxiv-filter-resizer');
+    
+    if (!filterPanel || !resizer) {
+        console.warn('过滤器面板或调整手柄未找到', {filterPanel, resizer});
+        return;
+    }
+    
+    // 检查元素是否可见
+    const isVisible = filterPanel.offsetParent !== null;
+    console.log('过滤器面板是否可见:', isVisible, '宽度:', filterPanel.offsetWidth);
+    console.log('Resizer元素:', resizer, 'offsetWidth:', resizer.offsetWidth, 'offsetHeight:', resizer.offsetHeight);
+    
+    filterResizerInitialized = true;
+    console.log('✅ 过滤器面板拖动调整功能已初始化');
+    
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+    
+    // 添加测试用的hover效果
+    resizer.addEventListener('mouseenter', () => {
+        console.log('🖱️ 鼠标进入resizer区域');
+    });
+    
+    resizer.addEventListener('mouseleave', () => {
+        console.log('🖱️ 鼠标离开resizer区域');
+    });
+    
+    // 防止事件冒泡
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = filterPanel.offsetWidth;
+        resizer.classList.add('resizing');
+        
+        console.log('🔵 开始调整过滤器宽度:', startWidth, 'px, 鼠标位置:', startX);
+        
+        // 阻止默认行为和事件冒泡
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 添加全局样式以改善拖动体验
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        
+        e.preventDefault();
+        
+        const deltaX = e.clientX - startX;
+        const newWidth = startWidth + deltaX;
+        
+        // 限制最小和最大宽度
+        const minWidth = 240;
+        const maxWidth = 600;
+        
+        if (newWidth >= minWidth && newWidth <= maxWidth) {
+            filterPanel.style.width = `${newWidth}px`;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('resizing');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            
+            const finalWidth = filterPanel.style.width;
+            console.log('✅ 调整完成，最终宽度:', finalWidth);
+            
+            // 保存宽度到 localStorage
+            try {
+                localStorage.setItem('dailyArxivFilterPanelWidth', finalWidth);
+            } catch (e) {
+                console.error('保存过滤器面板宽度失败:', e);
+            }
+        }
+    });
+    
+    // 从 localStorage 恢复宽度
+    try {
+        const savedWidth = localStorage.getItem('dailyArxivFilterPanelWidth');
+        if (savedWidth) {
+            filterPanel.style.width = savedWidth;
+            console.log('📏 恢复过滤器宽度:', savedWidth);
+        }
+    } catch (e) {
+        console.error('恢复过滤器面板宽度失败:', e);
     }
 }
 
@@ -7918,7 +8134,10 @@ async function loadPapersForCurrentDate() {
                     const res = await fetch(`/api/daily-arxiv/papers/${dailyArxivCurrentDate}?category=${cat}`);
                     if (res.ok) {
                         const data = await res.json();
-                        dailyArxivPapers[cacheKey] = data.papers || [];
+                        let papers = data.papers || [];
+                        // 应用前端机构标准化
+                        papers = applyFrontendNormalizationToPapers(papers);
+                        dailyArxivPapers[cacheKey] = papers;
                     }
                 }
             }));
@@ -7932,6 +8151,7 @@ async function loadPapersForCurrentDate() {
     // 论文数据加载完成后，先刷新过滤器选项，再渲染网格
     renderDailyArxivFilterAffiliations();
     renderDailyArxivFilterCountries();
+    renderDailyArxivFilterKeywords();
     renderDailyArxivGrid();
     renderDailyArxivCategoryTags();
 }
@@ -8587,21 +8807,49 @@ function getCurrentDailyArxivPapers(applyFilters = true) {
         });
     }
 
-    // 应用国家过滤：如果有选中的国家，则只保留 countries 里包含任一选中国家的论文
+    // 应用地区过滤：如果有选中的地区，则只保留 countries 里包含任一选中地区的论文
     if (applyFilters && dailyArxivSelectedCountries.size > 0) {
         const selected = new Set(dailyArxivSelectedCountries);
         papers = papers.filter(paper => {
             const countries = paper.countries || [];
-            return countries.some(country => country && selected.has(country.trim()));
+            return countries.some(country => {
+                if (!country) return false;
+                // 使用标准化的地区名称进行比较
+                const normalizedCountry = normalizeCountryName(country);
+                return selected.has(normalizedCountry);
+            });
         });
     }
 
-    // 应用国家排除过滤：排除包含被排除国家的论文
+    // 应用地区排除过滤：排除包含被排除地区的论文
     if (applyFilters && dailyArxivExcludedCountries.size > 0) {
         const excluded = new Set(dailyArxivExcludedCountries);
         papers = papers.filter(paper => {
             const countries = paper.countries || [];
-            return !countries.some(country => country && excluded.has(country.trim()));
+            return !countries.some(country => {
+                if (!country) return false;
+                // 使用标准化的地区名称进行比较
+                const normalizedCountry = normalizeCountryName(country);
+                return excluded.has(normalizedCountry);
+            });
+        });
+    }
+
+    // 应用关键词过滤：如果有选中的关键词，则只保留 keywords 里包含任一选中关键词的论文
+    if (applyFilters && dailyArxivSelectedKeywords.size > 0) {
+        const selected = new Set(dailyArxivSelectedKeywords);
+        papers = papers.filter(paper => {
+            const keywords = paper.keywords || [];
+            return keywords.some(keyword => keyword && selected.has(keyword.trim()));
+        });
+    }
+
+    // 应用关键词排除过滤：排除包含被排除关键词的论文
+    if (applyFilters && dailyArxivExcludedKeywords.size > 0) {
+        const excluded = new Set(dailyArxivExcludedKeywords);
+        papers = papers.filter(paper => {
+            const keywords = paper.keywords || [];
+            return !keywords.some(keyword => keyword && excluded.has(keyword.trim()));
         });
     }
 
@@ -8693,7 +8941,7 @@ function renderDailyArxivGrid() {
             </div>`;
         }
         
-        // 国家国旗显示（去重，使用 set）- 将显示在图片左上角，分类标签右侧
+        // 地区旗帜显示（去重，使用 set）- 将显示在图片左上角，分类标签右侧
         let countriesFlagsHtml = '';
         if (paper.countries && paper.countries.length > 0) {
             const uniqueCountries = [...new Set(paper.countries.filter(c => c && c.trim()))];
@@ -8880,32 +9128,33 @@ function renderDailyArxivFilterAffiliations() {
     });
 }
 
-// 渲染国家过滤器
+// 渲染地区过滤器
 function renderDailyArxivFilterCountries() {
     const container = document.getElementById('daily-arxiv-filter-countries');
     if (!container) return;
 
-    // 基于当前视图下的论文计算国家统计（不应用现有过滤条件）
+    // 基于当前视图下的论文计算地区统计（不应用现有过滤条件）
     const papers = getCurrentDailyArxivPapers(false);
-    const stats = new Map(); // country -> count
+    const stats = new Map(); // normalized country name -> count
 
     papers.forEach(paper => {
         const countries = paper.countries || [];
         countries.forEach(country => {
             if (!country || !country.trim()) return;
-            const key = country.trim();
-            if (!stats.has(key)) {
-                stats.set(key, 1);
+            // 使用标准化后的地区名称作为key
+            const normalizedCountry = normalizeCountryName(country);
+            if (!stats.has(normalizedCountry)) {
+                stats.set(normalizedCountry, 1);
             } else {
-                stats.set(key, stats.get(key) + 1);
+                stats.set(normalizedCountry, stats.get(normalizedCountry) + 1);
             }
         });
     });
 
     const entries = Array.from(stats.entries());
-    // 没有国家时清空即可
+    // 没有地区时清空即可
     if (entries.length === 0) {
-        container.innerHTML = '<span class="filter-empty">当前视图暂无国家信息</span>';
+        container.innerHTML = '<span class="filter-empty">当前视图暂无地区信息</span>';
         return;
     }
 
@@ -8923,6 +9172,23 @@ function renderDailyArxivFilterCountries() {
         const countLabel = count > 1 ? ` (${count})` : '';
         const activeClass = isSelected ? 'active' : '';
         const excludedClass = isExcluded ? 'excluded' : '';
+        
+        // 如果没有国旗，显示缩写或简化的名称
+        let displayText = flag;
+        if (!flag) {
+            // 尝试生成缩写（取首字母大写）
+            const words = country.split(/\s+/).filter(w => w.length > 0);
+            if (words.length > 1 && words.length <= 4) {
+                // 如果是多个词，取首字母缩写
+                displayText = words.map(w => w[0].toUpperCase()).join('');
+            } else if (country.length > 15) {
+                // 如果太长，截断
+                displayText = country.substring(0, 12) + '...';
+            } else {
+                displayText = country;
+            }
+        }
+        
         return `
             <button 
                 class="daily-arxiv-filter-affiliation ${activeClass} ${excludedClass}" 
@@ -8931,9 +9197,9 @@ function renderDailyArxivFilterCountries() {
                 style="${!isExcluded ? '' : ''}"
             >
                 <span class="dot" style="background:transparent;"></span>
-                <span class="label country-flag-label">${flag ? flag : escapeHtml(country)}</span>
+                <span class="label country-flag-label ${flag ? '' : 'no-flag'}">${escapeHtml(displayText)}</span>
                 ${countLabel}
-                <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeCountry('${escapeHtml(country).replace(/'/g, "\\'")}');" title="排除此国家">
+                <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeCountry('${escapeHtml(country).replace(/'/g, "\\'")}');" title="排除此地区">
                     <i class="fas fa-times"></i>
                 </span>
             </button>
@@ -8981,7 +9247,7 @@ function toggleExcludeAffiliation(aff) {
     renderDailyArxivGrid();
 }
 
-// 切换国家排除状态
+// 切换地区排除状态
 function toggleExcludeCountry(country) {
     if (!country) return;
     // 如果已选中，先取消选中
@@ -8995,6 +9261,106 @@ function toggleExcludeCountry(country) {
         dailyArxivExcludedCountries.add(country);
     }
     renderDailyArxivFilterCountries();
+    renderDailyArxivGrid();
+}
+
+// 渲染关键词过滤器
+function renderDailyArxivFilterKeywords() {
+    const container = document.getElementById('daily-arxiv-filter-keywords');
+    if (!container) return;
+
+    // 基于当前视图下的论文计算关键词统计（不应用现有过滤条件）
+    const papers = getCurrentDailyArxivPapers(false);
+    const stats = new Map(); // keyword -> count
+
+    papers.forEach(paper => {
+        const keywords = paper.keywords || [];
+        keywords.forEach(keyword => {
+            if (!keyword || !keyword.trim()) return;
+            const key = keyword.trim();
+            if (!stats.has(key)) {
+                stats.set(key, 1);
+            } else {
+                stats.set(key, stats.get(key) + 1);
+            }
+        });
+    });
+
+    const entries = Array.from(stats.entries());
+    // 没有关键词时清空即可
+    if (entries.length === 0) {
+        container.innerHTML = '<span class="filter-empty">当前视图暂无关键词信息</span>';
+        return;
+    }
+
+    // 按数量降序，再按名称排序
+    entries.sort((a, b) => {
+        const countDiff = b[1] - a[1];
+        if (countDiff !== 0) return countDiff;
+        return a[0].localeCompare(b[0]);
+    });
+
+    container.innerHTML = entries.map(([keyword, count]) => {
+        const isSelected = dailyArxivSelectedKeywords.has(keyword);
+        const isExcluded = dailyArxivExcludedKeywords.has(keyword);
+        const countLabel = count > 1 ? ` (${count})` : '';
+        const activeClass = isSelected ? 'active' : '';
+        const excludedClass = isExcluded ? 'excluded' : '';
+        return `
+            <button 
+                class="daily-arxiv-filter-affiliation ${activeClass} ${excludedClass}" 
+                data-keyword="${escapeHtml(keyword)}"
+                title="${escapeHtml(keyword)}${countLabel}"
+                style="${!isExcluded ? '' : ''}"
+            >
+                <span class="dot" style="background:transparent;"></span>
+                <span class="label">${escapeHtml(keyword)}</span>
+                ${countLabel}
+                <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeKeyword('${escapeHtml(keyword).replace(/'/g, "\\'")}');" title="排除此关键词">
+                    <i class="fas fa-times"></i>
+                </span>
+            </button>
+        `;
+    }).join('');
+
+    // 绑定点击事件（多选）
+    container.querySelectorAll('.daily-arxiv-filter-affiliation').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // 如果点击的是 x 按钮，不触发选择
+            if (e.target.closest('.filter-remove-btn')) return;
+            
+            const keyword = btn.getAttribute('data-keyword');
+            if (!keyword) return;
+            // 如果已排除，先取消排除
+            if (dailyArxivExcludedKeywords.has(keyword)) {
+                dailyArxivExcludedKeywords.delete(keyword);
+            }
+            if (dailyArxivSelectedKeywords.has(keyword)) {
+                dailyArxivSelectedKeywords.delete(keyword);
+            } else {
+                dailyArxivSelectedKeywords.add(keyword);
+            }
+            // 重新渲染过滤器和网格，实现实时过滤
+            renderDailyArxivFilterKeywords();
+            renderDailyArxivGrid();
+        });
+    });
+}
+
+// 切换关键词排除状态
+function toggleExcludeKeyword(keyword) {
+    if (!keyword) return;
+    // 如果已选中，先取消选中
+    if (dailyArxivSelectedKeywords.has(keyword)) {
+        dailyArxivSelectedKeywords.delete(keyword);
+    }
+    // 切换排除状态
+    if (dailyArxivExcludedKeywords.has(keyword)) {
+        dailyArxivExcludedKeywords.delete(keyword);
+    } else {
+        dailyArxivExcludedKeywords.add(keyword);
+    }
+    renderDailyArxivFilterKeywords();
     renderDailyArxivGrid();
 }
 
@@ -9028,7 +9394,7 @@ function showDailyArxivDetail(index) {
             return `<span class="affiliation-tag" style="background: ${bgColor}; color: ${textColor};">${escapeHtml(aff)}</span>`;
         }).join('');
         
-        // 国家国旗显示（去重）
+        // 地区旗帜显示（去重）
         let countriesFlagsHtml = '';
         if (paper.countries && paper.countries.length > 0) {
             const uniqueCountries = [...new Set(paper.countries.filter(c => c && c.trim()))];
@@ -9039,7 +9405,7 @@ function showDailyArxivDetail(index) {
                 }).filter(tag => tag).join('');
                 if (flagTags) {
                     countriesFlagsHtml = `<div class="country-flags-section">
-                        <span class="country-flags-label">Countries:</span>
+                        <span class="country-flags-label">Regions:</span>
                         <div class="country-flags">${flagTags}</div>
                     </div>`;
                 }
@@ -9455,4 +9821,427 @@ function showDailyArxivView() {
     
     saveCurrentViewState();
 }
+// ==================== 自定义机构配置管理 ====================
+
+let customInstitutions = []; // 存储自定义机构
+let currentEditingInstitution = null; // 当前正在编辑的机构
+
+/**
+ * 加载自定义机构配置
+ */
+async function loadCustomInstitutions() {
+    try {
+        const response = await fetch('/api/custom-institutions');
+        const data = await response.json();
+        
+        if (data.success) {
+            customInstitutions = data.institutions || [];
+            renderCustomInstitutions();
+        } else {
+            console.error('加载自定义机构失败:', data.error);
+        }
+    } catch (error) {
+        console.error('加载自定义机构失败:', error);
+    }
+}
+
+/**
+ * 渲染自定义机构列表（类似关键词）
+ */
+function renderCustomInstitutions() {
+    const listContainer = document.getElementById('custom-institution-list');
+    
+    if (!listContainer) return;
+    
+    if (customInstitutions.length === 0) {
+        listContainer.innerHTML = `
+            <div class="custom-institution-empty">
+                暂无额外机构配置，点击"添加机构"按钮开始添加
+            </div>
+        `;
+        return;
+    }
+    
+    listContainer.innerHTML = customInstitutions.map(inst => `
+        <div class="custom-institution-item" ondblclick="editInstitution('${escapeHtml(inst.abbreviation)}')" title="双击编辑">
+            <i class="fas fa-university"></i>
+            ${escapeHtml(inst.abbreviation)}
+        </div>
+    `).join('');
+}
+
+/**
+ * 显示添加机构模态框
+ */
+function showAddInstitutionModal() {
+    currentEditingInstitution = null;
+    document.getElementById('institution-modal-title').textContent = '添加机构映射';
+    document.getElementById('modal-institution-abbr').value = '';
+    document.getElementById('modal-institution-abbr').disabled = false;
+    document.getElementById('modal-variants-list').innerHTML = '';
+    document.getElementById('modal-new-variant').value = '';
+    document.getElementById('institution-modal-delete').style.display = 'none';
+    updateVariantCount();
+    
+    // 显示模态框
+    const modal = document.getElementById('institution-modal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden'; // 防止背景滚动
+    
+    setTimeout(() => {
+        document.getElementById('modal-institution-abbr').focus();
+    }, 100);
+}
+
+/**
+ * 编辑机构（双击标签时）
+ */
+function editInstitution(abbreviation) {
+    const institution = customInstitutions.find(inst => inst.abbreviation === abbreviation);
+    if (!institution) return;
+    
+    currentEditingInstitution = institution;
+    document.getElementById('institution-modal-title').textContent = '编辑机构映射';
+    document.getElementById('modal-institution-abbr').value = abbreviation;
+    document.getElementById('modal-institution-abbr').disabled = true;
+    renderModalVariants(institution.variants);
+    document.getElementById('modal-new-variant').value = '';
+    document.getElementById('institution-modal-delete').style.display = 'inline-flex';
+    updateVariantCount();
+    
+    // 显示模态框
+    const modal = document.getElementById('institution-modal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    
+    setTimeout(() => {
+        document.getElementById('modal-new-variant').focus();
+    }, 100);
+}
+
+/**
+ * 渲染模态框中的变体列表
+ */
+function renderModalVariants(variants) {
+    const listContainer = document.getElementById('modal-variants-list');
+    
+    if (!variants || variants.length === 0) {
+        listContainer.innerHTML = '';
+        updateVariantCount();
+        return;
+    }
+    
+    listContainer.innerHTML = variants.map(variant => `
+        <div class="institution-variant-tag">
+            <span class="variant-text">${escapeHtml(variant)}</span>
+            <span class="remove-variant" onclick="removeVariantInModal('${escapeHtml(variant)}')">
+                <i class="fas fa-times"></i>
+            </span>
+        </div>
+    `).join('');
+    
+    updateVariantCount();
+}
+
+/**
+ * 更新变体数量显示
+ */
+function updateVariantCount() {
+    const variants = getCurrentModalVariants();
+    const countEl = document.getElementById('variant-count');
+    if (countEl) {
+        countEl.textContent = `${variants.length} 个`;
+    }
+}
+
+/**
+ * 根据自定义机构映射标准化机构名称（前端版本）
+ */
+function normalizeAffiliationFrontend(affiliation) {
+    if (!affiliation || !customInstitutions) return affiliation;
+    
+    const affLower = affiliation.toLowerCase().trim();
+    
+    // 遍历所有自定义机构映射
+    for (const inst of customInstitutions) {
+        const abbr = inst.abbreviation;
+        const variants = inst.variants || [];
+        
+        // 检查是否完全匹配某个变体（不区分大小写）
+        for (const variant of variants) {
+            if (variant.toLowerCase().trim() === affLower) {
+                console.log(`[Institution] 标准化: "${affiliation}" -> "${abbr}"`);
+                return abbr;
+            }
+        }
+    }
+    
+    return affiliation; // 没有匹配，返回原值
+}
+
+/**
+ * 对论文列表应用前端机构标准化
+ */
+function applyFrontendNormalizationToPapers(papers) {
+    if (!papers || !Array.isArray(papers)) return papers;
+    
+    return papers.map(paper => {
+        if (paper.affiliations && Array.isArray(paper.affiliations)) {
+            // 标准化机构名称
+            const normalizedAffiliations = paper.affiliations.map(aff => 
+                normalizeAffiliationFrontend(aff)
+            );
+            
+            // 去重
+            const uniqueAffiliations = [...new Set(normalizedAffiliations)];
+            
+            return {
+                ...paper,
+                affiliations: uniqueAffiliations
+            };
+        }
+        return paper;
+    });
+}
+
+/**
+ * 机构映射更改后刷新 Daily arXiv
+ */
+async function refreshDailyArxivAfterInstitutionChange() {
+    console.log('[Institution] 开始刷新 Daily arXiv 论文数据...');
+    
+    // 检查是否在 Daily arXiv 视图
+    const dailyArxivSection = document.getElementById('daily-arxiv-section');
+    if (!dailyArxivSection) {
+        console.log('[Institution] 不在 Daily arXiv 视图，跳过刷新');
+        return;
+    }
+    
+    try {
+        // 对已缓存的论文应用标准化
+        if (typeof dailyArxivPapers !== 'undefined') {
+            console.log('[Institution] 对缓存的论文应用标准化...');
+            for (const key in dailyArxivPapers) {
+                if (dailyArxivPapers[key] && Array.isArray(dailyArxivPapers[key])) {
+                    dailyArxivPapers[key] = applyFrontendNormalizationToPapers(dailyArxivPapers[key]);
+                }
+            }
+        }
+        
+        // 重新渲染网格
+        if (typeof renderDailyArxivGrid === 'function') {
+            renderDailyArxivGrid();
+            console.log('[Institution] 论文网格已刷新');
+        }
+        
+        // 重新渲染过滤器（机构列表会更新）
+        if (typeof renderDailyArxivFilterAffiliations === 'function') {
+            renderDailyArxivFilterAffiliations();
+            console.log('[Institution] 机构过滤器已刷新');
+        }
+        
+    } catch (error) {
+        console.error('[Institution] 刷新 Daily arXiv 失败:', error);
+    }
+}
+
+/**
+ * 在模态框中添加变体
+ */
+function addVariantInModal() {
+    const input = document.getElementById('modal-new-variant');
+    const variant = input.value.trim();
+    
+    if (!variant) {
+        showMessage('请输入机构全称', 'error');
+        return;
+    }
+    
+    // 获取当前变体列表
+    const currentVariants = getCurrentModalVariants();
+    
+    // 检查是否重复
+    if (currentVariants.includes(variant)) {
+        showMessage('该变体已存在', 'warning');
+        return;
+    }
+    
+    // 添加新变体
+    currentVariants.push(variant);
+    renderModalVariants(currentVariants);
+    
+    // 清空输入框
+    input.value = '';
+    input.focus();
+    updateVariantCount();
+}
+
+/**
+ * 在模态框中移除变体
+ */
+function removeVariantInModal(variant) {
+    const currentVariants = getCurrentModalVariants();
+    const newVariants = currentVariants.filter(v => v !== variant);
+    renderModalVariants(newVariants);
+    updateVariantCount();
+}
+
+/**
+ * 获取模态框当前的变体列表
+ */
+function getCurrentModalVariants() {
+    const listContainer = document.getElementById('modal-variants-list');
+    const tags = listContainer.querySelectorAll('.institution-variant-tag');
+    
+    return Array.from(tags).map(tag => {
+        // 通过 .variant-text 获取文本内容
+        const textSpan = tag.querySelector('.variant-text');
+        return textSpan ? textSpan.textContent.trim() : '';
+    }).filter(text => text.length > 0);
+}
+
+/**
+ * 保存机构（模态框）
+ */
+async function saveInstitutionInModal() {
+    console.log('[Institution] 开始保存机构...');
+    
+    const abbreviation = document.getElementById('modal-institution-abbr').value.trim();
+    const variants = getCurrentModalVariants();
+    
+    console.log('[Institution] 缩写:', abbreviation);
+    console.log('[Institution] 变体:', variants);
+    
+    if (!abbreviation) {
+        showMessage('请输入标准缩写', 'error');
+        return;
+    }
+    
+    if (variants.length === 0) {
+        showMessage('至少需要添加一个全称变体', 'error');
+        return;
+    }
+    
+    try {
+        console.log('[Institution] 发送请求到 /api/custom-institutions');
+        const response = await fetch('/api/custom-institutions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                abbreviation: abbreviation,
+                variants: variants
+            })
+        });
+        
+        console.log('[Institution] 收到响应:', response.status);
+        const data = await response.json();
+        console.log('[Institution] 响应数据:', data);
+        
+        if (data.success) {
+            showMessage('机构已保存，正在刷新论文...', 'success');
+            closeInstitutionModal();
+            await loadCustomInstitutions();
+            
+            // 刷新 Daily arXiv 的论文数据，使新的机构映射生效
+            await refreshDailyArxivAfterInstitutionChange();
+        } else {
+            showMessage('保存失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('[Institution] 保存机构失败:', error);
+        showMessage('保存失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 删除机构（模态框）
+ */
+async function deleteInstitutionInModal() {
+    if (!currentEditingInstitution) return;
+    
+    const abbreviation = currentEditingInstitution.abbreviation;
+    
+    if (!confirm(`确定要删除机构 ${abbreviation} 吗？`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/custom-institutions/${encodeURIComponent(abbreviation)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('已删除，正在刷新论文...', 'success');
+            closeInstitutionModal();
+            await loadCustomInstitutions();
+            
+            // 刷新 Daily arXiv 的论文数据
+            await refreshDailyArxivAfterInstitutionChange();
+        } else {
+            showMessage('删除失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('删除机构失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+/**
+ * 关闭机构编辑模态框
+ */
+function closeInstitutionModal() {
+    document.getElementById('institution-modal').style.display = 'none';
+    document.body.style.overflow = ''; // 恢复背景滚动
+    currentEditingInstitution = null;
+}
+
+/**
+ * 初始化自定义机构管理
+ */
+function initCustomInstitutionManagement() {
+    // 模态框回车键支持
+    const variantInput = document.getElementById('modal-new-variant');
+    if (variantInput) {
+        variantInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addVariantInModal();
+            }
+        });
+    }
+    
+    // ESC 键关闭模态框
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('institution-modal');
+            if (modal && modal.style.display === 'flex') {
+                closeInstitutionModal();
+            }
+        }
+    });
+}
+
+// 在切换到 Daily arXiv 设置面板时加载自定义机构
+document.addEventListener('DOMContentLoaded', () => {
+    // 初始化自定义机构管理
+    initCustomInstitutionManagement();
+    
+    // 立即加载自定义机构列表（页面加载时）
+    loadCustomInstitutions();
+    
+    // 监听设置面板切换（确保切换到 Daily arXiv 设置时也刷新）
+    const dailyArxivSettingBtn = document.querySelector('.setting-nav-item[data-setting="daily-arxiv"]');
+    if (dailyArxivSettingBtn) {
+        dailyArxivSettingBtn.addEventListener('click', () => {
+            // 延迟加载，确保面板已显示
+            setTimeout(() => {
+                loadCustomInstitutions();
+            }, 100);
+        });
+    }
+});
 

@@ -207,6 +207,7 @@
         <div class="daily-arxiv-main">
             <!-- 过滤器面板 -->
             <div class="daily-arxiv-filter-panel" id="daily-arxiv-filter-panel" style="display: none;">
+                <div class="daily-arxiv-filter-resizer" id="daily-arxiv-filter-resizer"></div>
                 <div class="filter-section">
                     <div class="filter-section-header">
                         <h4><i class="fas fa-building"></i> 单位过滤</h4>
@@ -218,10 +219,18 @@
                 </div>
                 <div class="filter-section">
                     <div class="filter-section-header">
-                        <h4><i class="fas fa-globe"></i> 国家过滤</h4>
+                        <h4><i class="fas fa-globe"></i> 地区过滤</h4>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-countries">
                         <!-- 国家标签将在这里动态生成 -->
+                    </div>
+                </div>
+                <div class="filter-section">
+                    <div class="filter-section-header">
+                        <h4><i class="fas fa-key"></i> 关键词过滤</h4>
+                    </div>
+                    <div class="filter-section-body" id="daily-arxiv-filter-keywords">
+                        <!-- 关键词标签将在这里动态生成 -->
                     </div>
                 </div>
             </div>
@@ -607,6 +616,26 @@
                         </div>
                     </div>
                 </div>
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-university"></i>
+                        <span>额外的机构配置</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="setting-row full-width">
+                            <div class="setting-info">
+                                <label>已配置的额外机构</label>
+                                <small>双击机构标签可编辑缩写和全称变体</small>
+                            </div>
+                            <div class="custom-institution-list" id="custom-institution-list">
+                                <!-- 自定义机构标签将在这里动态生成 -->
+                            </div>
+                            <button class="btn btn-secondary" onclick="showAddInstitutionModal()" style="margin-top: 12px;">
+                                <i class="fas fa-plus"></i> 添加机构
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Import Panel -->
@@ -794,6 +823,88 @@
     <div id="loading" class="loading">
         <div class="spinner"></div>
         <p>处理中...</p>
+    </div>
+
+    <!-- 机构编辑模态框 - 全新设计 -->
+    <div id="institution-modal" class="institution-modal" style="display: none;">
+        <div class="institution-modal-overlay" onclick="closeInstitutionModal()"></div>
+        <div class="institution-modal-container">
+            <div class="institution-modal-header">
+                <div class="institution-modal-title-group">
+                    <i class="fas fa-university"></i>
+                    <h3 id="institution-modal-title">添加机构映射</h3>
+                </div>
+                <button class="institution-modal-close" onclick="closeInstitutionModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="institution-modal-body">
+                <!-- 缩写输入 -->
+                <div class="institution-form-group">
+                    <label class="institution-label">
+                        <i class="fas fa-tag"></i>
+                        标准缩写
+                    </label>
+                    <input 
+                        type="text" 
+                        id="modal-institution-abbr" 
+                        class="institution-input" 
+                        placeholder="例如：ZJU、MIT、THU"
+                        autocomplete="off"
+                    />
+                    <span class="institution-help">用于在过滤器中显示的简短名称</span>
+                </div>
+                
+                <!-- 变体列表 -->
+                <div class="institution-form-group">
+                    <label class="institution-label">
+                        <i class="fas fa-list"></i>
+                        机构全称变体
+                        <span class="variant-count" id="variant-count">0 个</span>
+                    </label>
+                    <div class="institution-variants-container" id="modal-variants-list">
+                        <!-- 变体标签将在这里显示 -->
+                    </div>
+                </div>
+                
+                <!-- 添加变体输入 -->
+                <div class="institution-form-group">
+                    <div class="institution-add-variant">
+                        <input 
+                            type="text" 
+                            id="modal-new-variant" 
+                            class="institution-input" 
+                            placeholder="输入机构全称（如 Zhejiang University）后按回车"
+                            autocomplete="off"
+                        />
+                        <button class="institution-add-btn" onclick="addVariantInModal()">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="institution-modal-footer">
+                <button 
+                    id="institution-modal-delete" 
+                    class="institution-btn institution-btn-danger" 
+                    onclick="deleteInstitutionInModal()" 
+                    style="display: none;">
+                    <i class="fas fa-trash-alt"></i>
+                    删除机构
+                </button>
+                <div class="institution-modal-actions">
+                    <button class="institution-btn institution-btn-cancel" onclick="closeInstitutionModal()">
+                        取消
+                    </button>
+                    <button class="institution-btn institution-btn-primary" onclick="saveInstitutionInModal()">
+                        <i class="fas fa-check"></i>
+                        保存
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

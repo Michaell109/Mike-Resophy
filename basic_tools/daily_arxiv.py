@@ -1118,6 +1118,40 @@ def extract_affiliations_with_llm(
         if github:
             print(f"[DailyArxiv] GitHub: {github}")
 
+        # 标准化机构名称（将各种变体统一为标准缩写）
+        try:
+            import os
+            import sys
+
+            # 添加 tools 目录到 Python 路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            parent_dir = os.path.dirname(current_dir)
+            tools_dir = os.path.join(parent_dir, "tools")
+            if tools_dir not in sys.path:
+                sys.path.insert(0, tools_dir)
+
+            from institution_normalizer import InstitutionNormalizer  # type: ignore
+
+            # 获取用户自定义映射文件路径
+            settings = self.get_settings()
+            settings_file = getattr(self, "_settings_file", None)
+
+            # 创建标准化器实例（包含系统映射 + 用户自定义映射）
+            normalizer = InstitutionNormalizer(custom_mapping_file=settings_file)
+            normalized_affiliations = normalizer.normalize_list(unique_affiliations)
+
+            # 如果标准化后的机构列表与原列表不同，打印日志
+            if normalized_affiliations != unique_affiliations:
+                print(f"[DailyArxiv] 标准化前: {unique_affiliations}")
+                print(f"[DailyArxiv] 标准化后: {normalized_affiliations}")
+
+            unique_affiliations = normalized_affiliations
+        except Exception as e:
+            print(f"[DailyArxiv] 机构名称标准化失败（使用原始名称）: {e}")
+            import traceback
+
+            traceback.print_exc()
+
         return {
             "affiliations": unique_affiliations,
             "countries": unique_countries,

@@ -2272,15 +2272,66 @@ mark { background: #fff59d; }
     width: 100%;
     height: 100%;
     background-color: rgba(0,0,0,0.5);
+    align-items: center;
+    justify-content: center;
 }
 
 .modal-content {
     background-color: white;
-    margin: 15% auto;
+    margin: 0;
     padding: 0;
     border-radius: 8px;
     width: 400px;
+    max-width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
     box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+/* 机构编辑模态框特定样式 */
+#institution-modal .modal-content {
+    width: 600px;
+}
+
+#institution-modal .modal-body .setting-row {
+    margin-bottom: 20px;
+}
+
+#institution-modal .modal-body .setting-info {
+    margin-bottom: 8px;
+}
+
+#institution-modal .modal-body .setting-info label {
+    display: block;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+#institution-modal .modal-body .setting-info small {
+    display: block;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+#institution-modal .setting-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+#institution-modal .setting-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+#institution-modal .setting-input:disabled {
+    background: #f3f4f6;
+    cursor: not-allowed;
 }
 
 .modal-header {
@@ -2722,9 +2773,6 @@ mark { background: #fff59d; }
 .info-section.compact .info-value.editable.notes-editable:not(:focus):empty {
     color: #999;
     font-style: italic;
-}
-    background: #fff3cd;
-    box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.2);
 }
 
 /* 紧凑文本（带图标） */
@@ -3323,13 +3371,83 @@ mark { background: #fff59d; }
 }
 
 .daily-arxiv-filter-panel {
-    width: 260px;
+    width: 320px;
+    min-width: 240px;
+    max-width: 600px;
     background: #ffffff;
     border-radius: 16px;
     border: 1px solid #e5e7eb;
     padding: 14px 16px;
-    align-self: flex-start;
+    padding-right: 20px; /* 为 resizer 留出空间 */
     box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+    position: sticky; /* 粘性定位，跟随滚动 */
+    top: 24px; /* 距离顶部24px */
+    max-height: calc(100vh - 48px); /* 视口高度减去上下间距 */
+    overflow-y: auto; /* 内容过多时可滚动 */
+    overflow-x: visible; /* 确保resizer可以超出边界 */
+    flex-shrink: 0; /* 防止被压缩 */
+    align-self: flex-start; /* 对齐到顶部 */
+    z-index: 10; /* 确保在其他内容之上 */
+}
+
+/* 过滤器面板滚动条样式优化 */
+.daily-arxiv-filter-panel::-webkit-scrollbar {
+    width: 8px;
+}
+
+.daily-arxiv-filter-panel::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+}
+
+.daily-arxiv-filter-panel::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.daily-arxiv-filter-panel::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* 过滤器面板调整手柄 */
+.daily-arxiv-filter-resizer {
+    position: absolute;
+    right: -4px;
+    top: 0;
+    height: 100%;
+    width: 12px;
+    cursor: col-resize;
+    z-index: 100; /* 降低默认层级，不遮挡模态框 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+
+.daily-arxiv-filter-resizer::before {
+    content: '';
+    width: 3px;
+    height: 100%;
+    background: #cbd5e1;
+    transition: all 0.2s;
+    border-radius: 2px;
+}
+
+.daily-arxiv-filter-resizer:hover::before {
+    background: #3b82f6;
+    width: 5px;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+
+.daily-arxiv-filter-resizer.resizing {
+    z-index: 9999; /* 拖动时提高层级 */
+}
+
+.daily-arxiv-filter-resizer.resizing::before {
+    background: #2563eb;
+    width: 5px;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.8);
 }
 
 .daily-arxiv-filter-panel .filter-section-header {
@@ -3388,6 +3506,19 @@ mark { background: #fff59d; }
     border-radius: 50%;
 }
 
+/* 过滤器选中状态 - 图标点颜色（绿色方案） */
+.daily-arxiv-filter-affiliation.active .dot {
+    background: #22c55e !important;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+/* 可选：粉色方案的图标点（取消下方注释并注释掉上方绿色方案即可使用）
+.daily-arxiv-filter-affiliation.active .dot {
+    background: #ec4899 !important;
+    box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2);
+}
+*/
+
 .daily-arxiv-filter-affiliation .label {
     max-width: 150px;
     white-space: nowrap;
@@ -3395,9 +3526,24 @@ mark { background: #fff59d; }
     text-overflow: ellipsis;
 }
 
+/* 过滤器选中状态 - 浅绿色高亮方案（当前使用） */
 .daily-arxiv-filter-affiliation.active {
-    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+    background: linear-gradient(135deg, rgba(134, 239, 172, 0.4), rgba(134, 239, 172, 0.3)) !important;
+    border-color: rgba(34, 197, 94, 0.5) !important;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2), 0 4px 12px rgba(34, 197, 94, 0.15);
+    color: #065f46 !important;
+    font-weight: 600;
 }
+
+/* 可选：浅粉色高亮方案（取消下方注释并注释掉上方绿色方案即可使用）
+.daily-arxiv-filter-affiliation.active {
+    background: linear-gradient(135deg, rgba(251, 207, 232, 0.5), rgba(251, 207, 232, 0.4)) !important;
+    border-color: rgba(236, 72, 153, 0.5) !important;
+    box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2), 0 4px 12px rgba(236, 72, 153, 0.15);
+    color: #831843 !important;
+    font-weight: 600;
+}
+*/
 
 .daily-arxiv-filter-affiliation.excluded {
     background: #e5e7eb !important;
@@ -3458,10 +3604,34 @@ mark { background: #fff59d; }
     line-height: 1;
 }
 
+/* 没有国旗时的文本样式 */
+.country-flag-label.no-flag {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
 .daily-arxiv-filter-affiliation:hover {
     transform: translateY(-0.5px);
     box-shadow: 0 4px 10px rgba(148, 163, 184, 0.25);
 }
+
+/* 过滤器选中状态悬停效果 - 绿色方案 */
+.daily-arxiv-filter-affiliation.active:hover {
+    background: linear-gradient(135deg, rgba(134, 239, 172, 0.5), rgba(134, 239, 172, 0.4)) !important;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 6px 16px rgba(34, 197, 94, 0.2);
+    transform: translateY(-1px);
+}
+
+/* 可选：粉色方案的悬停效果（取消下方注释并注释掉上方绿色方案即可使用）
+.daily-arxiv-filter-affiliation.active:hover {
+    background: linear-gradient(135deg, rgba(251, 207, 232, 0.6), rgba(251, 207, 232, 0.5)) !important;
+    box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.3), 0 6px 16px rgba(236, 72, 153, 0.2);
+    transform: translateY(-1px);
+}
+*/
 
 @media (max-width: 1200px) {
     .daily-arxiv-main {
@@ -3568,40 +3738,51 @@ mark { background: #fff59d; }
     line-height: 1.6;
 }
 
-/* 论文网格 */
+/* 论文网格 - 自适应布局，充分利用空间 */
 .daily-arxiv-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 24px; /* 增加列间距 */
+    flex: 1;
 }
 
-@media (max-width: 1800px) {
+/* 大屏幕：4-5列 */
+@media (min-width: 1800px) {
     .daily-arxiv-grid {
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 28px;
     }
 }
 
-@media (max-width: 1500px) {
+/* 中大屏幕：3-4列 */
+@media (max-width: 1799px) and (min-width: 1400px) {
     .daily-arxiv-grid {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 26px;
     }
 }
 
-@media (max-width: 1200px) {
+/* 中等屏幕：3列 */
+@media (max-width: 1399px) and (min-width: 1024px) {
     .daily-arxiv-grid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 24px;
     }
 }
 
-@media (max-width: 900px) {
+/* 小屏幕：2列 */
+@media (max-width: 1023px) and (min-width: 768px) {
     .daily-arxiv-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
     }
 }
 
-@media (max-width: 600px) {
+/* 移动端：1列 */
+@media (max-width: 767px) {
     .daily-arxiv-grid {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
 }
 
@@ -3615,6 +3796,7 @@ mark { background: #fff59d; }
     cursor: pointer;
     display: flex;
     flex-direction: column;
+    width: 100%; /* 填满grid单元格 */
 }
 
 .daily-arxiv-card:hover {
@@ -4297,6 +4479,403 @@ mark { background: #fff59d; }
     flex: 1;
 }
 
+/* 自定义机构配置样式（类似关键词） */
+.custom-institution-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 40px;
+    padding: 12px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+}
+
+.custom-institution-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    position: relative;
+}
+
+/* 使用不同颜色区分机构（类似关键词） */
+.custom-institution-item:nth-child(6n+1) { background: #e0f2fe; color: #0369a1; }
+.custom-institution-item:nth-child(6n+2) { background: #fce7f3; color: #9f1239; }
+.custom-institution-item:nth-child(6n+3) { background: #fef3c7; color: #92400e; }
+.custom-institution-item:nth-child(6n+4) { background: #d1fae5; color: #065f46; }
+.custom-institution-item:nth-child(6n+5) { background: #e9d5ff; color: #6b21a8; }
+.custom-institution-item:nth-child(6n) { background: #fed7aa; color: #9a3412; }
+
+.custom-institution-item:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.custom-institution-item i {
+    font-size: 11px;
+}
+
+.custom-institution-empty {
+    width: 100%;
+    text-align: center;
+    padding: 20px;
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+/* ==================== 机构编辑模态框 - 全新设计 ==================== */
+
+.institution-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.institution-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.institution-modal-container {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    max-width: 90vw;
+    max-height: 85vh;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -45%);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.institution-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 28px;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px 16px 0 0;
+}
+
+.institution-modal-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: white;
+}
+
+.institution-modal-title-group i {
+    font-size: 24px;
+}
+
+.institution-modal-title-group h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.institution-modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all 0.2s;
+}
+
+.institution-modal-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.institution-modal-body {
+    padding: 28px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.institution-form-group {
+    margin-bottom: 24px;
+}
+
+.institution-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.institution-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 10px;
+}
+
+.institution-label i {
+    color: #667eea;
+    font-size: 16px;
+}
+
+.variant-count {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 2px 10px;
+    border-radius: 12px;
+}
+
+.institution-help {
+    display: block;
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 6px;
+}
+
+.institution-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+    transition: all 0.2s;
+    background: #ffffff;
+}
+
+.institution-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.institution-input:disabled {
+    background: #f9fafb;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.institution-variants-container {
+    display: flex;
+    flex-direction: column;  /* 改为垂直排列 */
+    gap: 10px;
+    min-height: 60px;
+    padding: 16px;
+    background: #f9fafb;
+    border: 2px dashed #e5e7eb;
+    border-radius: 10px;
+    transition: all 0.2s;
+    max-height: 300px;       /* 添加最大高度 */
+    overflow-y: auto;        /* 内容过多时可滚动 */
+}
+
+.institution-variants-container:empty::after {
+    content: '暂无变体，请在下方添加';
+    width: 100%;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+    font-style: italic;
+    line-height: 28px;
+}
+
+.institution-variant-tag {
+    display: flex;              /* 改为 flex（而非 inline-flex）*/
+    align-items: center;
+    justify-content: space-between; /* 两端对齐 */
+    gap: 12px;
+    padding: 12px 16px;         /* 增加内边距 */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    font-size: 14px;            /* 稍微增大字体 */
+    font-weight: 500;
+    transition: all 0.2s;
+    animation: slideIn 0.2s ease-out;
+    width: 100%;                /* 占据全宽 */
+    box-sizing: border-box;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);  /* 改为从左滑入 */
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.institution-variant-tag:hover {
+    transform: translateX(4px);  /* 改为向右移动 */
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.institution-variant-tag .variant-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;        /* 允许换行 */
+    word-break: break-word;     /* 长单词可以断行 */
+    line-height: 1.5;
+}
+
+.institution-variant-tag .remove-variant {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    flex-shrink: 0;             /* 不让删除按钮缩小 */
+}
+
+.institution-variant-tag .remove-variant:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.15);
+}
+
+.institution-add-variant {
+    display: flex;
+    gap: 10px;
+}
+
+.institution-add-btn {
+    width: 48px;
+    height: 48px;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.institution-add-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.institution-add-btn:active {
+    transform: scale(0.95);
+}
+
+.institution-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 28px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    border-radius: 0 0 16px 16px;
+}
+
+.institution-modal-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.institution-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.institution-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.institution-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.institution-btn-cancel {
+    background: #ffffff;
+    color: #6b7280;
+    border: 2px solid #e5e7eb;
+}
+
+.institution-btn-cancel:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.institution-btn-danger {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.institution-btn-danger:hover {
+    background: #dc2626;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+
 .arxiv-category-suggestions {
     display: flex;
     align-items: center;
@@ -4342,4 +4921,70 @@ mark { background: #fff59d; }
     outline: none;
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ==================== 自定义机构列表样式 ==================== */
+
+.custom-institution-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-height: 50px;
+    padding: 16px;
+    background: #f9fafb;
+    border: 2px dashed #e5e7eb;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+
+.custom-institution-empty {
+    width: 100%;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 14px;
+    font-style: italic;
+    padding: 20px;
+}
+
+.custom-institution-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.custom-institution-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.custom-institution-item i {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.custom-institution-item:active {
+    transform: translateY(0);
+}
+
+/* 提示文本 */
+.custom-institution-item::after {
+    content: '双击编辑';
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0;
+    margin-left: 4px;
+    transition: opacity 0.2s;
+}
+
+.custom-institution-item:hover::after {
+    opacity: 0.8;
 }

@@ -17,6 +17,9 @@ from routes.agent_routes.agent_translate_route import register_agent_translate_r
 from routes.basic_routes.category_tree_route import register_category_routes
 from routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
 from routes.basic_routes.import_route import register_import_routes
+from routes.basic_routes.institution_mapping_route import (
+    register_institution_mapping_routes,
+)
 from routes.basic_routes.paper_operation_route import register_paper_operation_routes
 from routes.basic_routes.search_route import register_search_routes
 from routes.basic_routes.settings_route import register_settings_routes
@@ -28,7 +31,7 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./test_papers",
+    default="./papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
@@ -460,6 +463,11 @@ def register_routes():
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
         analysis_settings_file=ANALYSIS_SETTINGS_FILE,
+    )
+
+    register_institution_mapping_routes(
+        app,
+        daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
     )
 
 
