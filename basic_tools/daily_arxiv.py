@@ -539,6 +539,16 @@ class DailyArxivManager:
             settings = self.get_settings()
             affiliation_prompt = settings.get("affiliationPrompt")
             summary_prompt = settings.get("summaryPrompt")
+            keyword_list = settings.get("keywordList", [])
+            max_keywords = settings.get("maxKeywords", 1)
+            
+            # 将关键词列表和最多关键词数插入到 prompt 中
+            if summary_prompt:
+                if keyword_list:
+                    keyword_list_str = ", ".join(keyword_list)
+                    summary_prompt = summary_prompt.replace("{keyword_list}", keyword_list_str)
+                # 替换最多关键词数占位符
+                summary_prompt = summary_prompt.replace("{max_keywords}", str(max_keywords))
 
             papers = []
             skipped_count = 0
@@ -1102,6 +1112,7 @@ def extract_summary_and_keywords_with_llm(
 
         # 构造提示词（使用自定义或默认）
         system_prompt = prompt if prompt else SUMMARY_EXTRACTION_PROMPT
+        # 如果 prompt 中包含 {keyword_list} 占位符，需要在使用前替换（但这里应该已经在调用前替换了）
         full_prompt = system_prompt + abstract
         messages = [{"role": "user", "content": full_prompt}]
 

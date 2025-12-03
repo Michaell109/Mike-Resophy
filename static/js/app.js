@@ -4775,6 +4775,13 @@ function setupSettingsNavigation() {
                 if (panel.id === `setting-panel-${targetPanel}`) {
                     panel.style.display = 'block';
                     console.log('显示面板:', panel.id);
+                    
+                    // 如果切换到 Daily arXiv 面板，加载设置并绑定事件
+                    if (targetPanel === 'daily-arxiv') {
+                        loadDailyArxivSettings().then(() => {
+                            setupDailyArxivKeywordInput();
+                        });
+                    }
                 } else {
                     panel.style.display = 'none';
                 }
@@ -6388,6 +6395,12 @@ async function switchSettingPanel(panelName) {
         if (maxPapersInput) {
             maxPapersInput.value = dailyArxivSettings.maxPapersPerCategory || 12;
         }
+        const maxKeywordsInput = document.getElementById('daily-arxiv-max-keywords');
+        if (maxKeywordsInput) {
+            maxKeywordsInput.value = dailyArxivSettings.maxKeywords || 1;
+        }
+        // 绑定关键词输入框回车事件
+        setupDailyArxivKeywordInput();
     }
     
     // 保存状态
@@ -7854,13 +7867,16 @@ async function loadDailyArxivSettings() {
             const maxPapersEl = document.getElementById('daily-arxiv-max-papers');
             const retentionDaysEl = document.getElementById('daily-arxiv-retention-days');
             const checkIntervalEl = document.getElementById('daily-arxiv-check-interval');
+            const maxKeywordsEl = document.getElementById('daily-arxiv-max-keywords');
             
             if (maxPapersEl) maxPapersEl.value = dailyArxivSettings.maxPapersPerCategory || 3;
             if (retentionDaysEl) retentionDaysEl.value = dailyArxivSettings.retentionDays || 7;
             if (checkIntervalEl) checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
+            if (maxKeywordsEl) maxKeywordsEl.value = dailyArxivSettings.maxKeywords || 1;
             
             renderDailyArxivCategoryTags();
             renderDailyArxivSettingsCategoryList();
+            renderDailyArxivKeywordList();
         }
     } catch (err) {
         console.error('加载 Daily arXiv 设置失败:', err);
@@ -7873,11 +7889,27 @@ async function saveDailyArxivSettings() {
         const maxPapers = parseInt(document.getElementById('daily-arxiv-max-papers')?.value) || 3;
         const retentionDays = parseInt(document.getElementById('daily-arxiv-retention-days')?.value) || 7;
         const checkInterval = parseInt(document.getElementById('daily-arxiv-check-interval')?.value) || 10;
+        const maxKeywords = parseInt(document.getElementById('daily-arxiv-max-keywords')?.value) || 1;
+        
+        // 限制最多关键词数在 1-3 范围内
+        const clampedMaxKeywords = Math.max(1, Math.min(3, maxKeywords));
+        
+        // 获取关键词列表（从渲染的DOM中提取）
+        const keywordList = [];
+        const keywordItems = document.querySelectorAll('.daily-arxiv-keyword-item .keyword-text');
+        keywordItems.forEach(item => {
+            const keyword = item.textContent.trim();
+            if (keyword) {
+                keywordList.push(keyword);
+            }
+        });
         
         dailyArxivSettings.categories = dailyArxivCategories;
         dailyArxivSettings.maxPapersPerCategory = maxPapers;
         dailyArxivSettings.retentionDays = retentionDays;
         dailyArxivSettings.checkIntervalMinutes = checkInterval;
+        dailyArxivSettings.maxKeywords = clampedMaxKeywords;
+        dailyArxivSettings.keywordList = keywordList;
         
         const res = await fetch('/api/settings/daily-arxiv', {
             method: 'POST',
@@ -7959,6 +7991,91 @@ function renderDailyArxivSettingsCategoryList() {
             </button>
         </div>
     `).join('');
+}
+
+// 渲染关键词列表
+function renderDailyArxivKeywordList() {
+    const container = document.getElementById('daily-arxiv-keyword-list');
+    if (!container) return;
+    
+    const keywordList = dailyArxivSettings.keywordList || [];
+    
+    if (keywordList.length === 0) {
+        container.innerHTML = '<div style="color: #8b949e; font-size: 13px; padding: 8px;">暂无关键词，请在下方输入框添加</div>';
+        return;
+    }
+    
+    container.innerHTML = keywordList.map((keyword, index) => {
+        // 转义特殊字符，防止 XSS
+        const escapedKeyword = keyword.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const escapedKeywordForAttr = keyword.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        return `
+        <div class="daily-arxiv-keyword-item" data-keyword="${escapedKeyword}">
+            <span class="keyword-text">${keyword}</span>
+            <button class="remove-keyword-btn" onclick="removeDailyArxivKeyword('${escapedKeywordForAttr}')" title="删除">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        `;
+    }).join('');
+}
+
+// 添加关键词
+function addDailyArxivKeyword() {
+    const input = document.getElementById('daily-arxiv-new-keyword');
+    if (!input) return;
+    
+    const keyword = input.value.trim();
+    if (!keyword) {
+        showMessage('请输入关键词', 'warning');
+        return;
+    }
+    
+    // 确保 keywordList 存在
+    if (!dailyArxivSettings.keywordList) {
+        dailyArxivSettings.keywordList = [];
+    }
+    
+    if (dailyArxivSettings.keywordList.includes(keyword)) {
+        showMessage('该关键词已存在', 'warning');
+        input.value = '';
+        return;
+    }
+    
+    dailyArxivSettings.keywordList.push(keyword);
+    input.value = '';
+    renderDailyArxivKeywordList();
+}
+
+// 删除关键词
+function removeDailyArxivKeyword(keyword) {
+    if (!dailyArxivSettings.keywordList) {
+        dailyArxivSettings.keywordList = [];
+    }
+    
+    const index = dailyArxivSettings.keywordList.indexOf(keyword);
+    if (index > -1) {
+        dailyArxivSettings.keywordList.splice(index, 1);
+        renderDailyArxivKeywordList();
+    }
+}
+
+// 设置关键词输入框事件
+function setupDailyArxivKeywordInput() {
+    const keywordInput = document.getElementById('daily-arxiv-new-keyword');
+    if (!keywordInput) return;
+    
+    // 移除旧的事件监听器（如果存在）
+    const newKeywordInput = keywordInput.cloneNode(true);
+    keywordInput.parentNode.replaceChild(newKeywordInput, keywordInput);
+    
+    // 绑定回车事件
+    newKeywordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addDailyArxivKeyword();
+        }
+    });
 }
 
 // 渲染 Daily arXiv 界面的分区标签
@@ -8486,17 +8603,14 @@ function renderDailyArxivGrid() {
         // 用于缩略图 API 的分类参数仍然只取一个具体分区，避免路径不合法
         const thumbnailCategory = categoryTags[0] || paper.fetch_category || paper.primary_category || dailyArxivCurrentCategory || '';
         
-        // 关键词显示（在日期下方，黑色字体，每个单词首字母大写）
+        // 关键词显示（在日期下方，黑色字体，使用 LLM 原始输出）
         let keywordsHtml = '';
         if (paper.keywords && paper.keywords.length > 0) {
             // 按关键词长度升序排序（最短的排在前面，节约空间）
             const sortedKeywords = [...paper.keywords].sort((a, b) => a.length - b.length);
             const kwTags = sortedKeywords.map(kw => {
-                // 每个单词首字母大写 (Title Case)
-                const titleCaseKw = kw.split(' ').map(word => 
-                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                return `<span class="keyword-mini-tag">${escapeHtml(titleCaseKw)}</span>`;
+                // 直接使用原始关键词，不进行大小写转换
+                return `<span class="keyword-mini-tag">${escapeHtml(kw)}</span>`;
             }).join('');
             keywordsHtml = `<div class="daily-arxiv-card-keywords">${kwTags}</div>`;
         }
@@ -8677,17 +8791,14 @@ function showDailyArxivDetail(index) {
         `;
     }
     
-    // 关键词区域（黑色字体，每个单词首字母大写）
+    // 关键词区域（黑色字体，使用 LLM 原始输出）
     let keywordsHtml = '';
     if (paper.keywords && paper.keywords.length > 0) {
         // 按关键词长度升序排序（最短的排在前面）
         const sortedKeywords = [...paper.keywords].sort((a, b) => a.length - b.length);
         const kwTags = sortedKeywords.map(kw => {
-            // 每个单词首字母大写 (Title Case)
-            const titleCaseKw = kw.split(' ').map(word => 
-                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-            ).join(' ');
-            return `<span class="keyword-tag">${escapeHtml(titleCaseKw)}</span>`;
+            // 直接使用原始关键词，不进行大小写转换
+            return `<span class="keyword-tag">${escapeHtml(kw)}</span>`;
         }).join('');
         keywordsHtml = `
             <div class="daily-arxiv-detail-keywords">

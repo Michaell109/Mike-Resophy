@@ -95,6 +95,20 @@ DEFAULT_DAILY_ARXIV_SETTINGS = {
     "checkIntervalMinutes": 10,  # 检查间隔（分钟）
     "maxPapersPerCategory": 3,  # 每个分区最大论文数（测试模式）
     "retentionDays": 7,  # 保留论文天数
+    "maxKeywords": 1,  # 最多关键词数量（1-3）
+    "keywordList": [
+        "LLM",
+        "MLLM",
+        "Agent",
+        "Image Generation",
+        "Video Generation",
+        "3D Generation",
+        "2D Perception",
+        "3D Perception",
+        "Embodied AI & Robotics",
+        "Audio & Speech",
+        "ML Fundamentals & RL",
+    ],  # 关键词列表
     "affiliationPrompt": """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and github repo url if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
 
 Output the result directly in JSON format, and make sure it is valid JSON. For example:
@@ -107,16 +121,25 @@ Notes:
 
 Now the input is:
 """,
-    "summaryPrompt": """我会给你一篇 AI 文章的英文摘要，你需要简要的总结这篇文章在解决怎样的问题，是如何解决的，然后在最后提供关于这篇文章的 3个英文关键词，以如下的 JSON 格式输出:
+    "summaryPrompt": """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
 
-{"summary": "这篇文章主要解决...的问题。作者提出...方法，通过...实现了...", "keywords": ["Keyword1", "Keyword2", "Keyword3"]}
+用中文简要总结这篇文章在解决什么问题、如何解决的，字数控制在 100-200 字。
 
-注意：
-1. summary 用中文简洁描述，控制在 100-200 字
-2. keywords 用英文，提供 3 个最能代表文章核心的关键词
-3. 直接输出 JSON，不要有任何其他解释
+从我提供的关键词列表中挑选最能代表文章类型的关键词（英文）
 
-现在输入的摘要是:
+按如下 JSON 格式输出结果：
+
+{"summary": "这篇文章主要解决...的问题。作者提出...方法，通过...实现了...", "keywords": ["Keyword"]}
+
+注意
+
+summary 必须中文，简洁、客观。
+
+keywords 必须来自我提供的关键词列表：[{keyword_list}], 最多{max_keywords}个关键词。一定要是符合这篇文章的关键词，不能随意猜测。
+
+直接输出 JSON，不要有其他解释。
+
+现在输入的摘要是：
 """,
 }
 

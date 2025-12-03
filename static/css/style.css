@@ -4080,6 +4080,82 @@ mark { background: #fff59d; }
     margin-bottom: 16px;
 }
 
+.daily-arxiv-keyword-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    min-height: 40px;
+}
+
+.daily-arxiv-keyword-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.daily-arxiv-keyword-item .keyword-text {
+    flex: 1;
+}
+
+.daily-arxiv-keyword-item .remove-keyword-btn {
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: rgba(0, 0, 0, 0.1);
+    color: inherit;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    transition: all 0.2s;
+    margin-left: 4px;
+}
+
+.daily-arxiv-keyword-item .remove-keyword-btn:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* 关键词颜色方案 - 使用不同颜色区分 */
+.daily-arxiv-keyword-item:nth-child(1) { background: #e0f2fe; color: #0369a1; }
+.daily-arxiv-keyword-item:nth-child(2) { background: #fce7f3; color: #9f1239; }
+.daily-arxiv-keyword-item:nth-child(3) { background: #fef3c7; color: #92400e; }
+.daily-arxiv-keyword-item:nth-child(4) { background: #d1fae5; color: #065f46; }
+.daily-arxiv-keyword-item:nth-child(5) { background: #e9d5ff; color: #6b21a8; }
+.daily-arxiv-keyword-item:nth-child(6) { background: #fed7aa; color: #9a3412; }
+.daily-arxiv-keyword-item:nth-child(7) { background: #cffafe; color: #155e75; }
+.daily-arxiv-keyword-item:nth-child(8) { background: #fecdd3; color: #991b1b; }
+.daily-arxiv-keyword-item:nth-child(9) { background: #ddd6fe; color: #5b21b6; }
+.daily-arxiv-keyword-item:nth-child(10) { background: #fde68a; color: #78350f; }
+.daily-arxiv-keyword-item:nth-child(11) { background: #bbf7d0; color: #14532d; }
+.daily-arxiv-keyword-item:nth-child(12) { background: #fbcfe8; color: #831843; }
+.daily-arxiv-keyword-item:nth-child(13) { background: #c7d2fe; color: #3730a3; }
+.daily-arxiv-keyword-item:nth-child(14) { background: #fed7aa; color: #7c2d12; }
+.daily-arxiv-keyword-item:nth-child(15) { background: #a5f3fc; color: #164e63; }
+/* 超过15个后循环使用颜色 */
+.daily-arxiv-keyword-item:nth-child(n+16) {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.daily-arxiv-add-keyword {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.daily-arxiv-add-keyword input {
+    flex: 1;
+}
+
 .daily-arxiv-add-category input {
     flex: 1;
 }
