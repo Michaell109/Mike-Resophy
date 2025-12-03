@@ -13,7 +13,11 @@ from typing import Dict, List, Optional, Tuple
 class InstitutionNormalizer:
     """机构名称标准化器"""
 
-    def __init__(self, mapping_file: Optional[str] = None, custom_mapping_file: Optional[str] = None):
+    def __init__(
+        self,
+        mapping_file: Optional[str] = None,
+        custom_mapping_file: Optional[str] = None,
+    ):
         """
         初始化标准化器
 
@@ -44,19 +48,21 @@ class InstitutionNormalizer:
                 f"[InstitutionNormalizer] 成功加载系统映射: {len(self.institution_map)} 个机构"
             )
         except FileNotFoundError:
-            print(f"[InstitutionNormalizer] 警告: 系统映射文件不存在 {self.mapping_file}")
+            print(
+                f"[InstitutionNormalizer] 警告: 系统映射文件不存在 {self.mapping_file}"
+            )
             self.institution_map = {}
         except json.JSONDecodeError as e:
             print(f"[InstitutionNormalizer] 错误: 系统映射文件格式错误 {e}")
             self.institution_map = {}
-        
+
         # 加载用户自定义映射（会覆盖系统映射中的同名机构）
         if self.custom_mapping_file and os.path.exists(self.custom_mapping_file):
             try:
                 with open(self.custom_mapping_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
                     custom_map = settings.get("customInstitutions", {})
-                    
+
                     if custom_map:
                         # 合并到系统映射中（用户自定义优先）
                         self.institution_map.update(custom_map)
@@ -101,13 +107,13 @@ class InstitutionNormalizer:
 
         # 3. 使用 SequenceMatcher 计算序列相似度
         ratio = SequenceMatcher(None, s1_lower, s2_lower).ratio()
-        
+
         # 4. 如果相似度较低但包含相同的关键词，可以提升一些分数
         # 提取单词
         words1 = set(s1_lower.split())
         words2 = set(s2_lower.split())
         common_words = words1 & words2
-        
+
         # 如果有共同的长单词（>3字符），提升相似度
         if common_words:
             long_common_words = [w for w in common_words if len(w) > 3]
@@ -115,7 +121,7 @@ class InstitutionNormalizer:
                 # 提升幅度取决于共同单词的比例
                 word_overlap = len(common_words) / max(len(words1), len(words2))
                 ratio = max(ratio, 0.7 * word_overlap + 0.3 * ratio)
-        
+
         return ratio
 
     def _fuzzy_match(
@@ -179,9 +185,7 @@ class InstitutionNormalizer:
         if fuzzy:
             fuzzy_match = self._fuzzy_match(name, threshold)
             if fuzzy_match:
-                print(
-                    f"[InstitutionNormalizer] 模糊匹配: '{name}' -> '{fuzzy_match}'"
-                )
+                print(f"[InstitutionNormalizer] 模糊匹配: '{name}' -> '{fuzzy_match}'")
                 return fuzzy_match
 
         # 3. 无法匹配，返回原名称
@@ -340,4 +344,3 @@ if __name__ == "__main__":
     normalized_list = normalizer.normalize_list(test_list, deduplicate=True)
     print(f"输入: {test_list}")
     print(f"输出: {normalized_list}")
-
