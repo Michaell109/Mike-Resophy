@@ -7599,6 +7599,9 @@ let dailyArxivSettings = {
 };
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
+let dailyArxivSelectedCountries = new Set(); // 当前选中的国家过滤条件
+let dailyArxivExcludedAffiliations = new Set(); // 被排除的单位（反向过滤）
+let dailyArxivExcludedCountries = new Set(); // 被排除的国家（反向过滤）
 
 // 国家名称到国旗 emoji 的映射
 function getCountryFlag(countryName) {
@@ -7730,9 +7733,11 @@ async function initDailyArxiv() {
     // 过滤按钮：展开/收起过滤器面板
     if (filterBtn && filterPanel) {
         filterBtn.addEventListener('click', () => {
-            // 每次打开前，基于当前分区 & 日期重新渲染一遍单位列表
+            // 每次打开前，基于当前分区 & 日期重新渲染一遍单位列表和国家列表
             if (filterPanel.style.display === 'none' || !filterPanel.style.display) {
                 renderDailyArxivFilterAffiliations();
+    renderDailyArxivFilterCountries();
+                renderDailyArxivFilterCountries();
             }
             const isVisible = filterPanel.style.display !== 'none';
             filterPanel.style.display = isVisible ? 'none' : 'block';
@@ -7743,7 +7748,11 @@ async function initDailyArxiv() {
     if (filterClearBtn) {
         filterClearBtn.addEventListener('click', () => {
             dailyArxivSelectedAffiliations.clear();
+            dailyArxivSelectedCountries.clear();
+            dailyArxivExcludedAffiliations.clear();
+            dailyArxivExcludedCountries.clear();
             renderDailyArxivFilterAffiliations();
+            renderDailyArxivFilterCountries();
             renderDailyArxivGrid();
         });
     }
@@ -7922,6 +7931,7 @@ async function loadPapersForCurrentDate() {
     
     // 论文数据加载完成后，先刷新过滤器选项，再渲染网格
     renderDailyArxivFilterAffiliations();
+    renderDailyArxivFilterCountries();
     renderDailyArxivGrid();
     renderDailyArxivCategoryTags();
 }
@@ -8568,6 +8578,33 @@ function getCurrentDailyArxivPapers(applyFilters = true) {
         });
     }
 
+    // 应用单位排除过滤：排除包含被排除单位的论文
+    if (applyFilters && dailyArxivExcludedAffiliations.size > 0) {
+        const excluded = new Set(dailyArxivExcludedAffiliations);
+        papers = papers.filter(paper => {
+            const affs = paper.affiliations || [];
+            return !affs.some(aff => excluded.has(aff));
+        });
+    }
+
+    // 应用国家过滤：如果有选中的国家，则只保留 countries 里包含任一选中国家的论文
+    if (applyFilters && dailyArxivSelectedCountries.size > 0) {
+        const selected = new Set(dailyArxivSelectedCountries);
+        papers = papers.filter(paper => {
+            const countries = paper.countries || [];
+            return countries.some(country => country && selected.has(country.trim()));
+        });
+    }
+
+    // 应用国家排除过滤：排除包含被排除国家的论文
+    if (applyFilters && dailyArxivExcludedCountries.size > 0) {
+        const excluded = new Set(dailyArxivExcludedCountries);
+        papers = papers.filter(paper => {
+            const countries = paper.countries || [];
+            return !countries.some(country => country && excluded.has(country.trim()));
+        });
+    }
+
     // 按 published 时间排序（越新越前面，和 arXiv 页面顺序一致）
     return [...papers].sort((a, b) => {
         const timeA = a.published ? new Date(a.published).getTime() : 0;
@@ -8796,29 +8833,41 @@ function renderDailyArxivFilterAffiliations() {
 
     container.innerHTML = entries.map(([aff, info]) => {
         const isSelected = dailyArxivSelectedAffiliations.has(aff);
+        const isExcluded = dailyArxivExcludedAffiliations.has(aff);
         const countLabel = info.count > 1 ? ` (${info.count})` : '';
         const bgColor = getBgColorForString(aff);
         const textColor = info.color;
         const activeClass = isSelected ? 'active' : '';
+        const excludedClass = isExcluded ? 'excluded' : '';
         return `
             <button 
-                class="daily-arxiv-filter-affiliation ${activeClass}" 
-                data-affiliation="${aff}"
-                title="${aff}${countLabel}"
-                style="border-color: ${textColor}; color: ${textColor}; background: ${isSelected ? bgColor : 'transparent'};"
+                class="daily-arxiv-filter-affiliation ${activeClass} ${excludedClass}" 
+                data-affiliation="${escapeHtml(aff)}"
+                title="${escapeHtml(aff)}${countLabel}"
+                style="${!isExcluded ? `border-color: ${textColor}; color: ${textColor}; background: ${isSelected ? bgColor : 'transparent'};` : ''}"
             >
-                <span class="dot" style="background:${textColor};"></span>
+                <span class="dot" style="background:${isExcluded ? '#9ca3af' : textColor};"></span>
                 <span class="label">${escapeHtml(aff)}</span>
                 ${countLabel}
+                <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeAffiliation('${escapeHtml(aff).replace(/'/g, "\\'")}');" title="排除此单位">
+                    <i class="fas fa-times"></i>
+                </span>
             </button>
         `;
     }).join('');
 
     // 绑定点击事件（多选）
     container.querySelectorAll('.daily-arxiv-filter-affiliation').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
+            // 如果点击的是 x 按钮，不触发选择
+            if (e.target.closest('.filter-remove-btn')) return;
+            
             const aff = btn.getAttribute('data-affiliation');
             if (!aff) return;
+            // 如果已排除，先取消排除
+            if (dailyArxivExcludedAffiliations.has(aff)) {
+                dailyArxivExcludedAffiliations.delete(aff);
+            }
             if (dailyArxivSelectedAffiliations.has(aff)) {
                 dailyArxivSelectedAffiliations.delete(aff);
             } else {
@@ -8829,6 +8878,124 @@ function renderDailyArxivFilterAffiliations() {
             renderDailyArxivGrid();
         });
     });
+}
+
+// 渲染国家过滤器
+function renderDailyArxivFilterCountries() {
+    const container = document.getElementById('daily-arxiv-filter-countries');
+    if (!container) return;
+
+    // 基于当前视图下的论文计算国家统计（不应用现有过滤条件）
+    const papers = getCurrentDailyArxivPapers(false);
+    const stats = new Map(); // country -> count
+
+    papers.forEach(paper => {
+        const countries = paper.countries || [];
+        countries.forEach(country => {
+            if (!country || !country.trim()) return;
+            const key = country.trim();
+            if (!stats.has(key)) {
+                stats.set(key, 1);
+            } else {
+                stats.set(key, stats.get(key) + 1);
+            }
+        });
+    });
+
+    const entries = Array.from(stats.entries());
+    // 没有国家时清空即可
+    if (entries.length === 0) {
+        container.innerHTML = '<span class="filter-empty">当前视图暂无国家信息</span>';
+        return;
+    }
+
+    // 按数量降序，再按名称排序
+    entries.sort((a, b) => {
+        const countDiff = b[1] - a[1];
+        if (countDiff !== 0) return countDiff;
+        return a[0].localeCompare(b[0]);
+    });
+
+    container.innerHTML = entries.map(([country, count]) => {
+        const isSelected = dailyArxivSelectedCountries.has(country);
+        const isExcluded = dailyArxivExcludedCountries.has(country);
+        const flag = getCountryFlag(country);
+        const countLabel = count > 1 ? ` (${count})` : '';
+        const activeClass = isSelected ? 'active' : '';
+        const excludedClass = isExcluded ? 'excluded' : '';
+        return `
+            <button 
+                class="daily-arxiv-filter-affiliation ${activeClass} ${excludedClass}" 
+                data-country="${escapeHtml(country)}"
+                title="${escapeHtml(country)}${countLabel}"
+                style="${!isExcluded ? '' : ''}"
+            >
+                <span class="dot" style="background:transparent;"></span>
+                <span class="label country-flag-label">${flag ? flag : escapeHtml(country)}</span>
+                ${countLabel}
+                <span class="filter-remove-btn" onclick="event.stopPropagation(); toggleExcludeCountry('${escapeHtml(country).replace(/'/g, "\\'")}');" title="排除此国家">
+                    <i class="fas fa-times"></i>
+                </span>
+            </button>
+        `;
+    }).join('');
+
+    // 绑定点击事件（多选）
+    container.querySelectorAll('.daily-arxiv-filter-affiliation').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // 如果点击的是 x 按钮，不触发选择
+            if (e.target.closest('.filter-remove-btn')) return;
+            
+            const country = btn.getAttribute('data-country');
+            if (!country) return;
+            // 如果已排除，先取消排除
+            if (dailyArxivExcludedCountries.has(country)) {
+                dailyArxivExcludedCountries.delete(country);
+            }
+            if (dailyArxivSelectedCountries.has(country)) {
+                dailyArxivSelectedCountries.delete(country);
+            } else {
+                dailyArxivSelectedCountries.add(country);
+            }
+            // 重新渲染过滤器和网格，实现实时过滤
+            renderDailyArxivFilterCountries();
+            renderDailyArxivGrid();
+        });
+    });
+}
+
+// 切换单位排除状态
+function toggleExcludeAffiliation(aff) {
+    if (!aff) return;
+    // 如果已选中，先取消选中
+    if (dailyArxivSelectedAffiliations.has(aff)) {
+        dailyArxivSelectedAffiliations.delete(aff);
+    }
+    // 切换排除状态
+    if (dailyArxivExcludedAffiliations.has(aff)) {
+        dailyArxivExcludedAffiliations.delete(aff);
+    } else {
+        dailyArxivExcludedAffiliations.add(aff);
+    }
+    renderDailyArxivFilterAffiliations();
+    renderDailyArxivGrid();
+}
+
+// 切换国家排除状态
+function toggleExcludeCountry(country) {
+    if (!country) return;
+    // 如果已选中，先取消选中
+    if (dailyArxivSelectedCountries.has(country)) {
+        dailyArxivSelectedCountries.delete(country);
+    }
+    // 切换排除状态
+    if (dailyArxivExcludedCountries.has(country)) {
+        dailyArxivExcludedCountries.delete(country);
+    } else {
+        dailyArxivExcludedCountries.add(country);
+    }
+    renderDailyArxivFilterCountries();
+    renderDailyArxivGrid();
 }
 
 // HTML 转义

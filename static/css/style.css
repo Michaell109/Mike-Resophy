@@ -3163,16 +3163,23 @@ mark { background: #fff59d; }
     height: calc(100vh - 60px);
     background: #f8fafc;
     overflow-y: auto;
-    padding: 24px;
+    padding: 0;
 }
 
 .daily-arxiv-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 0;
+    padding: 16px 24px;
+    background: #f8fafc;
     flex-wrap: wrap;
     gap: 16px;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .daily-arxiv-title {
@@ -3256,7 +3263,7 @@ mark { background: #fff59d; }
     border: 1px solid #93c5fd;
     border-radius: 12px;
     padding: 16px 20px;
-    margin-bottom: 20px;
+    margin: 24px 24px 20px 24px;
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
 }
 
@@ -3312,6 +3319,7 @@ mark { background: #fff59d; }
 .daily-arxiv-main {
     display: flex;
     gap: 16px;
+    padding: 24px;
 }
 
 .daily-arxiv-filter-panel {
@@ -3389,6 +3397,65 @@ mark { background: #fff59d; }
 
 .daily-arxiv-filter-affiliation.active {
     box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+
+.daily-arxiv-filter-affiliation.excluded {
+    background: #e5e7eb !important;
+    border-color: #9ca3af !important;
+    color: #9ca3af !important;
+}
+
+.daily-arxiv-filter-affiliation.excluded .dot {
+    background: #9ca3af !important;
+}
+
+.daily-arxiv-filter-affiliation.excluded .label {
+    color: #9ca3af !important;
+}
+
+.daily-arxiv-filter-affiliation {
+    position: relative;
+    padding-right: 24px;
+}
+
+.filter-remove-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.1);
+    color: #6b7280;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0.6;
+}
+
+.filter-remove-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    opacity: 1;
+}
+
+.daily-arxiv-filter-affiliation.excluded .filter-remove-btn {
+    background: rgba(156, 163, 175, 0.2);
+    color: #9ca3af;
+}
+
+.daily-arxiv-filter-affiliation.excluded .filter-remove-btn:hover {
+    background: rgba(156, 163, 175, 0.3);
+    color: #6b7280;
+}
+
+.country-flag-label {
+    font-size: 1.6em;
+    line-height: 1;
 }
 
 .daily-arxiv-filter-affiliation:hover {
