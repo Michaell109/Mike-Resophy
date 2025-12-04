@@ -43,77 +43,87 @@ class InstitutionNormalizer:
     def _normalize_string(self, text: str) -> str:
         """
         标准化字符串：去除标点、统一大小写、标准化后缀等
-        
+
         Args:
             text: 原始字符串
-            
+
         Returns:
             标准化后的字符串
         """
         if not text:
             return ""
-        
+
         # 1. 去除首尾空格并转换为小写
         normalized = text.strip().lower()
-        
+
         # 2. 去除标点符号（保留空格和字母数字）
         # 去除常见的标点：逗号、句号、分号、冒号等
-        normalized = re.sub(r'[,.;:!?()\[\]{}"\']+', '', normalized)
-        
+        normalized = re.sub(r'[,.;:!?()\[\]{}"\']+', "", normalized)
+
         # 3. 标准化常见机构后缀
         # 定义后缀映射表
         suffix_mappings = {
-            r'\binc\.?\b': 'inc',
-            r'\binc,\b': 'inc',
-            r'\bltd\.?\b': 'ltd',
-            r'\blimited\b': 'ltd',
-            r'\bcorp\.?\b': 'corp',
-            r'\bcorporation\b': 'corp',
-            r'\blab\.?\b': 'lab',
-            r'\blaboratory\b': 'lab',
-            r'\buniv\.?\b': 'univ',
-            r'\buniversity\b': 'univ',
-            r'\bcollege\b': 'college',
-            r'\bschool\b': 'school',
-            r'\binstitute\b': 'inst',
-            r'\binstitution\b': 'inst',
+            r"\binc\.?\b": "inc",
+            r"\binc,\b": "inc",
+            r"\bltd\.?\b": "ltd",
+            r"\blimited\b": "ltd",
+            r"\bcorp\.?\b": "corp",
+            r"\bcorporation\b": "corp",
+            r"\blab\.?\b": "lab",
+            r"\blaboratory\b": "lab",
+            r"\buniv\.?\b": "univ",
+            r"\buniversity\b": "univ",
+            r"\bcollege\b": "college",
+            r"\bschool\b": "school",
+            r"\binstitute\b": "inst",
+            r"\binstitution\b": "inst",
         }
-        
+
         for pattern, replacement in suffix_mappings.items():
             normalized = re.sub(pattern, replacement, normalized)
-        
+
         # 4. 去除多余空格（合并连续空格为单个空格）
-        normalized = re.sub(r'\s+', ' ', normalized)
-        
+        normalized = re.sub(r"\s+", " ", normalized)
+
         # 5. 再次去除首尾空格
         normalized = normalized.strip()
-        
+
         return normalized
 
     def _extract_core_words(self, text: str) -> str:
         """
         提取核心词（去除常见后缀和停用词）
-        
+
         Args:
             text: 标准化后的字符串
-            
+
         Returns:
             核心词字符串
         """
         if not text:
             return ""
-        
+
         # 常见停用词和后缀
-        stop_words = {'the', 'of', 'and', 'at', 'in', 'on', 'for', 'to', 'a', 'an'}
-        suffixes = {'inc', 'ltd', 'corp', 'lab', 'univ', 'college', 'school', 'inst', 'university'}
-        
+        stop_words = {"the", "of", "and", "at", "in", "on", "for", "to", "a", "an"}
+        suffixes = {
+            "inc",
+            "ltd",
+            "corp",
+            "lab",
+            "univ",
+            "college",
+            "school",
+            "inst",
+            "university",
+        }
+
         # 分割单词
         words = text.split()
-        
+
         # 过滤停用词和后缀
         core_words = [w for w in words if w not in stop_words and w not in suffixes]
-        
-        return ' '.join(core_words) if core_words else text
+
+        return " ".join(core_words) if core_words else text
 
     def _load_mapping(self):
         """加载机构映射文件（系统 + 用户自定义）"""
@@ -163,17 +173,17 @@ class InstitutionNormalizer:
             self.reverse_index[standard_name.lower()] = standard_name
             for variant in variants:
                 self.reverse_index[variant.lower()] = standard_name
-            
+
             # 2. 标准化索引（去除标点、标准化后缀）
             normalized_standard = self._normalize_string(standard_name)
             if normalized_standard:
                 self.normalized_index[normalized_standard] = standard_name
-            
+
             for variant in variants:
                 normalized_variant = self._normalize_string(variant)
                 if normalized_variant:
                     self.normalized_index[normalized_variant] = standard_name
-            
+
             # 3. 核心词索引（用于部分匹配）
             core_standard = self._extract_core_words(normalized_standard)
             if core_standard:
@@ -181,7 +191,7 @@ class InstitutionNormalizer:
                 if core_standard not in self.core_words_index:
                     self.core_words_index[core_standard] = standard_name
                 # 如果有多个变体映射到同一个核心词，保持第一个（通常是标准名称）
-            
+
             for variant in variants:
                 normalized_variant = self._normalize_string(variant)
                 core_variant = self._extract_core_words(normalized_variant)
@@ -291,7 +301,9 @@ class InstitutionNormalizer:
         if normalized_name:
             normalized_match = self.normalized_index.get(normalized_name)
             if normalized_match:
-                print(f"[InstitutionNormalizer] 标准化匹配: '{name}' -> '{normalized_match}'")
+                print(
+                    f"[InstitutionNormalizer] 标准化匹配: '{name}' -> '{normalized_match}'"
+                )
                 return normalized_match
 
         # ===== 第三层：核心词匹配 =====
@@ -302,7 +314,7 @@ class InstitutionNormalizer:
             if core_match:
                 print(f"[InstitutionNormalizer] 核心词匹配: '{name}' -> '{core_match}'")
                 return core_match
-            
+
             # 检查包含关系：核心词是否包含在某个配置的核心词中，或反之
             for config_core, standard_name in self.core_words_index.items():
                 # 如果提取的核心词包含配置的核心词，或配置的核心词包含提取的核心词
@@ -310,7 +322,9 @@ class InstitutionNormalizer:
                     # 进一步检查：确保不是太短的匹配（避免误匹配）
                     min_length = min(len(core_words), len(config_core))
                     if min_length >= 3:  # 至少3个字符
-                        print(f"[InstitutionNormalizer] 核心词包含匹配: '{name}' -> '{standard_name}'")
+                        print(
+                            f"[InstitutionNormalizer] 核心词包含匹配: '{name}' -> '{standard_name}'"
+                        )
                         return standard_name
 
         # ===== 第四层：模糊匹配（如果启用） =====

@@ -9253,7 +9253,9 @@ function renderDailyArxivGrid() {
             // thumbnail_path格式: /path/to/date/category/arxiv_id_thumbnail.jpg
             const thumbnailUrl = `/api/daily-arxiv/thumbnail/${dailyArxivCurrentDate}/${encodeURIComponent(thumbnailCategory)}/${encodeURIComponent(paper.arxiv_id)}`;
             thumbnailHtml = `
-                <img src="${thumbnailUrl}" alt="${escapeHtml(paper.title)}" 
+                <img src="${thumbnailUrl}" 
+                     loading="lazy"
+                     alt="${escapeHtml(paper.title)}" 
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
                      style="width: 100%; height: 100%; object-fit: cover;" />
                 <div class="thumbnail-fallback" style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center; background: #f5f5f5;">

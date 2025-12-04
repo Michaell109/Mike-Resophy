@@ -169,6 +169,10 @@ def register_daily_arxiv_routes(
                     date_str=date_str,
                     force=force,
                 )
+                # 抓取完成后清除缩略图缓存
+                with _thumbnail_cache_lock:
+                    cache_key = f"{date_str}_{category}"
+                    _thumbnail_cache.pop(cache_key, None)
 
             thread = threading.Thread(target=do_fetch, daemon=True)
             thread.start()
@@ -232,6 +236,9 @@ def register_daily_arxiv_routes(
                         date_str=date_str,
                         force=force,
                     )
+                # 抓取完成后清除所有缩略图缓存
+                with _thumbnail_cache_lock:
+                    _thumbnail_cache.clear()
 
             thread = threading.Thread(target=do_fetch_all, daemon=True)
             thread.start()
@@ -489,9 +496,23 @@ def register_daily_arxiv_routes(
     # ========================================
     # Get Thumbnail
     # ========================================
+    # 缓存：日期+分区 -> 论文列表的映射
+    _thumbnail_cache = {}
+    _thumbnail_cache_lock = threading.Lock()
+
+    @app.route("/api/daily-arxiv/clear-thumbnail-cache", methods=["POST"])
+    def api_clear_thumbnail_cache():
+        """清除缩略图缓存（当重新抓取论文时调用）"""
+        try:
+            with _thumbnail_cache_lock:
+                _thumbnail_cache.clear()
+            return jsonify({"success": True, "message": "缓存已清除"})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
     @app.route("/api/daily-arxiv/thumbnail/<date_str>/<category>/<arxiv_id>")
     def api_get_thumbnail(date_str: str, category: str, arxiv_id: str):
-        """获取论文缩略图"""
+        """获取论文缩略图（带缓存优化）"""
         try:
             # URL解码
             from urllib.parse import unquote
@@ -499,14 +520,26 @@ def register_daily_arxiv_routes(
             category = unquote(category)
             arxiv_id = unquote(arxiv_id)
 
-            # 获取论文信息
-            papers = manager.get_papers_for_date(date_str, category)
-            paper = None
-            for p in papers:
-                if p.get("arxiv_id") == arxiv_id:
-                    paper = p
-                    break
+            # 使用缓存避免重复读取论文列表
+            cache_key = f"{date_str}_{category}"
 
+            with _thumbnail_cache_lock:
+                if cache_key not in _thumbnail_cache:
+                    # 第一次请求：读取并缓存论文列表
+                    papers = manager.get_papers_for_date(date_str, category)
+                    # 构建 arxiv_id -> paper 的映射
+                    _thumbnail_cache[cache_key] = {
+                        p.get("arxiv_id"): p for p in papers if p.get("arxiv_id")
+                    }
+                    # 限制缓存大小，只保留最近20个日期+分区的数据
+                    if len(_thumbnail_cache) > 20:
+                        # 删除最早的条目
+                        oldest_key = next(iter(_thumbnail_cache))
+                        del _thumbnail_cache[oldest_key]
+
+                paper_map = _thumbnail_cache.get(cache_key, {})
+
+            paper = paper_map.get(arxiv_id)
             if not paper:
                 return jsonify({"success": False, "error": "论文未找到"}), 404
 
@@ -521,7 +554,17 @@ def register_daily_arxiv_routes(
             if not os.path.exists(thumbnail_path):
                 return jsonify({"success": False, "error": "缩略图文件不存在"}), 404
 
-            return send_file(thumbnail_path, mimetype="image/jpeg", as_attachment=False)
+            # 添加缓存头，让浏览器缓存图片（7天）
+            response = send_file(
+                thumbnail_path, mimetype="image/jpeg", as_attachment=False
+            )
+            response.headers["Cache-Control"] = (
+                "public, max-age=604800"  # 7天 = 7*24*60*60
+            )
+            response.headers["ETag"] = (
+                f'"{arxiv_id}-{date_str}"'  # 使用 arxiv_id 和日期作为 ETag
+            )
+            return response
         except Exception as exc:
             print(f"获取缩略图失败: {exc}")
             import traceback
