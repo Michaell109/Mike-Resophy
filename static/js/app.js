@@ -146,7 +146,19 @@ function saveCurrentViewState() {
         tabName: tabName,
         settingPanel: settingPanel,
         dailyArxivCategory: dailyArxivCurrentCategory,
-        dailyArxivDate: dailyArxivCurrentDate
+        dailyArxivDate: dailyArxivCurrentDate,
+        // 保存 Daily arXiv 过滤器状态
+        dailyArxivFilters: {
+            selectedAffiliations: Array.from(dailyArxivSelectedAffiliations),
+            selectedCountries: Array.from(dailyArxivSelectedCountries),
+            selectedKeywords: Array.from(dailyArxivSelectedKeywords),
+            excludedAffiliations: Array.from(dailyArxivExcludedAffiliations),
+            excludedCountries: Array.from(dailyArxivExcludedCountries),
+            excludedKeywords: Array.from(dailyArxivExcludedKeywords),
+            filterFirstAffiliation: dailyArxivFilterFirstAffiliation,
+            hideUnknownFirstAffiliation: dailyArxivHideUnknownFirstAffiliation,
+            searchQuery: dailyArxivSearchQuery
+        }
     };
     try {
         sessionStorage.setItem('currentViewState', JSON.stringify(state));
@@ -179,6 +191,42 @@ async function restoreViewState() {
                 }
                 if (state.dailyArxivDate) {
                     dailyArxivCurrentDate = state.dailyArxivDate;
+                }
+                // 恢复过滤器状态
+                if (state.dailyArxivFilters) {
+                    const filters = state.dailyArxivFilters;
+                    if (filters.selectedAffiliations) {
+                        dailyArxivSelectedAffiliations = new Set(filters.selectedAffiliations);
+                    }
+                    if (filters.selectedCountries) {
+                        dailyArxivSelectedCountries = new Set(filters.selectedCountries);
+                    }
+                    if (filters.selectedKeywords) {
+                        dailyArxivSelectedKeywords = new Set(filters.selectedKeywords);
+                    }
+                    if (filters.excludedAffiliations) {
+                        dailyArxivExcludedAffiliations = new Set(filters.excludedAffiliations);
+                    }
+                    if (filters.excludedCountries) {
+                        dailyArxivExcludedCountries = new Set(filters.excludedCountries);
+                    }
+                    if (filters.excludedKeywords) {
+                        dailyArxivExcludedKeywords = new Set(filters.excludedKeywords);
+                    }
+                    if (typeof filters.filterFirstAffiliation === 'boolean') {
+                        dailyArxivFilterFirstAffiliation = filters.filterFirstAffiliation;
+                    }
+                    if (typeof filters.hideUnknownFirstAffiliation === 'boolean') {
+                        dailyArxivHideUnknownFirstAffiliation = filters.hideUnknownFirstAffiliation;
+                    }
+                    if (filters.searchQuery) {
+                        dailyArxivSearchQuery = filters.searchQuery;
+                        // 恢复搜索框的值
+                        const searchInput = document.getElementById('daily-arxiv-search');
+                        if (searchInput) {
+                            searchInput.value = filters.searchQuery;
+                        }
+                    }
                 }
                 switchTab('daily-arxiv');
                 return;
@@ -9253,9 +9301,19 @@ function renderDailyArxivGrid() {
                             <button class="daily-arxiv-card-action" onclick="event.stopPropagation(); window.open('https://arxiv.org/abs/${paper.arxiv_id}', '_blank')" title="在 arXiv 查看">
                                 <i class="fas fa-external-link-alt"></i>
                             </button>
-                            <button class="daily-arxiv-card-action add-to-reading-list paper-col-btn reading icon-only" onclick="onDailyArxivAddToReadingList(${index}, event)" title="添加到待读列表">
-                                <i class="fas fa-book-open"></i>
-                            </button>
+                            ${(() => {
+                                // 检查论文是否已在待读列表中
+                                const isInReadingList = paper.paper_id && readingListPaperIds.has(paper.paper_id);
+                                if (isInReadingList) {
+                                    return `<button class="daily-arxiv-card-action add-to-reading-list paper-col-btn reading icon-only in-list" data-paper-id="${paper.paper_id}" onclick="onDailyArxivRemoveFromReadingList(${index}, event)" title="从待读列表移除">
+                                        <i class="fas fa-times"></i>
+                                    </button>`;
+                                } else {
+                                    return `<button class="daily-arxiv-card-action add-to-reading-list paper-col-btn reading icon-only" onclick="onDailyArxivAddToReadingList(${index}, event)" title="添加到待读列表">
+                                        <i class="fas fa-book-open"></i>
+                                    </button>`;
+                                }
+                            })()}
                         </div>
                     </div>
                     ${keywordsHtml}

@@ -126,6 +126,16 @@ def register_daily_arxiv_routes(
         try:
             category = request.args.get("category")
             papers = manager.get_papers_for_date(date_str, category)
+
+            # 为每篇论文添加 paper_id（如果已在库中）
+            for paper in papers:
+                arxiv_id = paper.get("arxiv_id")
+                if arxiv_id:
+                    # 从 paper_store 中查找论文
+                    entry = paper_store.get_by_arxiv_id(arxiv_id)
+                    if entry:
+                        paper["paper_id"] = entry.paper.id
+
             return jsonify(
                 {
                     "success": True,

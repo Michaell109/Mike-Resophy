@@ -97,6 +97,14 @@ class PaperStore:
         with self._lock:
             return self._papers.get(paper_id)
 
+    def get_by_arxiv_id(self, arxiv_id: str) -> Optional[PaperEntry]:
+        """根据 arXiv ID 查找论文"""
+        with self._lock:
+            for entry in self._papers.values():
+                if entry.paper.arxiv_id == arxiv_id:
+                    return entry
+            return None
+
     def remove(self, paper_id: str) -> Optional[Paper]:
         with self._lock:
             entry = self._papers.pop(paper_id, None)
