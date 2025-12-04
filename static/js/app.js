@@ -7608,6 +7608,7 @@ let dailyArxivSettings = {
     checkIntervalMinutes: 10,
 };
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
+let dailyArxivSearchQuery = '';        // Daily arXiv 页面搜索查询
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
 let dailyArxivSelectedCountries = new Set(); // 当前选中的地区过滤条件
 let dailyArxivSelectedKeywords = new Set(); // 当前选中的关键词过滤条件
@@ -7847,6 +7848,29 @@ async function initDailyArxiv() {
     const filterBtn = document.getElementById('daily-arxiv-filter');
     const filterPanel = document.getElementById('daily-arxiv-filter-panel');
     const filterClearBtn = document.getElementById('daily-arxiv-filter-clear');
+    const searchInput = document.getElementById('daily-arxiv-search');
+
+    // Daily arXiv 搜索：title / authors / affiliations / abstract
+    if (searchInput) {
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value || '';
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                dailyArxivSearchQuery = query.trim();
+                renderDailyArxivGrid();
+            }, 250);
+        });
+
+        // ESC 清空搜索
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                searchInput.value = '';
+                dailyArxivSearchQuery = '';
+                renderDailyArxivGrid();
+            }
+        });
+    }
 
     // 过滤按钮：展开/收起过滤器面板
     if (filterBtn && filterPanel) {
@@ -8908,6 +8932,30 @@ function getCurrentDailyArxivPapers(applyFilters = true) {
         papers = papers.filter(paper => {
             const keywords = paper.keywords || [];
             return !keywords.some(keyword => keyword && excluded.has(keyword.trim()));
+        });
+    }
+
+    // 应用搜索过滤：在 title、authors、affiliations、abstract 中搜索
+    if (applyFilters && dailyArxivSearchQuery && dailyArxivSearchQuery.trim()) {
+        const q = dailyArxivSearchQuery.trim().toLowerCase();
+        papers = papers.filter(paper => {
+            // title
+            const title = (paper.title || '').toLowerCase();
+            if (title.includes(q)) return true;
+
+            // authors
+            const authors = (paper.authors || '').toLowerCase();
+            if (authors.includes(q)) return true;
+
+            // affiliations（机构）
+            const affs = (paper.affiliations || []).join(' ').toLowerCase();
+            if (affs.includes(q)) return true;
+
+            // abstract
+            const abstract = (paper.abstract || '').toLowerCase();
+            if (abstract.includes(q)) return true;
+
+            return false;
         });
     }
 

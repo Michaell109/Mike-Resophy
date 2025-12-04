@@ -3363,6 +3363,38 @@ mark { background: #fff59d; }
     flex-wrap: wrap;
 }
 
+/* Daily arXiv 搜索框样式 */
+.daily-arxiv-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 260px;
+    max-width: 420px;
+}
+
+.daily-arxiv-search-box input {
+    width: 100%;
+    padding: 6px 32px 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.daily-arxiv-search-box input:focus {
+    border-color: #2196F3;
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+}
+
+.daily-arxiv-search-box i {
+    position: absolute;
+    right: 10px;
+    color: #999;
+    pointer-events: none;
+    font-size: 13px;
+}
+
 /* Daily arXiv 过滤器布局 */
 .daily-arxiv-main {
     display: flex;
