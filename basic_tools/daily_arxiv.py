@@ -131,6 +131,9 @@ class ArxivPaper:
     fetch_category: Optional[str] = None  # 从哪个分区抓取的
     fetch_date: Optional[str] = None  # 抓取日期 (YYYY-MM-DD)
 
+    # PDF 下载状态
+    pdf_downloaded: bool = False  # PDF 是否已成功下载
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "arxiv_id": self.arxiv_id,
@@ -157,6 +160,7 @@ class ArxivPaper:
             "summary_extracted": self.summary_extracted,
             "fetch_category": self.fetch_category,
             "fetch_date": self.fetch_date,
+            "pdf_downloaded": self.pdf_downloaded,
         }
 
     @classmethod
@@ -198,6 +202,7 @@ class ArxivPaper:
             summary_extracted=data.get("summary_extracted", False),
             fetch_category=data.get("fetch_category"),
             fetch_date=data.get("fetch_date"),
+            pdf_downloaded=data.get("pdf_downloaded", False),
         )
 
     @classmethod
@@ -575,34 +580,44 @@ class DailyArxivManager:
                 paper_cat_dir = self.get_category_dir(paper_announce_date, category)
                 os.makedirs(paper_cat_dir, exist_ok=True)
 
-                # 检查论文是否已存在（跳过已下载的）
+                # 检查论文是否已存在
                 safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
                 json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
                 if not force and os.path.exists(json_path):
-                    # 已存在，检查是否需要生成缩略图
+                    # 已存在，检查 PDF 是否已成功下载
                     try:
                         with open(json_path, "r", encoding="utf-8") as f:
                             existing_data = json.load(f)
                         paper_dict = existing_data
 
-                        # 如果已有PDF但还没有缩略图，尝试生成
-                        if paper_dict.get("local_pdf_path") and not paper_dict.get(
-                            "thumbnail_path"
-                        ):
-                            pdf_path = paper_dict["local_pdf_path"]
-                            if os.path.exists(pdf_path):
+                        # 检查 PDF 是否真的存在
+                        pdf_path = paper_dict.get("local_pdf_path")
+                        pdf_exists = pdf_path and os.path.exists(pdf_path)
+                        pdf_downloaded = paper_dict.get("pdf_downloaded", False)
+
+                        # 如果 PDF 不存在或标记为未下载，需要重新下载
+                        if not pdf_exists or not pdf_downloaded:
+                            print(
+                                f"[DailyArxiv] PDF 未下载或文件不存在，重新尝试下载: {paper.arxiv_id}"
+                            )
+                            # 继续执行下载流程（不跳过）
+                        else:
+                            # PDF 已存在且标记为已下载，检查是否需要生成缩略图
+                            if not paper_dict.get("thumbnail_path"):
                                 thumbnail_path = self._generate_thumbnail(
                                     pdf_path, paper_cat_dir
                                 )
                                 if thumbnail_path:
                                     paper_dict["thumbnail_path"] = thumbnail_path
                                     self._save_paper(paper_dict, paper_cat_dir)
-                    except Exception as e:
-                        print(f"[DailyArxiv] 检查已存在论文缩略图失败: {e}")
 
-                    skipped_count += 1
-                    progress.update(i + 1, f"[已存在] {paper.title[:40]}")
-                    continue
+                            # PDF 已完整下载，跳过
+                            skipped_count += 1
+                            progress.update(i + 1, f"[已存在] {paper.title[:40]}")
+                            continue
+                    except Exception as e:
+                        print(f"[DailyArxiv] 检查已存在论文失败: {e}")
+                        # 如果读取失败，继续执行下载流程
 
                 progress.update(i + 1, paper.title[:50])
 
@@ -610,6 +625,7 @@ class DailyArxivManager:
                 pdf_path = self._download_pdf(paper, paper_cat_dir)
                 if pdf_path:
                     paper.local_pdf_path = pdf_path
+                    paper.pdf_downloaded = True  # 标记 PDF 已成功下载
 
                     # 生成缩略图（PDF第一页上半部分）
                     thumbnail_path = self._generate_thumbnail(pdf_path, paper_cat_dir)
@@ -631,8 +647,15 @@ class DailyArxivManager:
                         paper.homepage = extraction_result.get("homepage")
                         paper.github = extraction_result.get("github")
                         paper.affiliations_extracted = True
+                else:
+                    # PDF 下载失败，标记为未下载
+                    paper.pdf_downloaded = False
+                    print(
+                        f"[DailyArxiv] PDF 下载失败，将在下次检查时重试: {paper.arxiv_id}"
+                    )
 
                 # 提取摘要和关键词（从 abstract）
+                # 注意：即使 PDF 下载失败，也可以提取摘要和关键词
                 if (
                     llm_config.get("openaiBaseUrl")
                     and llm_config.get("openaiApiKey")
@@ -649,6 +672,7 @@ class DailyArxivManager:
                     paper.summary_extracted = True
 
                 # 保存论文元数据到正确的日期目录
+                # 即使 PDF 下载失败，也保存元数据，以便下次重试
                 paper_dict = paper.to_dict()
                 self._save_paper(paper_dict, paper_cat_dir)
 
@@ -672,7 +696,10 @@ class DailyArxivManager:
             return []
 
     def _download_pdf(self, paper: ArxivPaper, cat_dir: str) -> Optional[str]:
-        """下载 PDF"""
+        """下载 PDF
+
+        使用 export.arxiv.org 来避免 IP 限制问题
+        """
         try:
             safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
             pdf_filename = f"{safe_id}.pdf"
@@ -682,9 +709,82 @@ class DailyArxivManager:
                 return pdf_path
 
             print(f"[DailyArxiv] 下载 PDF: {paper.arxiv_id}")
-            urllib.request.urlretrieve(paper.pdf_url, pdf_path)
-            return pdf_path
 
+            # 将 PDF URL 从 arxiv.org 转换为 export.arxiv.org（官方推荐的导出服务）
+            # 例如: https://arxiv.org/pdf/2512.04025v1 -> https://export.arxiv.org/pdf/2512.04025v1
+            pdf_url = paper.pdf_url
+            if "arxiv.org/pdf/" in pdf_url:
+                pdf_url = pdf_url.replace("arxiv.org/pdf/", "export.arxiv.org/pdf/")
+            elif "arxiv.org/abs/" in pdf_url:
+                # 如果是 abs URL，也转换为 export
+                pdf_url = pdf_url.replace("arxiv.org/abs/", "export.arxiv.org/pdf/")
+            else:
+                # 如果已经是 export.arxiv.org，保持不变
+                pass
+
+            # 优先尝试使用 requests 库（如果可用），它通常能更好地处理反爬机制
+            try:
+                import requests
+
+                # 使用 requests 库，添加完整的浏览器请求头
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Referer": "https://arxiv.org/",
+                    "Connection": "keep-alive",
+                }
+
+                # 下载 PDF（使用 export.arxiv.org，不需要先访问主页）
+                response = requests.get(
+                    pdf_url,
+                    headers=headers,
+                    timeout=30,
+                    stream=True,
+                    allow_redirects=True,
+                )
+
+                if response.status_code == 200:
+                    with open(pdf_path, "wb") as out_file:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                out_file.write(chunk)
+                    print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
+                    return pdf_path
+                else:
+                    raise Exception(f"HTTP {response.status_code}: {response.reason}")
+
+            except ImportError:
+                # 如果没有 requests 库，回退到 urllib
+                # 创建请求，添加 User-Agent
+                req = urllib.request.Request(
+                    pdf_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "application/pdf,text/html,*/*",
+                        "Referer": "https://arxiv.org/",
+                    },
+                )
+
+                # 下载文件
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    with open(pdf_path, "wb") as out_file:
+                        out_file.write(response.read())
+
+                print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
+                return pdf_path
+
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                print(
+                    f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): 403 Forbidden - 可能是服务器 IP 被限制或 PDF 尚未发布，将在下次检查时重试"
+                )
+            else:
+                print(
+                    f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): HTTP Error {e.code}: {e.reason}"
+                )
+            return None
         except Exception as e:
             print(f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): {e}")
             return None
