@@ -3099,9 +3099,7 @@ function setupGlobalSearch() {
             try {
                 const params = new URLSearchParams();
                 params.set('q', q);
-                if (currentCategoryId) {
-                    params.set('category_id', currentCategoryId);
-                }
+                // 默认全库搜索：不再自动附带 category_id
                 const resp = await fetch(`/api/search?${params.toString()}`);
                 const data = await resp.json();
                 renderSearchResults(panel, q, data.results || []);

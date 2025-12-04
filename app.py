@@ -540,10 +540,9 @@ if __name__ == "__main__":
                     collect_papers(child, [])
 
                 if papers_with_categories:
+                    print(f"开始重建搜索索引，共 {len(papers_with_categories)} 篇论文...")
                     search_index.rebuild_index(papers_with_categories)
-                    print(
-                        f"搜索索引重建完成，共索引 {len(papers_with_categories)} 篇论文"
-                    )
+                    # 完成信息已在 rebuild_index 内部输出，这里不再重复
                 else:
                     print("没有找到论文，跳过索引重建")
             except Exception as e:

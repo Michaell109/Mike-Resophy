@@ -29,6 +29,8 @@ class SearchIndex:
         self.db_path = db_path
         self._lock = threading.RLock()
         self._rebuild_callback = None  # 重建索引的回调函数
+        self._is_rebuilding = False  # 是否正在重建索引
+        self._rebuild_lock = threading.Lock()  # 重建操作的锁
         self._init_database()
 
     def set_rebuild_callback(self, callback):
@@ -52,33 +54,40 @@ class SearchIndex:
 
     def _repair_database(self) -> None:
         """修复损坏的数据库：删除并重建"""
-        print(f"检测到数据库损坏，正在修复: {self.db_path}")
-        try:
-            # 备份损坏的数据库
-            if os.path.exists(self.db_path):
-                backup_path = self.db_path + ".corrupted"
-                if os.path.exists(backup_path):
-                    os.remove(backup_path)
-                os.rename(self.db_path, backup_path)
-                print(f"已备份损坏的数据库到: {backup_path}")
+        # 如果已经在重建中，跳过
+        with self._rebuild_lock:
+            if self._is_rebuilding:
+                return
 
-            # 删除损坏的数据库文件
-            if os.path.exists(self.db_path):
-                os.remove(self.db_path)
+            print(f"检测到数据库损坏，正在修复: {self.db_path}")
+            try:
+                # 备份损坏的数据库
+                if os.path.exists(self.db_path):
+                    backup_path = self.db_path + ".corrupted"
+                    if os.path.exists(backup_path):
+                        os.remove(backup_path)
+                    os.rename(self.db_path, backup_path)
+                    print(f"已备份损坏的数据库到: {backup_path}")
 
-            # 重新初始化数据库
-            self._init_database()
-            print("数据库修复完成，需要重建索引")
+                # 删除损坏的数据库文件
+                if os.path.exists(self.db_path):
+                    os.remove(self.db_path)
 
-            # 如果有重建回调，调用它
-            if self._rebuild_callback:
-                print("触发索引重建...")
-                self._rebuild_callback()
-        except Exception as e:
-            print(f"修复数据库失败: {e}")
-            import traceback
+                # 重新初始化数据库
+                self._init_database()
+                print("数据库修复完成，需要重建索引")
 
-            traceback.print_exc()
+                # 如果有重建回调，调用它（异步，不阻塞）
+                if self._rebuild_callback:
+                    print("触发索引重建（后台执行）...")
+                    import threading
+
+                    threading.Thread(target=self._rebuild_callback, daemon=True).start()
+            except Exception as e:
+                print(f"修复数据库失败: {e}")
+                import traceback
+
+                traceback.print_exc()
 
     def _init_database(self) -> None:
         """初始化数据库表结构"""
@@ -94,7 +103,7 @@ class SearchIndex:
                 conn.execute("PRAGMA cache_size=-64000")  # 64MB
                 cursor = conn.cursor()
 
-                # 创建论文元数据表
+                # 创建论文元数据表（包含 notes 字段，用于全文搜索备注）
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS papers (
@@ -102,6 +111,7 @@ class SearchIndex:
                         title TEXT,
                         authors TEXT,
                         abstract TEXT,
+                        notes TEXT,
                         filename TEXT,
                         category_id TEXT,
                         file_path TEXT,
@@ -110,7 +120,25 @@ class SearchIndex:
                     """
                 )
 
-                # 创建全文搜索虚拟表（FTS5）
+                # 如果是旧版本数据库，可能还没有 notes 列，这里做一次轻量级迁移
+                cursor.execute("PRAGMA table_info(papers)")
+                columns = [row[1] for row in cursor.fetchall()]  # 第二列是列名
+                if "notes" not in columns:
+                    cursor.execute("ALTER TABLE papers ADD COLUMN notes TEXT")
+
+                # 创建全文搜索虚拟表（FTS5），包含备注字段
+                # 旧版本的 papers_fts 可能没有 notes 列，先检查一下
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+                )
+                has_fts = cursor.fetchone() is not None
+                if has_fts:
+                    cursor.execute("PRAGMA table_info(papers_fts)")
+                    fts_columns = [row[1] for row in cursor.fetchall()]
+                    if "notes" not in fts_columns:
+                        # 旧的 FTS 表没有 notes，直接删除，稍后重新创建并重建索引
+                        cursor.execute("DROP TABLE IF EXISTS papers_fts")
+
                 cursor.execute(
                     """
                     CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
@@ -118,6 +146,7 @@ class SearchIndex:
                         title,
                         authors,
                         abstract,
+                        notes,
                         content='papers',
                         content_rowid='rowid'
                     )
@@ -128,8 +157,8 @@ class SearchIndex:
                 cursor.execute(
                     """
                     CREATE TRIGGER IF NOT EXISTS papers_fts_insert AFTER INSERT ON papers BEGIN
-                        INSERT INTO papers_fts(rowid, id, title, authors, abstract)
-                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract);
+                        INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract, new.notes);
                     END
                     """
                 )
@@ -146,8 +175,8 @@ class SearchIndex:
                     """
                     CREATE TRIGGER IF NOT EXISTS papers_fts_update AFTER UPDATE ON papers BEGIN
                         DELETE FROM papers_fts WHERE rowid = old.rowid;
-                        INSERT INTO papers_fts(rowid, id, title, authors, abstract)
-                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract);
+                        INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract, new.notes);
                     END
                     """
                 )
@@ -178,14 +207,15 @@ class SearchIndex:
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO papers 
-                        (id, title, authors, abstract, filename, category_id, file_path, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                        (id, title, authors, abstract, notes, filename, category_id, file_path, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                         """,
                         (
                             paper.id,
                             paper.title or "",
                             paper.authors or "",
                             paper.abstract or "",
+                            getattr(paper, "notes", "") or "",
                             paper.filename or "",
                             category_id or "",
                             paper.file_path or "",
@@ -227,9 +257,7 @@ class SearchIndex:
                 else:
                     raise
 
-    def update_paper_category(
-        self, paper_id: str, category_id: Optional[str]
-    ) -> None:
+    def update_paper_category(self, paper_id: str, category_id: Optional[str]) -> None:
         """
         更新论文的分类
 
@@ -291,19 +319,23 @@ class SearchIndex:
                 cursor = conn.cursor()
 
                 # 构建 FTS 查询
-                fts_query = query.strip()
+                # 将查询作为完整短语进行匹配，使用双引号包裹
+                # 这样可以确保 "lei zhang" 只会匹配连续的 "lei zhang"，而不是分开的 "lei" 和 "zhang"
+                query_cleaned = query.strip()
 
-                # FTS5 查询构建：
-                # - 单个词：添加 * 实现前缀匹配（如 "zi" -> "zi*" 可匹配 "ziwei"）
-                # - 多个词：每个词都添加 * 实现前缀匹配
-                if " " in fts_query:
-                    # 多个词：每个词都添加前缀匹配
-                    words = fts_query.split()
-                    # 对每个词添加 * 后缀
-                    fts_query = " ".join(word + "*" for word in words if word)
-                else:
-                    # 单个词：添加前缀匹配
-                    fts_query = fts_query + "*"
+                # 如果查询为空，直接返回空结果
+                if not query_cleaned:
+                    return []
+
+                # 转义查询中的特殊字符（双引号需要转义）
+                # FTS5 中的特殊字符：", *, AND, OR, NOT, NEAR
+                # 在短语查询中，用双引号包裹后这些字符会被视为字面量，但双引号需要转义
+                query_cleaned = query_cleaned.replace('"', '""')  # 转义双引号
+
+                # 用双引号包裹查询，使其成为短语查询
+                # 如果查询包含多个词，它们必须连续出现才能匹配
+                # 例如："lei zhang" 只会匹配连续的 "lei zhang"，不会匹配 "Lei Li" 和 "Zhang" 分开的情况
+                fts_query = f'"{query_cleaned}"'
 
                 # 构建 SQL 查询
                 if category_id:
@@ -313,6 +345,7 @@ class SearchIndex:
                             papers.title,
                             papers.authors,
                             papers.abstract,
+                            papers.notes,
                             papers.filename,
                             papers.category_id,
                             bm25(papers_fts) as rank
@@ -331,6 +364,7 @@ class SearchIndex:
                             papers.title,
                             papers.authors,
                             papers.abstract,
+                            papers.notes,
                             papers.filename,
                             papers.category_id,
                             bm25(papers_fts) as rank
@@ -349,9 +383,9 @@ class SearchIndex:
                 query_lower = query.lower()
                 results = []
                 for row in rows:
-                    pid, title, authors, abstract, filename, cat_id, rank = row
+                    pid, title, authors, abstract, notes, filename, cat_id, rank = row
 
-                    # 确定匹配字段
+                    # 确定真实命中的字段（包括备注 notes）
                     matched_fields = []
                     if title and query_lower in (title or "").lower():
                         matched_fields.append("title")
@@ -359,30 +393,44 @@ class SearchIndex:
                         matched_fields.append("authors")
                     if abstract and query_lower in (abstract or "").lower():
                         matched_fields.append("abstract")
+                    if notes and query_lower in (notes or "").lower():
+                        matched_fields.append("notes")
 
-                    if not matched_fields:
-                        matched_fields = ["title"]
+                    # 不再做“默认认为命中 title”的 fallback，
+                    # 这样前端看到的 matched_fields 一定是真实包含 query 的字段集合
 
                     similarity = max(0.5, 1.0 - abs(rank) / 20.0) if rank else 0.5
 
-                    results.append({
-                        "id": pid,
-                        "title": title or "",
-                        "authors": authors or "",
-                        "abstract": abstract or "",
-                        "filename": filename or "",
-                        "category_id": cat_id or None,
-                        "matched_fields": matched_fields,
-                        "similarity": similarity,
-                    })
+                    results.append(
+                        {
+                            "id": pid,
+                            "title": title or "",
+                            "authors": authors or "",
+                            "abstract": abstract or "",
+                            "notes": notes or "",
+                            "filename": filename or "",
+                            "category_id": cat_id or None,
+                            "matched_fields": matched_fields,
+                            "similarity": similarity,
+                        }
+                    )
 
                 return results
 
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
                 if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"数据库损坏错误: {e}")
-                    self._repair_database()
+                    # 搜索时遇到数据库损坏，不立即触发重建（避免阻塞）
+                    # 只记录错误并返回空结果，重建会在后台进行
+                    if not self._is_rebuilding:
+                        print(f"搜索时检测到数据库损坏: {e}")
+                        print("正在后台修复数据库，请稍后重试搜索...")
+                        # 异步触发修复和重建，不阻塞搜索
+                        import threading
+
+                        threading.Thread(
+                            target=self._repair_database, daemon=True
+                        ).start()
                     return []
                 else:
                     raise
@@ -397,11 +445,19 @@ class SearchIndex:
         Args:
             papers: 论文列表，每个元素是 (Paper, category_id) 元组
         """
-        with self._lock:
-            # 如果数据库损坏，先修复
-            if not self._check_database_integrity():
-                print("检测到数据库损坏，先修复...")
-                self._repair_database()
+        # 防止重复重建
+        with self._rebuild_lock:
+            if self._is_rebuilding:
+                print("索引重建已在进行中，跳过本次重建")
+                return
+            self._is_rebuilding = True
+
+        try:
+            with self._lock:
+                # 如果数据库损坏，先修复
+                if not self._check_database_integrity():
+                    print("检测到数据库损坏，先修复...")
+                    self._repair_database()
 
             try:
                 conn = sqlite3.connect(self.db_path)
@@ -418,14 +474,15 @@ class SearchIndex:
                         cursor.execute(
                             """
                             INSERT INTO papers 
-                            (id, title, authors, abstract, filename, category_id, file_path, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                            (id, title, authors, abstract, notes, filename, category_id, file_path, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                             """,
                             (
                                 paper.id,
                                 paper.title or "",
                                 paper.authors or "",
                                 paper.abstract or "",
+                                getattr(paper, "notes", "") or "",
                                 paper.filename or "",
                                 category_id or "",
                                 paper.file_path or "",
@@ -435,12 +492,13 @@ class SearchIndex:
                     # 重建 FTS 索引
                     cursor.execute(
                         """
-                        INSERT INTO papers_fts(rowid, id, title, authors, abstract)
-                        SELECT rowid, id, title, authors, abstract FROM papers
+                        INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                        SELECT rowid, id, title, authors, abstract, notes FROM papers
                         """
                     )
 
                     conn.commit()
+                    print(f"搜索索引重建完成，共索引 {len(papers)} 篇论文")
                 finally:
                     conn.close()
             except sqlite3.DatabaseError as e:
@@ -448,11 +506,18 @@ class SearchIndex:
                 if "malformed" in error_msg or "corrupt" in error_msg:
                     print(f"重建索引时数据库损坏: {e}")
                     self._repair_database()
-                    # 修复后重新尝试
+                    # 修复后重新尝试（重置标志后递归调用）
                     if papers:
+                        with self._rebuild_lock:
+                            self._is_rebuilding = False
                         self.rebuild_index(papers)
+                    return  # 递归调用后直接返回，不再执行 finally
                 else:
                     raise
+        finally:
+            # 重置重建标志（确保无论成功或失败都会重置）
+            with self._rebuild_lock:
+                self._is_rebuilding = False
 
     def get_paper_count(self, category_id: Optional[str] = None) -> int:
         """
@@ -509,4 +574,3 @@ class SearchIndex:
                     self._repair_database()
                 else:
                     raise
-

@@ -15,3 +15,4 @@ __all__ = [
     "normalize_institution",
     "normalize_institutions",
 ]
+

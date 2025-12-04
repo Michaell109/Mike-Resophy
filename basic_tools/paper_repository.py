@@ -24,7 +24,7 @@ def save_paper_metadata(pdf_path: str, paper_data) -> None:
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-        print(f"已保存论文元数据: {json_path}")
+        # 移除成功保存的日志输出，减少控制台噪音（只在错误时输出）
     except Exception as exc:
         print(f"保存论文元数据失败: {exc}")
 
