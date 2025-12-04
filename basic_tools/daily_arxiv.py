@@ -565,119 +565,149 @@ class DailyArxivManager:
             papers = []
             skipped_count = 0
 
+            print(f"[DailyArxiv] 开始处理 {len(results)} 篇论文...")
             for i, result in enumerate(results):
-                paper = ArxivPaper.from_arxiv_result(result, fetch_category=category)
+                try:
+                    print(f"[DailyArxiv] 处理第 {i+1}/{len(results)} 篇论文...")
+                    paper = ArxivPaper.from_arxiv_result(
+                        result, fetch_category=category
+                    )
 
-                # 使用论文的实际公布日期作为存储目录
-                paper_announce_date = (
-                    paper.announced.strftime("%Y-%m-%d")
-                    if paper.announced
-                    else date_str
-                )
-                paper.fetch_date = paper_announce_date
+                    # 使用论文的实际公布日期作为存储目录
+                    paper_announce_date = (
+                        paper.announced.strftime("%Y-%m-%d")
+                        if paper.announced
+                        else date_str
+                    )
+                    paper.fetch_date = paper_announce_date
 
-                # 获取该日期对应的目录
-                paper_cat_dir = self.get_category_dir(paper_announce_date, category)
-                os.makedirs(paper_cat_dir, exist_ok=True)
+                    # 获取该日期对应的目录
+                    paper_cat_dir = self.get_category_dir(paper_announce_date, category)
+                    os.makedirs(paper_cat_dir, exist_ok=True)
 
-                # 检查论文是否已存在
-                safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
-                json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
-                if not force and os.path.exists(json_path):
-                    # 已存在，检查 PDF 是否已成功下载
-                    try:
-                        with open(json_path, "r", encoding="utf-8") as f:
-                            existing_data = json.load(f)
-                        paper_dict = existing_data
+                    # 检查论文是否已存在
+                    safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
+                    json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
+                    if not force and os.path.exists(json_path):
+                        # 已存在，检查 PDF 是否已成功下载
+                        try:
+                            with open(json_path, "r", encoding="utf-8") as f:
+                                existing_data = json.load(f)
+                            paper_dict = existing_data
 
-                        # 检查 PDF 是否真的存在
-                        pdf_path = paper_dict.get("local_pdf_path")
-                        pdf_exists = pdf_path and os.path.exists(pdf_path)
-                        pdf_downloaded = paper_dict.get("pdf_downloaded", False)
+                            # 检查 PDF 是否真的存在
+                            pdf_path = paper_dict.get("local_pdf_path")
+                            pdf_exists = pdf_path and os.path.exists(pdf_path)
+                            pdf_downloaded = paper_dict.get("pdf_downloaded", False)
 
-                        # 如果 PDF 不存在或标记为未下载，需要重新下载
-                        if not pdf_exists or not pdf_downloaded:
-                            print(
-                                f"[DailyArxiv] PDF 未下载或文件不存在，重新尝试下载: {paper.arxiv_id}"
-                            )
-                            # 继续执行下载流程（不跳过）
-                        else:
-                            # PDF 已存在且标记为已下载，检查是否需要生成缩略图
-                            if not paper_dict.get("thumbnail_path"):
-                                thumbnail_path = self._generate_thumbnail(
-                                    pdf_path, paper_cat_dir
+                            # 如果 PDF 不存在或标记为未下载，需要重新下载
+                            if not pdf_exists or not pdf_downloaded:
+                                print(
+                                    f"[DailyArxiv] PDF 未下载或文件不存在，重新尝试下载: {paper.arxiv_id}"
                                 )
-                                if thumbnail_path:
-                                    paper_dict["thumbnail_path"] = thumbnail_path
-                                    self._save_paper(paper_dict, paper_cat_dir)
+                                # 继续执行下载流程（不跳过）
+                            else:
+                                # PDF 已存在且标记为已下载，检查是否需要生成缩略图
+                                if not paper_dict.get("thumbnail_path"):
+                                    thumbnail_path = self._generate_thumbnail(
+                                        pdf_path, paper_cat_dir
+                                    )
+                                    if thumbnail_path:
+                                        paper_dict["thumbnail_path"] = thumbnail_path
+                                        self._save_paper(paper_dict, paper_cat_dir)
 
-                            # PDF 已完整下载，跳过
-                            skipped_count += 1
-                            progress.update(i + 1, f"[已存在] {paper.title[:40]}")
-                            continue
-                    except Exception as e:
-                        print(f"[DailyArxiv] 检查已存在论文失败: {e}")
-                        # 如果读取失败，继续执行下载流程
+                                # PDF 已完整下载，跳过
+                                skipped_count += 1
+                                progress.update(i + 1, f"[已存在] {paper.title[:40]}")
+                                print(
+                                    f"[DailyArxiv] 跳过已完整下载的论文: {paper.arxiv_id}"
+                                )
+                                continue
+                        except Exception as e:
+                            print(f"[DailyArxiv] 检查已存在论文失败: {e}")
+                            import traceback
 
-                progress.update(i + 1, paper.title[:50])
+                            traceback.print_exc()
+                            # 如果读取失败，继续执行下载流程
 
-                # 下载 PDF 到正确的日期目录
-                pdf_path = self._download_pdf(paper, paper_cat_dir)
-                if pdf_path:
-                    paper.local_pdf_path = pdf_path
-                    paper.pdf_downloaded = True  # 标记 PDF 已成功下载
+                    progress.update(i + 1, paper.title[:50])
 
-                    # 生成缩略图（PDF第一页上半部分）
-                    thumbnail_path = self._generate_thumbnail(pdf_path, paper_cat_dir)
-                    if thumbnail_path:
-                        paper.thumbnail_path = thumbnail_path
+                    # 下载 PDF 到正确的日期目录
+                    pdf_path = self._download_pdf(paper, paper_cat_dir)
+                    if pdf_path:
+                        paper.local_pdf_path = pdf_path
+                        paper.pdf_downloaded = True  # 标记 PDF 已成功下载
 
-                    # 提取机构、homepage 和 github（从 PDF 第一页）
-                    if llm_config.get("openaiBaseUrl") and llm_config.get(
-                        "openaiApiKey"
+                        # 生成缩略图（PDF第一页上半部分）
+                        thumbnail_path = self._generate_thumbnail(
+                            pdf_path, paper_cat_dir
+                        )
+                        if thumbnail_path:
+                            paper.thumbnail_path = thumbnail_path
+
+                        # 提取机构、homepage 和 github（从 PDF 第一页）
+                        if llm_config.get("openaiBaseUrl") and llm_config.get(
+                            "openaiApiKey"
+                        ):
+                            extraction_result = self._extract_affiliations(
+                                pdf_path,
+                                llm_config["openaiBaseUrl"],
+                                llm_config["openaiApiKey"],
+                                prompt=affiliation_prompt,
+                            )
+                            paper.affiliations = extraction_result.get(
+                                "affiliations", []
+                            )
+                            paper.countries = extraction_result.get("countries", [])
+                            paper.homepage = extraction_result.get("homepage")
+                            paper.github = extraction_result.get("github")
+                            paper.affiliations_extracted = True
+                    else:
+                        # PDF 下载失败，标记为未下载
+                        paper.pdf_downloaded = False
+                        print(
+                            f"[DailyArxiv] PDF 下载失败，将在下次检查时重试: {paper.arxiv_id}"
+                        )
+
+                    # 提取摘要和关键词（从 abstract）
+                    # 注意：即使 PDF 下载失败，也可以提取摘要和关键词
+                    if (
+                        llm_config.get("openaiBaseUrl")
+                        and llm_config.get("openaiApiKey")
+                        and paper.abstract
                     ):
-                        extraction_result = self._extract_affiliations(
-                            pdf_path,
+                        summary_result = extract_summary_and_keywords_with_llm(
+                            paper.abstract,
                             llm_config["openaiBaseUrl"],
                             llm_config["openaiApiKey"],
-                            prompt=affiliation_prompt,
+                            prompt=summary_prompt,
                         )
-                        paper.affiliations = extraction_result.get("affiliations", [])
-                        paper.countries = extraction_result.get("countries", [])
-                        paper.homepage = extraction_result.get("homepage")
-                        paper.github = extraction_result.get("github")
-                        paper.affiliations_extracted = True
-                else:
-                    # PDF 下载失败，标记为未下载
-                    paper.pdf_downloaded = False
+                        paper.summary = summary_result.get("summary")
+                        paper.keywords = summary_result.get("keywords", [])
+                        paper.summary_extracted = True
+
+                    # 保存论文元数据到正确的日期目录
+                    # 即使 PDF 下载失败，也保存元数据，以便下次重试
+                    paper_dict = paper.to_dict()
+                    self._save_paper(paper_dict, paper_cat_dir)
+
+                    papers.append(paper_dict)
+                    progress.add_paper(paper_dict)
                     print(
-                        f"[DailyArxiv] PDF 下载失败，将在下次检查时重试: {paper.arxiv_id}"
+                        f"[DailyArxiv] 完成处理第 {i+1}/{len(results)} 篇论文: {paper.arxiv_id}"
                     )
 
-                # 提取摘要和关键词（从 abstract）
-                # 注意：即使 PDF 下载失败，也可以提取摘要和关键词
-                if (
-                    llm_config.get("openaiBaseUrl")
-                    and llm_config.get("openaiApiKey")
-                    and paper.abstract
-                ):
-                    summary_result = extract_summary_and_keywords_with_llm(
-                        paper.abstract,
-                        llm_config["openaiBaseUrl"],
-                        llm_config["openaiApiKey"],
-                        prompt=summary_prompt,
+                except Exception as e:
+                    # 捕获单篇论文处理时的异常，避免影响后续论文
+                    print(f"[DailyArxiv] 处理第 {i+1}/{len(results)} 篇论文时出错: {e}")
+                    print(
+                        f"[DailyArxiv] 论文 ID: {result.entry_id if hasattr(result, 'entry_id') else 'unknown'}"
                     )
-                    paper.summary = summary_result.get("summary")
-                    paper.keywords = summary_result.get("keywords", [])
-                    paper.summary_extracted = True
+                    import traceback
 
-                # 保存论文元数据到正确的日期目录
-                # 即使 PDF 下载失败，也保存元数据，以便下次重试
-                paper_dict = paper.to_dict()
-                self._save_paper(paper_dict, paper_cat_dir)
-
-                papers.append(paper_dict)
-                progress.add_paper(paper_dict)
+                    traceback.print_exc()
+                    # 继续处理下一篇论文
+                    continue
 
             msg = f"完成，新增 {len(papers)} 篇论文"
             if skipped_count > 0:

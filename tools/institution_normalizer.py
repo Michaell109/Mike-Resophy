@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
 
@@ -36,7 +37,83 @@ class InstitutionNormalizer:
         self._load_mapping()
 
         # 构建反向索引：全名/变体 -> 标准缩写（用于快速精确匹配）
+        # 使用标准化后的字符串作为键
         self._build_reverse_index()
+
+    def _normalize_string(self, text: str) -> str:
+        """
+        标准化字符串：去除标点、统一大小写、标准化后缀等
+        
+        Args:
+            text: 原始字符串
+            
+        Returns:
+            标准化后的字符串
+        """
+        if not text:
+            return ""
+        
+        # 1. 去除首尾空格并转换为小写
+        normalized = text.strip().lower()
+        
+        # 2. 去除标点符号（保留空格和字母数字）
+        # 去除常见的标点：逗号、句号、分号、冒号等
+        normalized = re.sub(r'[,.;:!?()\[\]{}"\']+', '', normalized)
+        
+        # 3. 标准化常见机构后缀
+        # 定义后缀映射表
+        suffix_mappings = {
+            r'\binc\.?\b': 'inc',
+            r'\binc,\b': 'inc',
+            r'\bltd\.?\b': 'ltd',
+            r'\blimited\b': 'ltd',
+            r'\bcorp\.?\b': 'corp',
+            r'\bcorporation\b': 'corp',
+            r'\blab\.?\b': 'lab',
+            r'\blaboratory\b': 'lab',
+            r'\buniv\.?\b': 'univ',
+            r'\buniversity\b': 'univ',
+            r'\bcollege\b': 'college',
+            r'\bschool\b': 'school',
+            r'\binstitute\b': 'inst',
+            r'\binstitution\b': 'inst',
+        }
+        
+        for pattern, replacement in suffix_mappings.items():
+            normalized = re.sub(pattern, replacement, normalized)
+        
+        # 4. 去除多余空格（合并连续空格为单个空格）
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # 5. 再次去除首尾空格
+        normalized = normalized.strip()
+        
+        return normalized
+
+    def _extract_core_words(self, text: str) -> str:
+        """
+        提取核心词（去除常见后缀和停用词）
+        
+        Args:
+            text: 标准化后的字符串
+            
+        Returns:
+            核心词字符串
+        """
+        if not text:
+            return ""
+        
+        # 常见停用词和后缀
+        stop_words = {'the', 'of', 'and', 'at', 'in', 'on', 'for', 'to', 'a', 'an'}
+        suffixes = {'inc', 'ltd', 'corp', 'lab', 'univ', 'college', 'school', 'inst', 'university'}
+        
+        # 分割单词
+        words = text.split()
+        
+        # 过滤停用词和后缀
+        core_words = [w for w in words if w not in stop_words and w not in suffixes]
+        
+        return ' '.join(core_words) if core_words else text
 
     def _load_mapping(self):
         """加载机构映射文件（系统 + 用户自定义）"""
@@ -73,16 +150,43 @@ class InstitutionNormalizer:
                 print(f"[InstitutionNormalizer] 加载用户自定义映射失败: {e}")
 
     def _build_reverse_index(self):
-        """构建反向索引，用于快速精确匹配"""
+        """
+        构建反向索引，用于快速精确匹配
+        使用标准化后的字符串作为键，提高匹配成功率
+        """
         self.reverse_index: Dict[str, str] = {}
+        self.normalized_index: Dict[str, str] = {}  # 标准化后的索引
+        self.core_words_index: Dict[str, str] = {}  # 核心词索引
 
         for standard_name, variants in self.institution_map.items():
-            # 标准名称本身也加入索引（指向自己）
+            # 1. 原始小写索引（保持向后兼容）
             self.reverse_index[standard_name.lower()] = standard_name
-
-            # 所有变体也加入索引（指向标准名称）
             for variant in variants:
                 self.reverse_index[variant.lower()] = standard_name
+            
+            # 2. 标准化索引（去除标点、标准化后缀）
+            normalized_standard = self._normalize_string(standard_name)
+            if normalized_standard:
+                self.normalized_index[normalized_standard] = standard_name
+            
+            for variant in variants:
+                normalized_variant = self._normalize_string(variant)
+                if normalized_variant:
+                    self.normalized_index[normalized_variant] = standard_name
+            
+            # 3. 核心词索引（用于部分匹配）
+            core_standard = self._extract_core_words(normalized_standard)
+            if core_standard:
+                # 如果核心词索引中还没有这个标准名称，添加它
+                if core_standard not in self.core_words_index:
+                    self.core_words_index[core_standard] = standard_name
+                # 如果有多个变体映射到同一个核心词，保持第一个（通常是标准名称）
+            
+            for variant in variants:
+                normalized_variant = self._normalize_string(variant)
+                core_variant = self._extract_core_words(normalized_variant)
+                if core_variant and core_variant not in self.core_words_index:
+                    self.core_words_index[core_variant] = standard_name
 
     def _calculate_similarity(self, str1: str, str2: str) -> float:
         """
@@ -161,7 +265,7 @@ class InstitutionNormalizer:
         self, extracted_name: str, fuzzy: bool = True, threshold: float = 0.85
     ) -> str:
         """
-        标准化机构名称
+        标准化机构名称（使用层次化匹配策略）
 
         Args:
             extracted_name: LLM 提取的机构名称
@@ -175,20 +279,48 @@ class InstitutionNormalizer:
             return extracted_name
 
         name = extracted_name.strip()
+        name_lower = name.lower()
 
-        # 1. 首先尝试精确匹配（使用反向索引）
-        exact_match = self.reverse_index.get(name.lower())
+        # ===== 第一层：精确匹配（原始小写） =====
+        exact_match = self.reverse_index.get(name_lower)
         if exact_match:
             return exact_match
 
-        # 2. 如果启用模糊匹配，尝试模糊匹配
+        # ===== 第二层：标准化后精确匹配 =====
+        normalized_name = self._normalize_string(name)
+        if normalized_name:
+            normalized_match = self.normalized_index.get(normalized_name)
+            if normalized_match:
+                print(f"[InstitutionNormalizer] 标准化匹配: '{name}' -> '{normalized_match}'")
+                return normalized_match
+
+        # ===== 第三层：核心词匹配 =====
+        core_words = self._extract_core_words(normalized_name)
+        if core_words:
+            # 检查核心词是否完全匹配
+            core_match = self.core_words_index.get(core_words)
+            if core_match:
+                print(f"[InstitutionNormalizer] 核心词匹配: '{name}' -> '{core_match}'")
+                return core_match
+            
+            # 检查包含关系：核心词是否包含在某个配置的核心词中，或反之
+            for config_core, standard_name in self.core_words_index.items():
+                # 如果提取的核心词包含配置的核心词，或配置的核心词包含提取的核心词
+                if core_words in config_core or config_core in core_words:
+                    # 进一步检查：确保不是太短的匹配（避免误匹配）
+                    min_length = min(len(core_words), len(config_core))
+                    if min_length >= 3:  # 至少3个字符
+                        print(f"[InstitutionNormalizer] 核心词包含匹配: '{name}' -> '{standard_name}'")
+                        return standard_name
+
+        # ===== 第四层：模糊匹配（如果启用） =====
         if fuzzy:
             fuzzy_match = self._fuzzy_match(name, threshold)
             if fuzzy_match:
                 print(f"[InstitutionNormalizer] 模糊匹配: '{name}' -> '{fuzzy_match}'")
                 return fuzzy_match
 
-        # 3. 无法匹配，返回原名称
+        # ===== 无法匹配，返回原名称 =====
         return name
 
     def normalize_list(
