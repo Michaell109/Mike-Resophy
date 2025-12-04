@@ -3875,6 +3875,8 @@ mark { background: #fff59d; }
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 24px; /* 增加列间距 */
     flex: 1;
+    /* 限制卡片最大宽度，避免只有少数论文时过度拉伸 */
+    grid-auto-rows: min-content;
 }
 
 /* 无匹配结果时，让网格区域改为居中布局 */
@@ -3890,6 +3892,9 @@ mark { background: #fff59d; }
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
         gap: 28px;
     }
+    .daily-arxiv-card {
+        max-width: 500px;
+    }
 }
 
 /* 中大屏幕：3-4列 */
@@ -3897,6 +3902,9 @@ mark { background: #fff59d; }
     .daily-arxiv-grid {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: 26px;
+    }
+    .daily-arxiv-card {
+        max-width: 480px;
     }
 }
 
@@ -3906,6 +3914,9 @@ mark { background: #fff59d; }
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 24px;
     }
+    .daily-arxiv-card {
+        max-width: 450px;
+    }
 }
 
 /* 小屏幕：2列 */
@@ -3914,6 +3925,9 @@ mark { background: #fff59d; }
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: 20px;
     }
+    .daily-arxiv-card {
+        max-width: 420px;
+    }
 }
 
 /* 移动端：1列 */
@@ -3921,6 +3935,9 @@ mark { background: #fff59d; }
     .daily-arxiv-grid {
         grid-template-columns: 1fr;
         gap: 16px;
+    }
+    .daily-arxiv-card {
+        max-width: 100%; /* 移动端允许全宽 */
     }
 }
 
@@ -3935,6 +3952,8 @@ mark { background: #fff59d; }
     display: flex;
     flex-direction: column;
     width: 100%; /* 填满grid单元格 */
+    max-width: 450px; /* 限制卡片最大宽度，避免过度拉伸 */
+    justify-self: start; /* 在网格中左对齐，而不是拉伸填满 */
 }
 
 .daily-arxiv-card:hover {
