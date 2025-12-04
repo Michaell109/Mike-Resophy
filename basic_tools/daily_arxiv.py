@@ -533,16 +533,14 @@ class DailyArxivManager:
         self,
         category: str,
         date_str: str = None,
-        max_results: int = 3,
         force: bool = False,
     ) -> List[Dict]:
         """
-        抓取论文
+        抓取论文（自动抓取今天所有的论文）
 
         Args:
             category: arXiv 分区
-            date_str: 日期（用于缓存检查，默认今天）
-            max_results: 最大数量
+            date_str: 目标日期（默认今天），只抓取该日期的论文
             force: 强制重新抓取
 
         Returns:
@@ -555,20 +553,56 @@ class DailyArxivManager:
         if category not in self.progress:
             self.progress[category] = FetchProgress()
         progress = self.progress[category]
-        progress.reset(max_results)
+        progress.reset(0)  # 总数未知，稍后更新
 
         try:
-            # 获取论文列表
-            print(f"[DailyArxiv] 正在获取 {category} 论文...")
+            # 获取论文，直到找到今天日期之前的论文为止
+            print(f"[DailyArxiv] 正在获取 {category} 分区 {date_str} 的所有论文...")
+
+            # 一次性获取足够多的论文（最多500篇），然后筛选目标日期的论文
+            max_fetch = 500
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
             search = arxiv.Search(
                 query=f"cat:{category}",
-                max_results=max_results,
+                max_results=max_fetch,
                 sort_by=arxiv.SortCriterion.SubmittedDate,
                 sort_order=arxiv.SortOrder.Descending,
             )
 
-            results = list(self.client.results(search))
-            print(f"[DailyArxiv] 获取到 {len(results)} 篇 {category} 论文")
+            all_results = []
+            checked_count = 0
+
+            for result in self.client.results(search):
+                checked_count += 1
+
+                # 检查论文日期
+                paper_tmp = ArxivPaper.from_arxiv_result(
+                    result, fetch_category=category
+                )
+                paper_date = paper_tmp.announced.date() if paper_tmp.announced else None
+
+                if paper_date and paper_date == target_date:
+                    # 是目标日期的论文，添加到结果中
+                    all_results.append(result)
+                elif paper_date and paper_date < target_date:
+                    # 找到了比目标日期更早的论文，停止抓取
+                    print(
+                        f"[DailyArxiv] 找到 {paper_date} 的论文（早于目标日期 {target_date}），停止抓取"
+                    )
+                    break
+                # 如果是未来日期的论文，跳过（通常不会出现）
+
+                # 定期输出进度
+                if checked_count % 50 == 0:
+                    print(
+                        f"[DailyArxiv] 已检查 {checked_count} 篇论文，找到 {len(all_results)} 篇目标日期的论文"
+                    )
+
+            results = all_results
+            print(
+                f"[DailyArxiv] 检查了 {checked_count} 篇论文，找到 {len(results)} 篇 {date_str} 的 {category} 论文"
+            )
 
             if not results:
                 progress.set_done("没有找到论文")
@@ -999,7 +1033,6 @@ class DailyArxivManager:
         settings = self.get_settings()
 
         categories = settings.get("categories", [])
-        max_papers = settings.get("maxPapersPerCategory", 3)
         retention_days = settings.get("retentionDays", 7)
 
         if not categories:
@@ -1011,10 +1044,10 @@ class DailyArxivManager:
         # 清理过期论文
         self.cleanup_old_papers(retention_days)
 
-        # 抓取每个分区
+        # 抓取每个分区（自动抓取今天所有论文）
         for category in categories:
             try:
-                self.fetch_papers(category, max_results=max_papers, force=False)
+                self.fetch_papers(category, force=False)
             except Exception as e:
                 print(f"[DailyArxiv] 抓取 {category} 失败: {e}")
 

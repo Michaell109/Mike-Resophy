@@ -142,12 +142,11 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/fetch", methods=["POST"])
     def api_fetch_daily_arxiv():
-        """手动触发抓取论文"""
+        """手动触发抓取论文（自动抓取指定日期的所有论文）"""
         try:
             data = request.json or {}
             category = data.get("category")
             date_str = data.get("date", get_today_arxiv_date())
-            max_papers = data.get("max_papers", 3)
             force = data.get("force", False)
 
             if not category:
@@ -158,7 +157,6 @@ def register_daily_arxiv_routes(
                 manager.fetch_papers(
                     category,
                     date_str=date_str,
-                    max_results=max_papers,
                     force=force,
                 )
 
@@ -203,14 +201,13 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/fetch-all", methods=["POST"])
     def api_fetch_all_categories():
-        """抓取所有配置的分区"""
+        """抓取所有配置的分区（自动抓取今天所有论文）"""
         try:
             data = request.json or {}
             force = data.get("force", False)
 
             settings = manager.get_settings()
             categories = settings.get("categories", [])
-            max_papers = settings.get("maxPapersPerCategory", 3)
 
             if not categories:
                 return jsonify({"success": False, "error": "未配置分区"}), 400
@@ -223,7 +220,6 @@ def register_daily_arxiv_routes(
                     manager.fetch_papers(
                         cat,
                         date_str=date_str,
-                        max_results=max_papers,
                         force=force,
                     )
 

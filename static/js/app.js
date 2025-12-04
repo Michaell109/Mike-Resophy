@@ -3210,6 +3210,17 @@ function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Daily arXiv 搜索高亮
+function highlightDailyArxiv(text) {
+    if (!text || !dailyArxivSearchQuery || !dailyArxivSearchQuery.trim()) {
+        return escapeHtml(text || '');
+    }
+    const q = dailyArxivSearchQuery.trim();
+    const escaped = escapeRegExp(q);
+    const re = new RegExp(`(${escaped})`, 'ig');
+    return escapeHtml(text || '').replace(re, '<mark>$1</mark>');
+}
+
 // 删除论文
 // 重新抓取 PDF 元数据
 async function refreshPaperMetadata(paperId) {
@@ -6401,10 +6412,6 @@ async function switchSettingPanel(panelName) {
     // 如果切换到 Daily arXiv 面板，加载设置
     if (panelName === 'daily-arxiv') {
         await loadDailyArxivSettings();
-        const maxPapersInput = document.getElementById('daily-arxiv-max-papers');
-        if (maxPapersInput) {
-            maxPapersInput.value = dailyArxivSettings.maxPapersPerCategory || 12;
-        }
         const maxKeywordsInput = document.getElementById('daily-arxiv-max-keywords');
         if (maxKeywordsInput) {
             maxKeywordsInput.value = dailyArxivSettings.maxKeywords || 1;
@@ -7603,7 +7610,6 @@ let dailyArxivCurrentDate = null;  // 当前选中的日期
 let dailyArxivAvailableDates = [];  // 可用的日期列表
 let dailyArxivSettings = {
     categories: [],
-    maxPapersPerCategory: 3,  // 测试模式：3篇
     retentionDays: 7,
     checkIntervalMinutes: 10,
 };
@@ -8203,12 +8209,10 @@ async function loadDailyArxivSettings() {
             dailyArxivCategories = dailyArxivSettings.categories || [];
             
             // 更新设置面板的值
-            const maxPapersEl = document.getElementById('daily-arxiv-max-papers');
             const retentionDaysEl = document.getElementById('daily-arxiv-retention-days');
             const checkIntervalEl = document.getElementById('daily-arxiv-check-interval');
             const maxKeywordsEl = document.getElementById('daily-arxiv-max-keywords');
             
-            if (maxPapersEl) maxPapersEl.value = dailyArxivSettings.maxPapersPerCategory || 3;
             if (retentionDaysEl) retentionDaysEl.value = dailyArxivSettings.retentionDays || 7;
             if (checkIntervalEl) checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
             if (maxKeywordsEl) maxKeywordsEl.value = dailyArxivSettings.maxKeywords || 1;
@@ -8244,7 +8248,6 @@ async function loadKnownInstitutions() {
 // 保存 Daily arXiv 设置
 async function saveDailyArxivSettings() {
     try {
-        const maxPapers = parseInt(document.getElementById('daily-arxiv-max-papers')?.value) || 3;
         const retentionDays = parseInt(document.getElementById('daily-arxiv-retention-days')?.value) || 7;
         const checkInterval = parseInt(document.getElementById('daily-arxiv-check-interval')?.value) || 10;
         const maxKeywords = parseInt(document.getElementById('daily-arxiv-max-keywords')?.value) || 1;
@@ -8263,7 +8266,6 @@ async function saveDailyArxivSettings() {
         });
         
         dailyArxivSettings.categories = dailyArxivCategories;
-        dailyArxivSettings.maxPapersPerCategory = maxPapers;
         dailyArxivSettings.retentionDays = retentionDays;
         dailyArxivSettings.checkIntervalMinutes = checkInterval;
         dailyArxivSettings.maxKeywords = clampedMaxKeywords;
@@ -8495,7 +8497,6 @@ async function triggerFetchPapers(force = false) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 category: dailyArxivCurrentCategory,
-                max_papers: dailyArxivSettings.maxPapersPerCategory || 3,
                 force: force,
             })
         });
@@ -9057,7 +9058,7 @@ function renderDailyArxivGrid() {
     const papers = getCurrentDailyArxivPapers();
     
     if (papers.length === 0) {
-        // 检查是否有激活的过滤条件
+        // 检查是否有激活的过滤条件或搜索条件
         const hasActiveFilters = 
             dailyArxivFilterFirstAffiliation || 
             dailyArxivSelectedAffiliations.size > 0 || 
@@ -9065,17 +9066,18 @@ function renderDailyArxivGrid() {
             dailyArxivSelectedCountries.size > 0 ||
             dailyArxivExcludedCountries.size > 0 ||
             dailyArxivSelectedKeywords.size > 0 ||
-            dailyArxivExcludedKeywords.size > 0;
+            dailyArxivExcludedKeywords.size > 0 ||
+            (dailyArxivSearchQuery && dailyArxivSearchQuery.trim().length > 0);
         
-        // 如果有过滤条件导致没有论文，显示"没有符合条件的论文"
+        // 如果有过滤/搜索条件导致没有论文，显示"没有符合条件的搜索结果"
         if (hasActiveFilters) {
             // 让整个网格区域改为居中布局
             gridEl.classList.add('daily-arxiv-grid-no-results');
             gridEl.innerHTML = `
                 <div class="daily-arxiv-no-results">
                     <i class="fas fa-filter fa-3x" style="margin-bottom: 20px; color: #bbb;"></i>
-                    <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">没有符合条件的论文</h3>
-                    <p style="font-size: 1em; color: #888;">请尝试调整过滤条件</p>
+                    <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">没有符合条件的搜索结果</h3>
+                    <p style="font-size: 1em; color: #888;">请尝试调整搜索词或过滤条件</p>
                 </div>
             `;
             if (emptyEl) emptyEl.style.display = 'none';
@@ -9216,6 +9218,9 @@ function renderDailyArxivGrid() {
             `;
         }
         
+        // 高亮函数：仅在有搜索词时对标题/作者/机构做 <mark> 包裹
+        const highlight = (text) => highlightDailyArxiv(text);
+
         return `
             <div class="daily-arxiv-card" data-index="${index}" onclick="showDailyArxivDetail(${index})">
                 <div class="daily-arxiv-card-thumbnail">
@@ -9226,9 +9231,16 @@ function renderDailyArxivGrid() {
                     </div>
                 </div>
                 <div class="daily-arxiv-card-body">
-                    <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</div>
-                    <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${escapeHtml(authors)}</div>
-                    ${affiliationsHtml}
+                    <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${highlight(paper.title)}</div>
+                    <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${highlight(authors)}</div>
+                    ${paper.affiliations && paper.affiliations.length > 0 ? `
+                        <div class="daily-arxiv-card-affiliations">
+                            ${paper.affiliations.map(aff => {
+                                const color = getColorForString(aff);
+                                return `<span class="aff-mini-tag" style="color: ${color};">${highlight(aff)}</span>`;
+                            }).join('')}
+                        </div>
+                    ` : ''}
                     <div class="daily-arxiv-card-meta">
                         <span class="daily-arxiv-card-date">${date}</span>
                         <div class="daily-arxiv-card-actions">
