@@ -52,29 +52,87 @@ SUMMARY_EXTRACTION_PROMPT = """我会给你一篇 AI 文章的英文摘要，你
 
 def get_arxiv_announce_date(submitted: datetime = None) -> datetime:
     """
-    获取 arXiv 公布日期
+    获取 arXiv 公布日期（基于北京时间逻辑）
 
     arXiv 公布时间规则：
-    - 周一到周四：当天 UTC 20:00 公布
-    - 周五：周一 UTC 20:00 公布
-    - 周末不公布
+    - 美国东部时间 14:00（周一到周五）公布前一天 14:00 UTC 之前提交的论文
+    - 周末不公布，周五提交的论文在下周一公布
 
-    论文截止时间：UTC 14:00 之前提交的论文在当天公布
+    时区转换：
+    - 夏令时（3月第二个周日 - 11月第一个周日）：美国东部时间 14:00 = UTC 18:00 = 北京时间次日 02:00
+    - 冬令时（其他时间）：美国东部时间 14:00 = UTC 19:00 = 北京时间次日 03:00
+
+    北京时间的论文归属：
+    - 夏令时：前一天 UTC 18:00 到当天 UTC 18:00 之间提交的论文，归属到北京时间当天
+    - 冬令时：前一天 UTC 19:00 到当天 UTC 19:00 之间提交的论文，归属到北京时间当天
+
+    Args:
+        submitted: 论文提交时间（UTC），如果为 None 则使用当前时间
+
+    Returns:
+        论文在 arXiv 上的公布日期（北京时间日期）
     """
     if submitted is None:
         submitted = datetime.utcnow()
 
-    # 获取日期和小时
-    submit_date = submitted.date() if hasattr(submitted, "date") else submitted
-    submit_hour = submitted.hour if hasattr(submitted, "hour") else 12
+    # 如果传入的时间是带时区的（offset-aware），转换为 UTC naive datetime
+    if submitted.tzinfo is not None:
+        submitted = submitted.replace(tzinfo=None)
 
-    # 如果在 14:00 UTC 之后提交，推迟一天
-    if submit_hour >= 14:
-        announce_date = submit_date + timedelta(days=1)
+    # 判断是否为夏令时（美国东部时间）
+    # 夏令时：3月第二个周日 02:00 到 11月第一个周日 02:00
+    def is_dst(dt):
+        """判断给定的 UTC 时间对应的美国东部时间是否为夏令时"""
+        year = dt.year
+        # 3月第二个周日
+        march = datetime(year, 3, 1)
+        dst_start = march + timedelta(days=(13 - march.weekday()) % 7)
+        while dst_start.day < 8:
+            dst_start += timedelta(days=7)
+        # 11月第一个周日
+        november = datetime(year, 11, 1)
+        dst_end = november + timedelta(days=(6 - november.weekday()) % 7)
+        return dst_start <= dt < dst_end
+
+    # 确定发布时间的 UTC 小时（夏令时 18:00，冬令时 19:00）
+    publish_hour = 18 if is_dst(submitted) else 19
+
+    # arXiv 的发布逻辑（基于北京时间）：
+    # 前一天 publish_hour 到当天 publish_hour 之间提交的论文，在发布窗口结束时对应的北京时间日期发布
+    #
+    # 例如：冬令时（publish_hour = 19）
+    #   12月2日 19:00 UTC 到 12月3日 19:00 UTC 之间提交的论文
+    #   窗口结束时间：12月3日 19:00 UTC = 北京时间 12月4日 03:00
+    #   → 归属到北京时间 12月4日
+    #
+    # 再例如：夏令时（publish_hour = 18）
+    #   5月2日 18:00 UTC 到 5月3日 18:00 UTC 之间提交的论文
+    #   窗口结束时间：5月3日 18:00 UTC = 北京时间 5月4日 02:00
+    #   → 归属到北京时间 5月4日
+
+    # 计算发布窗口结束时间对应的北京时间日期
+    utc_date = submitted.date()
+
+    if submitted.hour >= publish_hour:
+        # 提交时间在当天的发布时间点之后
+        # 发布窗口结束时间是：次日的 publish_hour
+        # 例如：12月2日 20:00 UTC → 窗口结束时间是 12月3日 19:00 UTC
+        window_end_utc = datetime.combine(
+            utc_date + timedelta(days=1), datetime.min.time()
+        ) + timedelta(hours=publish_hour)
     else:
-        announce_date = submit_date
+        # 提交时间在当天的发布时间点之前
+        # 发布窗口结束时间是：当天的 publish_hour
+        # 例如：12月2日 10:00 UTC → 窗口结束时间是 12月2日 19:00 UTC
+        window_end_utc = datetime.combine(utc_date, datetime.min.time()) + timedelta(
+            hours=publish_hour
+        )
 
-    # 调整周末
+    # 将窗口结束时间转换为北京时间，得到论文归属日期
+    window_end_beijing = window_end_utc + timedelta(hours=8)
+    announce_date = window_end_beijing.date()
+
+    # 调整周末：周六和周日的论文推迟到周一
     weekday = announce_date.weekday()
     if weekday == 5:  # Saturday -> Monday
         announce_date = announce_date + timedelta(days=2)
