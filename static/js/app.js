@@ -3123,7 +3123,19 @@ function renderSearchResults(panel, q, results) {
     panel.innerHTML = results.map(r => {
         const fields = (r.matched_fields||[]).map(f=>`<span class="search-field-tag">${f}</span>`).join('');
         const authors = r.authors ? `<div class="search-meta">${hi(r.authors)}</div>` : '';
-        const abs = r.abstract ? `<div class="search-meta">${hi(r.abstract.slice(0,200))}...</div>` : '';
+        // 优先显示匹配字段的上下文片段（notes 优先，然后是 abstract）
+        // 如果都没有匹配的片段，则显示摘要前200字符
+        let abs = '';
+        if (r.notes_snippet) {
+            // 如果匹配的是 notes，显示 notes 的上下文片段
+            abs = `<div class="search-meta"><strong>备注:</strong> ${hi(r.notes_snippet)}</div>`;
+        } else if (r.abstract_snippet) {
+            // 如果匹配的是 abstract，显示 abstract 的上下文片段
+            abs = `<div class="search-meta">${hi(r.abstract_snippet)}</div>`;
+        } else if (r.abstract) {
+            // 如果没有上下文片段，显示摘要前200字符
+            abs = `<div class="search-meta">${hi(r.abstract.slice(0,200))}...</div>`;
+        }
         // 添加 category_id 属性，用于点击时切换分类
         const categoryId = r.category_id || '';
         return `<div class="search-item" data-paper-id="${r.id}" data-category-id="${categoryId}">

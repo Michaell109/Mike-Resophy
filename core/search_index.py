@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from typing import Dict, List, Optional, Tuple
@@ -36,6 +37,84 @@ class SearchIndex:
     def set_rebuild_callback(self, callback):
         """设置重建索引的回调函数"""
         self._rebuild_callback = callback
+
+    def _extract_context_snippet(
+        self, text: str, query: str, context_chars: int = 150
+    ) -> str:
+        """
+        提取包含关键词的上下文片段
+
+        Args:
+            text: 原始文本
+            query: 搜索关键词
+            context_chars: 关键词前后各提取的字符数（默认150）
+
+        Returns:
+            包含关键词的上下文片段，如果未找到关键词则返回文本开头
+        """
+        if not text or not query:
+            return text[: context_chars * 2] if text else ""
+
+        text_lower = text.lower()
+        query_lower = query.lower().strip()
+
+        # 首先尝试查找完整查询短语
+        match = None
+        escaped_query = re.escape(query_lower)
+        match = re.search(escaped_query, text_lower)
+
+        # 如果找不到完整短语，尝试查找所有单词都出现的位置
+        if not match:
+            query_words = [w.strip() for w in query_lower.split() if w.strip()]
+            if len(query_words) > 1:
+                # 查找所有单词都出现的位置（单词之间可以有其他字符）
+                # 构建正则表达式：单词1...单词2...单词3（顺序出现）
+                pattern = r"\b.*\b".join(re.escape(w) for w in query_words)
+                match = re.search(pattern, text_lower, re.IGNORECASE)
+
+            # 如果还是找不到，尝试查找第一个单词
+            if not match and query_words:
+                first_word = query_words[0]
+                match = re.search(re.escape(first_word), text_lower)
+
+        # 对于中文，如果还是找不到，尝试查找中文字符（不区分顺序）
+        if not match:
+            # 检测是否包含中文字符
+            chinese_chars = [
+                char for char in query_lower if "\u4e00" <= char <= "\u9fff"
+            ]
+            if chinese_chars:
+                # 尝试查找第一个中文字符的位置
+                first_char = chinese_chars[0]
+                match = re.search(re.escape(first_char), text_lower)
+
+        # 如果仍然找不到，返回文本开头
+        if not match:
+            return (
+                text[: context_chars * 2] + "..."
+                if len(text) > context_chars * 2
+                else text
+            )
+
+        # 获取匹配位置
+        start_pos = match.start()
+        end_pos = match.end()
+
+        # 计算上下文范围
+        snippet_start = max(0, start_pos - context_chars)
+        snippet_end = min(len(text), end_pos + context_chars)
+
+        # 提取片段
+        snippet = text[snippet_start:snippet_end]
+
+        # 如果片段不是从文本开头开始，添加省略号
+        if snippet_start > 0:
+            snippet = "..." + snippet
+        # 如果片段不是到文本结尾，添加省略号
+        if snippet_end < len(text):
+            snippet = snippet + "..."
+
+        return snippet
 
     def _check_database_integrity(self) -> bool:
         """检查数据库完整性"""
@@ -319,65 +398,159 @@ class SearchIndex:
                 cursor = conn.cursor()
 
                 # 构建 FTS 查询
-                # 将查询作为完整短语进行匹配，使用双引号包裹
-                # 这样可以确保 "lei zhang" 只会匹配连续的 "lei zhang"，而不是分开的 "lei" 和 "zhang"
                 query_cleaned = query.strip()
 
                 # 如果查询为空，直接返回空结果
                 if not query_cleaned:
                     return []
 
-                # 转义查询中的特殊字符（双引号需要转义）
+                # 检测是否包含中文字符
+                has_chinese = any(
+                    "\u4e00" <= char <= "\u9fff" for char in query_cleaned
+                )
+
+                # 转义查询中的特殊字符
                 # FTS5 中的特殊字符：", *, AND, OR, NOT, NEAR
-                # 在短语查询中，用双引号包裹后这些字符会被视为字面量，但双引号需要转义
-                query_cleaned = query_cleaned.replace('"', '""')  # 转义双引号
+                query_cleaned_escaped = query_cleaned.replace('"', '""')
 
-                # 用双引号包裹查询，使其成为短语查询
-                # 如果查询包含多个词，它们必须连续出现才能匹配
-                # 例如："lei zhang" 只会匹配连续的 "lei zhang"，不会匹配 "Lei Li" 和 "Zhang" 分开的情况
-                fts_query = f'"{query_cleaned}"'
+                # 对于中文查询，使用 LIKE 查询（FTS5 对中文支持不好）
+                # 对于英文查询，使用 FTS5 全文搜索
+                if has_chinese:
+                    # 使用 LIKE 查询，支持部分匹配
+                    # 转义 LIKE 中的特殊字符：%, _
+                    like_query = query_cleaned.replace("%", "\\%").replace("_", "\\_")
 
-                # 构建 SQL 查询
-                if category_id:
-                    sql = """
-                        SELECT 
-                            papers.id,
-                            papers.title,
-                            papers.authors,
-                            papers.abstract,
-                            papers.notes,
-                            papers.filename,
-                            papers.category_id,
-                            bm25(papers_fts) as rank
-                        FROM papers_fts
-                        JOIN papers ON papers.id = papers_fts.id
-                        WHERE papers_fts MATCH ? 
-                            AND papers.category_id = ?
-                        ORDER BY rank ASC, length(papers.title) ASC
-                        LIMIT ?
-                    """
-                    params = (fts_query, category_id, limit)
+                    if category_id:
+                        sql = """
+                            SELECT 
+                                papers.id,
+                                papers.title,
+                                papers.authors,
+                                papers.abstract,
+                                papers.notes,
+                                papers.filename,
+                                papers.category_id,
+                                0.0 as rank
+                            FROM papers
+                            WHERE papers.category_id = ?
+                                AND (
+                                    papers.title LIKE ? 
+                                    OR papers.authors LIKE ?
+                                    OR papers.abstract LIKE ?
+                                    OR papers.notes LIKE ?
+                                )
+                            ORDER BY 
+                                CASE 
+                                    WHEN papers.title LIKE ? THEN 1
+                                    WHEN papers.authors LIKE ? THEN 2
+                                    WHEN papers.abstract LIKE ? THEN 3
+                                    WHEN papers.notes LIKE ? THEN 4
+                                    ELSE 5
+                                END,
+                                length(papers.title) ASC
+                            LIMIT ?
+                        """
+                        like_pattern = f"%{like_query}%"
+                        params = (
+                            category_id,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            limit,
+                        )
+                    else:
+                        sql = """
+                            SELECT 
+                                papers.id,
+                                papers.title,
+                                papers.authors,
+                                papers.abstract,
+                                papers.notes,
+                                papers.filename,
+                                papers.category_id,
+                                0.0 as rank
+                            FROM papers
+                            WHERE (
+                                papers.title LIKE ? 
+                                OR papers.authors LIKE ?
+                                OR papers.abstract LIKE ?
+                                OR papers.notes LIKE ?
+                            )
+                            ORDER BY 
+                                CASE 
+                                    WHEN papers.title LIKE ? THEN 1
+                                    WHEN papers.authors LIKE ? THEN 2
+                                    WHEN papers.abstract LIKE ? THEN 3
+                                    WHEN papers.notes LIKE ? THEN 4
+                                    ELSE 5
+                                END,
+                                length(papers.title) ASC
+                            LIMIT ?
+                        """
+                        like_pattern = f"%{like_query}%"
+                        params = (
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            like_pattern,
+                            limit,
+                        )
+
+                    cursor.execute(sql, params)
+                    rows = cursor.fetchall()
                 else:
-                    sql = """
-                        SELECT 
-                            papers.id,
-                            papers.title,
-                            papers.authors,
-                            papers.abstract,
-                            papers.notes,
-                            papers.filename,
-                            papers.category_id,
-                            bm25(papers_fts) as rank
-                        FROM papers_fts
-                        JOIN papers ON papers.id = papers_fts.id
-                        WHERE papers_fts MATCH ?
-                        ORDER BY rank ASC, length(papers.title) ASC
-                        LIMIT ?
-                    """
-                    params = (fts_query, limit)
+                    # 对于英文查询，使用 FTS5 全文搜索（保持原有逻辑）
+                    fts_query = f'"{query_cleaned_escaped}"'
 
-                cursor.execute(sql, params)
-                rows = cursor.fetchall()
+                    if category_id:
+                        sql = """
+                            SELECT 
+                                papers.id,
+                                papers.title,
+                                papers.authors,
+                                papers.abstract,
+                                papers.notes,
+                                papers.filename,
+                                papers.category_id,
+                                bm25(papers_fts) as rank
+                            FROM papers_fts
+                            JOIN papers ON papers.id = papers_fts.id
+                            WHERE papers_fts MATCH ? 
+                                AND papers.category_id = ?
+                            ORDER BY rank ASC, length(papers.title) ASC
+                            LIMIT ?
+                        """
+                        params = (fts_query, category_id, limit)
+                    else:
+                        sql = """
+                            SELECT 
+                                papers.id,
+                                papers.title,
+                                papers.authors,
+                                papers.abstract,
+                                papers.notes,
+                                papers.filename,
+                                papers.category_id,
+                                bm25(papers_fts) as rank
+                            FROM papers_fts
+                            JOIN papers ON papers.id = papers_fts.id
+                            WHERE papers_fts MATCH ?
+                            ORDER BY rank ASC, length(papers.title) ASC
+                            LIMIT ?
+                        """
+                        params = (fts_query, limit)
+
+                    cursor.execute(sql, params)
+                    rows = cursor.fetchall()
 
                 # 处理结果
                 query_lower = query.lower()
@@ -387,33 +560,49 @@ class SearchIndex:
 
                     # 确定真实命中的字段（包括备注 notes）
                     matched_fields = []
+                    abstract_snippet = None
+                    notes_snippet = None
                     if title and query_lower in (title or "").lower():
                         matched_fields.append("title")
                     if authors and query_lower in (authors or "").lower():
                         matched_fields.append("authors")
                     if abstract and query_lower in (abstract or "").lower():
                         matched_fields.append("abstract")
+                        # 提取包含关键词的上下文片段
+                        abstract_snippet = self._extract_context_snippet(
+                            abstract, query, context_chars=150
+                        )
                     if notes and query_lower in (notes or "").lower():
                         matched_fields.append("notes")
+                        # 提取包含关键词的上下文片段
+                        notes_snippet = self._extract_context_snippet(
+                            notes, query, context_chars=150
+                        )
 
-                    # 不再做“默认认为命中 title”的 fallback，
+                    # 不再做"默认认为命中 title"的 fallback，
                     # 这样前端看到的 matched_fields 一定是真实包含 query 的字段集合
 
                     similarity = max(0.5, 1.0 - abs(rank) / 20.0) if rank else 0.5
 
-                    results.append(
-                        {
-                            "id": pid,
-                            "title": title or "",
-                            "authors": authors or "",
-                            "abstract": abstract or "",
-                            "notes": notes or "",
-                            "filename": filename or "",
-                            "category_id": cat_id or None,
-                            "matched_fields": matched_fields,
-                            "similarity": similarity,
-                        }
-                    )
+                    result_item = {
+                        "id": pid,
+                        "title": title or "",
+                        "authors": authors or "",
+                        "abstract": abstract or "",
+                        "notes": notes or "",
+                        "filename": filename or "",
+                        "category_id": cat_id or None,
+                        "matched_fields": matched_fields,
+                        "similarity": similarity,
+                    }
+                    # 如果提取了摘要片段，添加到结果中
+                    if abstract_snippet:
+                        result_item["abstract_snippet"] = abstract_snippet
+                    # 如果提取了备注片段，添加到结果中
+                    if notes_snippet:
+                        result_item["notes_snippet"] = notes_snippet
+
+                    results.append(result_item)
 
                 return results
 
