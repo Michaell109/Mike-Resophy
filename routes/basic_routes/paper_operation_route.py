@@ -79,22 +79,8 @@ def register_paper_operation_routes(
     search_arxiv_by_title: Optional[Any],  # 不再使用，保留以兼容
     reading_list_file: str,
     upload_folder: str,
-    general_settings_file: str,
-    default_settings: Dict[str, Any],
     paper_store: PaperStore,
 ) -> None:
-    def load_general_settings() -> Dict[str, Any]:
-        try:
-            with open(general_settings_file, "r", encoding="utf-8") as fp:
-                settings = json.load(fp)
-        except FileNotFoundError:
-            settings = {}
-        except Exception as exc:  # noqa: BLE001
-            print(f"读取常规设置失败: {exc}")
-            settings = {}
-        merged = default_settings.copy()
-        merged.update(settings)
-        return merged
 
     def load_reading_list() -> List[str]:
         try:
@@ -559,10 +545,7 @@ def register_paper_operation_routes(
     @app.route("/api/reading-list", methods=["GET"])
     def api_get_reading_list():
         paper_ids = load_reading_list()
-        settings = load_general_settings()
-        max_items = settings.get("reading_list_max_items")
-        if isinstance(max_items, int) and max_items > 0:
-            paper_ids = paper_ids[:max_items]
+        # 返回所有待读列表论文（不再限制数量）
         papers = collect_papers_by_ids(paper_ids)
         return jsonify([paper.to_dict() for paper in papers])
 

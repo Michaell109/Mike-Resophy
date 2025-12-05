@@ -36,7 +36,7 @@ def register_daily_arxiv_routes(
     create_category_folder: Callable[[List[str]], str],
     save_paper_metadata: Callable[[str, Any], None],
     reading_list_file: str,
-    analysis_settings_file: str = None,
+    agentic_settings_file: str = None,
 ) -> None:
     """
     注册 Daily arXiv 相关路由
@@ -50,9 +50,9 @@ def register_daily_arxiv_routes(
 
     # 设置 LLM 配置回调
     def get_llm_config():
-        if analysis_settings_file:
+        if agentic_settings_file:
             try:
-                with open(analysis_settings_file, "r", encoding="utf-8") as f:
+                with open(agentic_settings_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except:
                 pass

@@ -12,43 +12,13 @@ from flask import Flask, jsonify, request, send_from_directory
 def register_settings_routes(
     app: Flask,
     *,
-    settings_file_path: str,
-    default_settings: Dict[str, Any],
     user_settings_file: str,
     default_user_settings: Dict[str, Any],
     reading_history_file: str,
-    translation_settings_file: str,
-    default_translation_settings: Dict[str, Any],
-    analysis_settings_file: str,
-    default_analysis_settings: Dict[str, Any],
+    agentic_settings_file: str,
+    default_agentic_settings: Dict[str, Any],
     avatars_dir: str,
 ) -> None:
-
-    # ========================================
-    # General Settings
-    # ========================================
-    @app.route("/api/settings/general", methods=["GET", "POST"])
-    def api_general_settings():
-        if request.method == "GET":
-            try:
-                with open(settings_file_path, "r", encoding="utf-8") as fp:
-                    settings = json.load(fp)
-            except FileNotFoundError:
-                settings = {}
-            except Exception as exc:
-                print(f"读取设置失败: {exc}")
-                settings = {}
-            merged = default_settings.copy()
-            merged.update(settings)
-            return jsonify(merged)
-
-        data = request.json or {}
-        try:
-            with open(settings_file_path, "w", encoding="utf-8") as fp:
-                json.dump(data, fp, ensure_ascii=False, indent=2)
-            return jsonify({"success": True})
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 500
 
     # ========================================
     # User Settings (name, avatar, heatmap color)
@@ -230,53 +200,42 @@ def register_settings_routes(
             return jsonify({"success": False, "error": str(exc)}), 500
 
     # ========================================
-    # Translation Settings
+    # Agentic Settings (统一的AI功能配置)
     # ========================================
+    @app.route("/api/settings/agentic", methods=["GET", "POST"])
+    def api_agentic_settings():
+        """
+        统一的AI功能配置接口
+        包括: LLM API配置, PDF解析服务配置, AI解读提示词等
+        """
+        if request.method == "GET":
+            try:
+                with open(agentic_settings_file, "r", encoding="utf-8") as fp:
+                    settings = json.load(fp)
+            except FileNotFoundError:
+                settings = {}
+            except Exception as exc:
+                print(f"读取AI功能设置失败: {exc}")
+                settings = {}
+            merged = default_agentic_settings.copy()
+            merged.update(settings)
+            return jsonify(merged)
+
+        data = request.json or {}
+        try:
+            with open(agentic_settings_file, "w", encoding="utf-8") as fp:
+                json.dump(data, fp, ensure_ascii=False, indent=2)
+            return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+    
+    # 保留旧的API端点以兼容性（返回重定向提示）
     @app.route("/api/settings/translation", methods=["GET", "POST"])
-    def api_translation_settings():
-        if request.method == "GET":
-            try:
-                with open(translation_settings_file, "r", encoding="utf-8") as fp:
-                    settings = json.load(fp)
-            except FileNotFoundError:
-                settings = {}
-            except Exception as exc:
-                print(f"读取翻译设置失败: {exc}")
-                settings = {}
-            merged = default_translation_settings.copy()
-            merged.update(settings)
-            return jsonify(merged)
-
-        data = request.json or {}
-        try:
-            with open(translation_settings_file, "w", encoding="utf-8") as fp:
-                json.dump(data, fp, ensure_ascii=False, indent=2)
-            return jsonify({"success": True})
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 500
-
-    # ========================================
-    # AI Analysis Settings
-    # ========================================
+    def api_translation_settings_deprecated():
+        """已废弃，请使用 /api/settings/agentic"""
+        return jsonify({"error": "This endpoint is deprecated. Use /api/settings/agentic instead"}), 410
+    
     @app.route("/api/settings/analysis", methods=["GET", "POST"])
-    def api_analysis_settings():
-        if request.method == "GET":
-            try:
-                with open(analysis_settings_file, "r", encoding="utf-8") as fp:
-                    settings = json.load(fp)
-            except FileNotFoundError:
-                settings = {}
-            except Exception as exc:
-                print(f"读取AI解读设置失败: {exc}")
-                settings = {}
-            merged = default_analysis_settings.copy()
-            merged.update(settings)
-            return jsonify(merged)
-
-        data = request.json or {}
-        try:
-            with open(analysis_settings_file, "w", encoding="utf-8") as fp:
-                json.dump(data, fp, ensure_ascii=False, indent=2)
-            return jsonify({"success": True})
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 500
+    def api_analysis_settings_deprecated():
+        """已废弃，请使用 /api/settings/agentic"""
+        return jsonify({"error": "This endpoint is deprecated. Use /api/settings/agentic instead"}), 410

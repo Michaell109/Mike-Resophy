@@ -316,9 +316,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadCategories();
     setupEventListeners();
     setupNavigation();
-    loadTranslationSettings();
-    loadAnalysisSettings();
-    loadGeneralSettings();
+    loadAgenticSettings();  // 统一的AI功能配置
     await initImportFeature();
     // 初始化 Daily arXiv
     await initDailyArxiv();
@@ -4241,110 +4239,95 @@ function switchTab(tabName) {
 }
 
 // 保存翻译设置
-async function saveTranslationSettings() {
+// ========== Agentic 设置（统一的AI功能配置）==========
+async function saveAgenticSettings() {
     const settings = {
-        openaiModel: document.getElementById('openai-model').value.trim(),
-        openaiBaseUrl: document.getElementById('openai-base-url').value.trim(),
-        openaiApiKey: document.getElementById('openai-api-key').value.trim()
+        llmModel: document.getElementById('llm-model').value.trim(),
+        llmBaseUrl: document.getElementById('llm-base-url').value.trim(),
+        llmApiKey: document.getElementById('llm-api-key').value.trim(),
+        mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
+        analysisSystemPrompt: document.getElementById('analysis-system-prompt').value.trim()
     };
     
     try {
-        const response = await fetch('/api/settings/translation', {
+        const response = await fetch('/api/settings/agentic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
         if (response.ok) {
-            showMessage('设置已保存', 'success');
+            showMessage('AI功能设置已保存', 'success');
         } else {
             showMessage('保存失败', 'error');
         }
     } catch (e) {
-        console.error('保存翻译设置失败:', e);
+        console.error('保存AI功能设置失败:', e);
         showMessage('保存失败', 'error');
     }
 }
 
-// 加载翻译设置
-async function loadTranslationSettings() {
+// 加载 Agentic 设置
+async function loadAgenticSettings() {
     try {
-        const response = await fetch('/api/settings/translation');
+        const response = await fetch('/api/settings/agentic');
         if (response.ok) {
             const settings = await response.json();
-            const modelEl = document.getElementById('openai-model');
-            const baseUrlEl = document.getElementById('openai-base-url');
-            const apiKeyEl = document.getElementById('openai-api-key');
-            if (modelEl) modelEl.value = settings.openaiModel || '';
-            if (baseUrlEl) baseUrlEl.value = settings.openaiBaseUrl || '';
-            if (apiKeyEl) apiKeyEl.value = settings.openaiApiKey || '';
+            const modelEl = document.getElementById('llm-model');
+            const baseUrlEl = document.getElementById('llm-base-url');
+            const apiKeyEl = document.getElementById('llm-api-key');
+            const mineruEl = document.getElementById('mineru-server-url');
+            const promptEl = document.getElementById('analysis-system-prompt');
+            
+            if (modelEl) modelEl.value = settings.llmModel || '';
+            if (baseUrlEl) baseUrlEl.value = settings.llmBaseUrl || '';
+            if (apiKeyEl) apiKeyEl.value = settings.llmApiKey || '';
+            if (mineruEl) mineruEl.value = settings.mineruServerUrl || '';
+            if (promptEl) promptEl.value = settings.analysisSystemPrompt || '';
         }
     } catch (e) {
-        console.error('加载翻译设置失败:', e);
+        console.error('加载AI功能设置失败:', e);
     }
 }
 
-// 获取翻译设置
-async function getTranslationSettings() {
+// 获取 Agentic 设置
+async function getAgenticSettings() {
     try {
-        const response = await fetch('/api/settings/translation');
+        const response = await fetch('/api/settings/agentic');
         if (response.ok) {
             return await response.json();
         }
     } catch (e) {
-        console.error('获取翻译设置失败:', e);
+        console.error('获取AI功能设置失败:', e);
     }
     return null;
 }
 
+// ========== 废弃的设置函数（保留以兼容） ==========
+async function saveTranslationSettings() {
+    console.warn('saveTranslationSettings is deprecated, use saveAgenticSettings instead');
+    return saveAgenticSettings();
+}
+
+async function loadTranslationSettings() {
+    console.warn('loadTranslationSettings is deprecated, use loadAgenticSettings instead');
+    return loadAgenticSettings();
+}
+
+async function getTranslationSettings() {
+    console.warn('getTranslationSettings is deprecated, use getAgenticSettings instead');
+    return getAgenticSettings();
+}
+
 // ==================== 翻译功能 ====================
 
-// ========== General 设置 ==========
+// ========== General 设置（已废弃）==========
 async function saveGeneralSettings() {
-    const maxItemsInput = document.getElementById('reading-list-max-items');
-    const maxItems = parseInt(maxItemsInput?.value ?? '', 10);
-
-    if (isNaN(maxItems) || maxItems < 1) {
-        showMessage('请输入有效的待读列表显示数量（≥1）', 'error');
-        maxItemsInput?.focus();
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/settings/general', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                reading_list_max_items: maxItems
-            })
-        });
-        
-        const result = await response.json();
-        if (response.ok && result.success) {
-            showMessage('General 设置已保存', 'success');
-        } else {
-            showMessage(result.error || '保存失败', 'error');
-        }
-    } catch (error) {
-        console.error('保存General设置失败:', error);
-        showMessage('保存失败', 'error');
-    }
+    console.warn('saveGeneralSettings is deprecated, General settings have been removed');
+    showMessage('General 设置已废弃', 'warning');
 }
 
 async function loadGeneralSettings() {
-    try {
-        const response = await fetch('/api/settings/general');
-        if (response.ok) {
-            const settings = await response.json();
-            const maxItemsInput = document.getElementById('reading-list-max-items');
-            if (maxItemsInput) {
-                maxItemsInput.value = settings.reading_list_max_items ?? 100;
-            }
-        }
-    } catch (error) {
-        console.error('加载General设置失败:', error);
-    }
+    console.warn('loadGeneralSettings is deprecated, General settings have been removed');
 }
 
 // ========================================
@@ -5543,10 +5526,10 @@ async function requestTranslation(paperId, event) {
         }
     }
     
-    // 检查设置
-    const settings = await getTranslationSettings();
-    if (!settings || !settings.openaiModel || !settings.openaiBaseUrl || !settings.openaiApiKey) {
-        showMessage('请先在设置中配置翻译参数', 'warning');
+    // 检查设置（使用新的Agentic统一配置）
+    const settings = await getAgenticSettings();
+    if (!settings || !settings.llmModel || !settings.llmBaseUrl || !settings.llmApiKey) {
+        showMessage('请先在设置中配置AI功能参数（LLM API）', 'warning');
         switchTab('setting');
         return;
     }
@@ -5596,9 +5579,9 @@ async function processTranslationQueue() {
             },
             body: JSON.stringify({
                 paper_id: paperId,
-                openai_model: settings.openaiModel,
-                openai_base_url: settings.openaiBaseUrl,
-                openai_api_key: settings.openaiApiKey
+                openai_model: settings.llmModel,
+                openai_base_url: settings.llmBaseUrl,
+                openai_api_key: settings.llmApiKey
             })
         });
         
@@ -6037,74 +6020,24 @@ function openChineseVersion(paperId) {
     markPaperViewed(paperId);
 }
 
-// ========== AI解读相关函数 ==========
+// ========== AI解读相关函数（已废弃，使用Agentic统一配置）==========
 
-// 保存解读设置
+// 保存解读设置（已废弃）
 async function saveAnalysisSettings() {
-    const settings = {
-        mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
-        openaiBaseUrl: document.getElementById('analysis-openai-base-url').value.trim(),
-        openaiApiKey: document.getElementById('analysis-openai-api-key').value.trim(),
-        systemPrompt: document.getElementById('analysis-system-prompt').value.trim()
-    };
-    
-    try {
-        const response = await fetch('/api/settings/analysis', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        });
-        if (response.ok) {
-            showMessage('设置已保存', 'success');
-        } else {
-            showMessage('保存失败', 'error');
-        }
-    } catch (e) {
-        console.error('保存AI解读设置失败:', e);
-        showMessage('保存失败', 'error');
-    }
+    console.warn('saveAnalysisSettings is deprecated, use saveAgenticSettings instead');
+    return saveAgenticSettings();
 }
 
-// 加载解读设置
+// 加载解读设置（已废弃）
 async function loadAnalysisSettings() {
-    const defaultPrompt = `请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
-实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
-图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
-
-INPUT: <MARKDOWN>`;
-    
-    try {
-        const response = await fetch('/api/settings/analysis');
-        if (response.ok) {
-            const settings = await response.json();
-            const mineruEl = document.getElementById('mineru-server-url');
-            const baseUrlEl = document.getElementById('analysis-openai-base-url');
-            const apiKeyEl = document.getElementById('analysis-openai-api-key');
-            const promptEl = document.getElementById('analysis-system-prompt');
-            if (mineruEl) mineruEl.value = settings.mineruServerUrl || '';
-            if (baseUrlEl) baseUrlEl.value = settings.openaiBaseUrl || '';
-            if (apiKeyEl) apiKeyEl.value = settings.openaiApiKey || '';
-            if (promptEl) promptEl.value = settings.systemPrompt || defaultPrompt;
-        }
-    } catch (e) {
-        console.error('加载AI解读设置失败:', e);
-        // 使用默认值
-        const promptEl = document.getElementById('analysis-system-prompt');
-        if (promptEl) promptEl.value = defaultPrompt;
-    }
+    console.warn('loadAnalysisSettings is deprecated, use loadAgenticSettings instead');
+    return loadAgenticSettings();
 }
 
-// 获取解读设置
+// 获取解读设置（已废弃）
 async function getAnalysisSettings() {
-    try {
-        const response = await fetch('/api/settings/analysis');
-        if (response.ok) {
-            return await response.json();
-        }
-    } catch (e) {
-        console.error('获取AI解读设置失败:', e);
-    }
-    return null;
+    console.warn('getAnalysisSettings is deprecated, use getAgenticSettings instead');
+    return getAgenticSettings();
 }
 
 // ========== Zotero 导入相关函数 ==========
@@ -6588,14 +6521,15 @@ async function requestAnalysis(paperId, event) {
         }
     }
 
-    // 检查设置
-    const settings = await getAnalysisSettings();
-    if (!settings || !settings.mineruServerUrl || !settings.openaiBaseUrl || !settings.openaiApiKey || !settings.systemPrompt) {
-        showMessage('请先在设置中配置AI解读参数', 'warning');
+    // 检查设置（使用新的Agentic统一配置）
+    const settings = await getAgenticSettings();
+    if (!settings || !settings.mineruServerUrl || !settings.llmBaseUrl || !settings.llmApiKey) {
+        showMessage('请先在设置中配置AI功能参数（LLM API和MinerU服务）', 'warning');
         // 切换到设置页面
         document.querySelector('.nav-tab[data-tab="setting"]').click();
         return;
     }
+    // 注意：systemPrompt 可以为空，使用默认值
 
     // 检查是否已在队列中或正在解读
     if (analysisStatus[paperId]) {
@@ -6654,7 +6588,7 @@ async function processAnalysisQueue() {
             throw new Error('设置未配置');
         }
 
-        // 调用后端API
+        // 调用后端API（使用新的Agentic统一配置）
         const response = await fetch('/api/paper/analyze', {
             method: 'POST',
             headers: {
@@ -6663,9 +6597,9 @@ async function processAnalysisQueue() {
             body: JSON.stringify({
                 paper_id: paperId,
                 mineru_server_url: settings.mineruServerUrl,
-                openai_base_url: settings.openaiBaseUrl,
-                openai_api_key: settings.openaiApiKey,
-                system_prompt: settings.systemPrompt
+                openai_base_url: settings.llmBaseUrl,
+                openai_api_key: settings.llmApiKey,
+                system_prompt: settings.analysisSystemPrompt || ''
             })
         });
 

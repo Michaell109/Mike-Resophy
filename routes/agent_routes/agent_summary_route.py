@@ -34,14 +34,13 @@ def register_agent_summary_routes(
             mineru_server_url = data.get("mineru_server_url")
             openai_base_url = data.get("openai_base_url")
             openai_api_key = data.get("openai_api_key")
-            system_prompt = data.get("system_prompt")
+            system_prompt = data.get("system_prompt", "")  # 允许为空，使用默认值
 
             if (
                 not paper_id
                 or not mineru_server_url
                 or not openai_base_url
                 or not openai_api_key
-                or not system_prompt
             ):
                 return jsonify({"success": False, "error": "缺少必要参数"}), 400
 

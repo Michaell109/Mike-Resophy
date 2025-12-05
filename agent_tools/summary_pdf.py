@@ -37,6 +37,14 @@ def analyze_paper_task(
     deps: AnalysisDependencies,
 ) -> None:
     """后台AI解读任务 - 两步：PDF2MD -> LLM解读"""
+    # 如果没有提供 system_prompt，使用默认值
+    if not system_prompt:
+        system_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
+图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
+
+INPUT: <MARKDOWN>"""
+    
     start_time = datetime.now()  # 记录开始时间
     with deps.analysis_tasks_lock:
         task_info = deps.analysis_tasks[task_id]

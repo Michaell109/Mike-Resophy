@@ -53,22 +53,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = None  # 将在 main 中设置
 CATEGORIES_FILE = None  # 将在 main 中设置
 READING_LIST_FILE = None  # 将在 main 中设置
-GENERAL_SETTINGS_FILE = None  # 将在 main 中设置
 USER_SETTINGS_FILE = None  # 用户设置（名字、头像等）
 READING_HISTORY_FILE = None  # 每日阅读历史
-TRANSLATION_SETTINGS_FILE = None  # 翻译设置
-ANALYSIS_SETTINGS_FILE = None  # AI 解读设置
+AGENTIC_SETTINGS_FILE = None  # AI 功能设置（统一的LLM配置）
 DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv 设置
 AVATARS_DIR = None  # 头像图片目录
 TEMP_PAPERS_DIR = None  # Daily arXiv 临时论文目录
 SEARCH_INDEX_DB = None  # 搜索索引数据库路径
 search_index = None  # 搜索索引实例
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
-
-# 默认通用设置
-DEFAULT_GENERAL_SETTINGS = {
-    "reading_list_max_items": 100,
-}
 
 # 默认用户设置
 DEFAULT_USER_SETTINGS = {
@@ -77,19 +70,13 @@ DEFAULT_USER_SETTINGS = {
     "heatmapColorScheme": "green",
 }
 
-# 默认翻译设置
-DEFAULT_TRANSLATION_SETTINGS = {
-    "openaiModel": "",
-    "openaiBaseUrl": "",
-    "openaiApiKey": "",
-}
-
-# 默认 AI 解读设置
-DEFAULT_ANALYSIS_SETTINGS = {
-    "mineruServerUrl": "",
-    "openaiBaseUrl": "",
-    "openaiApiKey": "",
-    "systemPrompt": "",
+# 默认 Agentic 设置（统一的AI功能配置）
+DEFAULT_AGENTIC_SETTINGS = {
+    "llmModel": "",  # LLM 模型名称
+    "llmBaseUrl": "",  # LLM API 基础 URL
+    "llmApiKey": "",  # LLM API 密钥
+    "mineruServerUrl": "",  # PDF 解析服务地址
+    "analysisSystemPrompt": "",  # AI 解读的系统提示词
 }
 
 # 默认 Daily arXiv 设置
@@ -228,8 +215,8 @@ def delete_paper_files(pdf_path: str) -> None:
 
 def init_app(papers_dir=None):
     """初始化应用配置和目录"""
-    global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE, GENERAL_SETTINGS_FILE
-    global USER_SETTINGS_FILE, READING_HISTORY_FILE, TRANSLATION_SETTINGS_FILE, ANALYSIS_SETTINGS_FILE, AVATARS_DIR
+    global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE
+    global USER_SETTINGS_FILE, READING_HISTORY_FILE, AGENTIC_SETTINGS_FILE, AVATARS_DIR
     global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR
     global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
@@ -247,11 +234,9 @@ def init_app(papers_dir=None):
     # 配置文件都放在论文目录下
     CATEGORIES_FILE = os.path.join(UPLOAD_FOLDER, "categories.json")
     READING_LIST_FILE = os.path.join(UPLOAD_FOLDER, "reading_list.json")
-    GENERAL_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "general_settings.json")
     USER_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "user_settings.json")
     READING_HISTORY_FILE = os.path.join(UPLOAD_FOLDER, "reading_history.json")
-    TRANSLATION_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "translation_settings.json")
-    ANALYSIS_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "analysis_settings.json")
+    AGENTIC_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "agentic_settings.json")
     DAILY_ARXIV_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "daily_arxiv_settings.json")
     AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
     TEMP_PAPERS_DIR = os.path.join(UPLOAD_FOLDER, ".daily_arxiv_temp")
@@ -270,11 +255,6 @@ def init_app(papers_dir=None):
         with open(READING_LIST_FILE, "w", encoding="utf-8") as f:
             json.dump({"papers": []}, f, ensure_ascii=False, indent=2)
 
-    # 初始化通用设置文件
-    if not os.path.exists(GENERAL_SETTINGS_FILE):
-        with open(GENERAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_GENERAL_SETTINGS, f, ensure_ascii=False, indent=2)
-
     # 初始化用户设置文件
     if not os.path.exists(USER_SETTINGS_FILE):
         with open(USER_SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -285,15 +265,10 @@ def init_app(papers_dir=None):
         with open(READING_HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump({}, f, ensure_ascii=False, indent=2)
 
-    # 初始化翻译设置文件
-    if not os.path.exists(TRANSLATION_SETTINGS_FILE):
-        with open(TRANSLATION_SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_TRANSLATION_SETTINGS, f, ensure_ascii=False, indent=2)
-
-    # 初始化 AI 解读设置文件
-    if not os.path.exists(ANALYSIS_SETTINGS_FILE):
-        with open(ANALYSIS_SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_ANALYSIS_SETTINGS, f, ensure_ascii=False, indent=2)
+    # 初始化 Agentic 设置文件（统一的AI功能配置）
+    if not os.path.exists(AGENTIC_SETTINGS_FILE):
+        with open(AGENTIC_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_AGENTIC_SETTINGS, f, ensure_ascii=False, indent=2)
 
     # 初始化 Daily arXiv 设置文件
     if not os.path.exists(DAILY_ARXIV_SETTINGS_FILE):
@@ -314,11 +289,9 @@ def init_app(papers_dir=None):
     print(f"论文目录: {UPLOAD_FOLDER}")
     print(f"分类配置: {CATEGORIES_FILE}")
     print(f"待读列表: {READING_LIST_FILE}")
-    print(f"通用设置: {GENERAL_SETTINGS_FILE}")
     print(f"用户设置: {USER_SETTINGS_FILE}")
     print(f"阅读历史: {READING_HISTORY_FILE}")
-    print(f"翻译设置: {TRANSLATION_SETTINGS_FILE}")
-    print(f"AI解读设置: {ANALYSIS_SETTINGS_FILE}")
+    print(f"AI功能设置: {AGENTIC_SETTINGS_FILE}")
     print(f"Daily arXiv设置: {DAILY_ARXIV_SETTINGS_FILE}")
     print(f"头像目录: {AVATARS_DIR}")
     print(f"Daily arXiv临时目录: {TEMP_PAPERS_DIR}")
@@ -368,15 +341,11 @@ def register_routes():
 
     register_settings_routes(
         app,
-        settings_file_path=GENERAL_SETTINGS_FILE,
-        default_settings=DEFAULT_GENERAL_SETTINGS,
         user_settings_file=USER_SETTINGS_FILE,
         default_user_settings=DEFAULT_USER_SETTINGS,
         reading_history_file=READING_HISTORY_FILE,
-        translation_settings_file=TRANSLATION_SETTINGS_FILE,
-        default_translation_settings=DEFAULT_TRANSLATION_SETTINGS,
-        analysis_settings_file=ANALYSIS_SETTINGS_FILE,
-        default_analysis_settings=DEFAULT_ANALYSIS_SETTINGS,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
+        default_agentic_settings=DEFAULT_AGENTIC_SETTINGS,
         avatars_dir=AVATARS_DIR,
     )
 
@@ -394,8 +363,6 @@ def register_routes():
         search_arxiv_by_title=None,  # 不再需要，使用新的 upload_paper 模块
         reading_list_file=READING_LIST_FILE,
         upload_folder=UPLOAD_FOLDER,
-        general_settings_file=GENERAL_SETTINGS_FILE,
-        default_settings=DEFAULT_GENERAL_SETTINGS,
         paper_store=paper_store,
     )
 
@@ -461,7 +428,7 @@ def register_routes():
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
-        analysis_settings_file=ANALYSIS_SETTINGS_FILE,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
     )
 
     register_institution_mapping_routes(

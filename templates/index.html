@@ -269,17 +269,9 @@
                     <i class="fas fa-chart-line"></i>
                     <span>Overview</span>
                 </button>
-                <button class="setting-nav-item" data-setting="general">
-                    <i class="fas fa-cog"></i>
-                    <span>General</span>
-                </button>
-                <button class="setting-nav-item" data-setting="translation">
-                    <i class="fas fa-language"></i>
-                    <span>Translation</span>
-                </button>
-                <button class="setting-nav-item" data-setting="analysis">
-                    <i class="fas fa-brain"></i>
-                    <span>AI Analysis</span>
+                <button class="setting-nav-item" data-setting="agentic">
+                    <i class="fas fa-robot"></i>
+                    <span>Agentic</span>
                 </button>
                 <button class="setting-nav-item" data-setting="daily-arxiv">
                     <i class="fas fa-newspaper"></i>
@@ -399,88 +391,59 @@
                 </div>
             </div>
 
-            <!-- General Panel -->
-            <div class="setting-panel" id="setting-panel-general" style="display:none;">
+            <!-- Agentic Panel -->
+            <div class="setting-panel" id="setting-panel-agentic" style="display:none;">
                 <div class="panel-header">
-                    <h2><i class="fas fa-cog"></i> General Settings</h2>
-                    <p>基础配置选项</p>
+                    <h2><i class="fas fa-robot"></i> Agentic Settings</h2>
+                    <p>AI 功能配置（包括翻译、解读、Daily arXiv 等）</p>
                 </div>
+                
+                <!-- LLM API 配置 -->
                 <div class="setting-card">
                     <div class="setting-card-header">
-                        <i class="fas fa-list"></i>
-                        <span>待读列表</span>
+                        <i class="fas fa-brain"></i>
+                        <span>LLM API 配置</span>
                     </div>
                     <div class="setting-card-body">
+                        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                            <i class="fas fa-info-circle"></i> 
+                            统一的 LLM API 配置，用于 AI 翻译、AI 解读、Daily arXiv 机构提取、摘要生成等所有 AI 功能
+                        </p>
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="reading-list-max-items">最多显示数量</label>
-                                <small>限制待读列表一次展示的论文数量</small>
+                                <label for="llm-model">Model Name</label>
+                                <small>LLM 模型名称</small>
                             </div>
-                            <input type="number" id="reading-list-max-items" min="1" max="500" placeholder="100" class="setting-input" />
-                        </div>
-                    </div>
-                    <div class="setting-card-footer">
-                        <button class="btn btn-primary" onclick="saveGeneralSettings()">
-                            <i class="fas fa-save"></i> 保存设置
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Translation Panel -->
-            <div class="setting-panel" id="setting-panel-translation" style="display:none;">
-                <div class="panel-header">
-                    <h2><i class="fas fa-language"></i> Translation Settings</h2>
-                    <p>PDF 翻译器参数配置</p>
-                </div>
-                <div class="setting-card">
-                    <div class="setting-card-header">
-                        <i class="fas fa-robot"></i>
-                        <span>OpenAI API 配置</span>
-                    </div>
-                    <div class="setting-card-body">
-                        <div class="setting-row">
-                            <div class="setting-info">
-                                <label for="openai-model">Model</label>
-                                <small>用于翻译的模型名称</small>
-                            </div>
-                            <input type="text" id="openai-model" placeholder="Qwen3-30B-A3B-Instruct-2507" class="setting-input" />
+                            <input type="text" id="llm-model" placeholder="Qwen3-30B-A3B-Instruct-2507" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="openai-base-url">Base URL</label>
-                                <small>API 服务地址</small>
+                                <label for="llm-base-url">Base URL</label>
+                                <small>OpenAI 兼容的 API 服务地址</small>
                             </div>
-                            <input type="text" id="openai-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
+                            <input type="text" id="llm-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="openai-api-key">API Key</label>
+                                <label for="llm-api-key">API Key</label>
                                 <small>API 访问密钥</small>
                             </div>
-                            <input type="password" id="openai-api-key" placeholder="token-abc123" class="setting-input" />
+                            <input type="password" id="llm-api-key" placeholder="token-abc123" class="setting-input" />
                         </div>
                     </div>
-                    <div class="setting-card-footer">
-                        <button class="btn btn-primary" onclick="saveTranslationSettings()">
-                            <i class="fas fa-save"></i> 保存设置
-                        </button>
-                    </div>
                 </div>
-            </div>
 
-            <!-- Analysis Panel -->
-            <div class="setting-panel" id="setting-panel-analysis" style="display:none;">
-                <div class="panel-header">
-                    <h2><i class="fas fa-brain"></i> AI Analysis Settings</h2>
-                    <p>AI 解读功能参数配置</p>
-                </div>
+                <!-- PDF 解析服务配置 -->
                 <div class="setting-card">
                     <div class="setting-card-header">
-                        <i class="fas fa-server"></i>
-                        <span>服务器配置</span>
+                        <i class="fas fa-file-pdf"></i>
+                        <span>PDF 解析服务</span>
                     </div>
                     <div class="setting-card-body">
+                        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                            <i class="fas fa-info-circle"></i> 
+                            用于 AI 解读功能，将 PDF 解析为 Markdown 格式
+                        </p>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="mineru-server-url">MinerU Server URL</label>
@@ -488,39 +451,33 @@
                             </div>
                             <input type="text" id="mineru-server-url" placeholder="http://192.168.81.138:9000" class="setting-input" />
                         </div>
-                        <div class="setting-row">
-                            <div class="setting-info">
-                                <label for="analysis-openai-base-url">OpenAI Base URL</label>
-                                <small>LLM API 服务地址</small>
-                            </div>
-                            <input type="text" id="analysis-openai-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
-                        </div>
-                        <div class="setting-row">
-                            <div class="setting-info">
-                                <label for="analysis-openai-api-key">OpenAI API Key</label>
-                                <small>API 访问密钥</small>
-                            </div>
-                            <input type="password" id="analysis-openai-api-key" placeholder="token-abc123" class="setting-input" />
-                        </div>
                     </div>
                 </div>
+
+                <!-- AI 解读提示词配置 -->
                 <div class="setting-card">
                     <div class="setting-card-header">
-                        <i class="fas fa-terminal"></i>
-                        <span>System Prompt</span>
+                        <i class="fas fa-comment-dots"></i>
+                        <span>AI 解读提示词</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row full-width">
-                            <textarea id="analysis-system-prompt" rows="10" placeholder="请输入系统提示词..." class="setting-textarea"></textarea>
+                            <div class="setting-info">
+                                <label for="analysis-system-prompt">System Prompt</label>
+                                <small>自定义 AI 解读的系统提示词（可选，留空使用默认）</small>
+                            </div>
+                            <textarea id="analysis-system-prompt" rows="10" placeholder="留空使用默认提示词..." class="setting-textarea"></textarea>
                         </div>
                     </div>
-                    <div class="setting-card-footer">
-                        <button class="btn btn-primary" onclick="saveAnalysisSettings()">
-                            <i class="fas fa-save"></i> 保存设置
-                        </button>
-                    </div>
+                </div>
+
+                <div class="setting-card-footer">
+                    <button class="btn btn-primary" onclick="saveAgenticSettings()">
+                        <i class="fas fa-save"></i> 保存所有设置
+                    </button>
                 </div>
             </div>
+
 
             <!-- Daily arXiv Panel -->
             <div class="setting-panel" id="setting-panel-daily-arxiv" style="display:none;">
