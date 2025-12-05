@@ -410,16 +410,19 @@ def register_daily_arxiv_routes(
         try:
             data = request.json or {}
             arxiv_id = data.get("arxiv_id")
-            openai_base_url = data.get("openai_base_url")
-            openai_api_key = data.get("openai_api_key")
             date_str = data.get("date", get_today_arxiv_date())
             fetch_category = data.get("fetch_category")
 
             if not arxiv_id:
                 return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
 
+            # 从 Agentic Settings 获取 LLM 配置
+            llm_config = get_llm_config()
+            openai_base_url = llm_config.get("llmBaseUrl")
+            openai_api_key = llm_config.get("llmApiKey")
+
             if not openai_base_url or not openai_api_key:
-                return jsonify({"success": False, "error": "缺少 OpenAI API 配置"}), 400
+                return jsonify({"success": False, "error": "请先在设置中配置 Agentic Settings 的 LLM API"}), 400
 
             # 获取论文信息
             papers = manager.get_papers_for_date(date_str, fetch_category)

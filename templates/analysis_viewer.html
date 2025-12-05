@@ -10,32 +10,321 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; background: #fff; color: #333; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        .header { height: 56px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; position: sticky; top: 0; background: #fff; z-index: 10; }
-        .header .btn { padding: 8px 12px; border: none; background: #f0f0f0; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-        .header .btn:hover { background: #e6e6e6; }
-        .header .btn-primary { background: #6f42c1; color: #fff; }
-        .header .btn-primary:hover { background: #5a32a3; }
-        .title { font-size: 16px; font-weight: 600; }
-        .container { height: calc(100vh - 56px); overflow-y: auto; padding: 24px; display: flex; justify-content: center; }
-        .content { width: min(1100px, 100%); }
-        .markdown-viewer h1, .markdown-viewer h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-        .markdown-viewer h1 { font-size: 2em; }
-        .markdown-viewer h2 { font-size: 1.5em; }
-        .markdown-viewer h3 { font-size: 1.25em; }
-        .markdown-viewer p { line-height: 1.7; }
-        .markdown-viewer code { padding: 0.2em 0.4em; background: rgba(27,31,35,0.05); border-radius: 3px; }
-        .markdown-viewer pre { padding: 16px; background: #f6f8fa; border-radius: 6px; overflow: auto; }
-        .markdown-viewer img { max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        .loading { height: calc(100vh - 56px); display: flex; align-items: center; justify-content: center; color: #666; }
+        * { 
+            box-sizing: border-box; 
+            margin: 0;
+            padding: 0;
+        }
+        
+        body { 
+            margin: 0; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+            min-height: 100vh;
+        }
+        
+        .header { 
+            height: 64px; 
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 0 32px; 
+            position: sticky; 
+            top: 0; 
+            z-index: 100;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+        }
+        
+        .header-content {
+            width: min(900px, 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .header .btn { 
+            padding: 10px 20px; 
+            border: none; 
+            background: rgba(103, 126, 234, 0.1);
+            border-radius: 8px; 
+            cursor: pointer; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #667eea;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .header .btn:hover { 
+            background: rgba(103, 126, 234, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(103, 126, 234, 0.2);
+        }
+        
+        .header .btn i {
+            font-size: 16px;
+        }
+        
+        .title { 
+            font-size: 20px; 
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .title::before {
+            content: '✨';
+            font-size: 24px;
+        }
+        
+        .container { 
+            min-height: calc(100vh - 64px); 
+            overflow-y: auto; 
+            padding: 48px 32px; 
+            display: flex; 
+            justify-content: center;
+        }
+        
+        .content { 
+            width: min(900px, 100%); 
+            background: white;
+            border-radius: 16px;
+            padding: 48px 56px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Markdown 样式优化 */
+        .markdown-viewer h1 { 
+            font-size: 2.5em; 
+            margin-bottom: 0.5em;
+            margin-top: 0;
+            color: #1a202c;
+            font-weight: 800;
+            line-height: 1.2;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.3em;
+        }
+        
+        .markdown-viewer h2 { 
+            font-size: 2em; 
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            color: #2d3748;
+            font-weight: 700;
+            line-height: 1.3;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 0.3em;
+        }
+        
+        .markdown-viewer h3 { 
+            font-size: 1.5em; 
+            margin-top: 1.2em;
+            margin-bottom: 0.5em;
+            color: #4a5568;
+            font-weight: 600;
+        }
+        
+        .markdown-viewer h4 {
+            font-size: 1.25em;
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+            color: #718096;
+            font-weight: 600;
+        }
+        
+        .markdown-viewer p { 
+            line-height: 1.8; 
+            margin-bottom: 1.2em;
+            color: #2d3748;
+            font-size: 16px;
+        }
+        
+        .markdown-viewer ul, .markdown-viewer ol {
+            margin-left: 1.5em;
+            margin-bottom: 1.2em;
+            line-height: 1.8;
+        }
+        
+        .markdown-viewer li {
+            margin-bottom: 0.5em;
+            color: #2d3748;
+        }
+        
+        .markdown-viewer code { 
+            padding: 0.2em 0.5em; 
+            background: linear-gradient(135deg, rgba(103, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border: 1px solid rgba(103, 126, 234, 0.2);
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+            font-size: 0.9em;
+            color: #667eea;
+            font-weight: 500;
+        }
+        
+        .markdown-viewer pre { 
+            padding: 20px; 
+            background: #1a202c;
+            border-radius: 12px; 
+            overflow: auto;
+            margin-bottom: 1.5em;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            border: 1px solid #2d3748;
+        }
+        
+        .markdown-viewer pre code {
+            background: none;
+            border: none;
+            color: #e2e8f0;
+            padding: 0;
+            font-size: 14px;
+        }
+        
+        .markdown-viewer img { 
+            max-width: 100%; 
+            height: auto; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            margin: 1.5em 0;
+            transition: transform 0.3s ease;
+        }
+        
+        .markdown-viewer img:hover {
+            transform: scale(1.02);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+        }
+        
+        .markdown-viewer blockquote {
+            margin: 1.5em 0;
+            padding: 1em 1.5em;
+            border-left: 4px solid #667eea;
+            background: rgba(103, 126, 234, 0.05);
+            border-radius: 0 8px 8px 0;
+            color: #4a5568;
+            font-style: italic;
+        }
+        
+        .markdown-viewer table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5em 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .markdown-viewer th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .markdown-viewer td {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .markdown-viewer tr:hover {
+            background: rgba(103, 126, 234, 0.05);
+        }
+        
+        .markdown-viewer a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: border-color 0.3s ease;
+        }
+        
+        .markdown-viewer a:hover {
+            border-bottom-color: #667eea;
+        }
+        
+        .markdown-viewer hr {
+            border: none;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
+            margin: 2em 0;
+        }
+        
+        .loading { 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column;
+            align-items: center; 
+            justify-content: center; 
+            color: white;
+            font-size: 18px;
+        }
+        
+        .loading::before {
+            content: '';
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 5px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #653a8b 100%);
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <button id="close-btn" class="btn" title="关闭当前标签页 (Ctrl+W)"><i class="fas fa-times"></i> 关闭</button>
-        <div class="title">AI 解读阅读器</div>
-        <div style="width:80px"></div>
+        <div class="header-content">
+            <button id="close-btn" class="btn" title="关闭当前标签页 (Ctrl+W / Esc)">
+                <i class="fas fa-arrow-left"></i> 返回
+            </button>
+            <div class="title">AI 解读阅读器</div>
+            <div style="width:80px"></div>
+        </div>
     </div>
     <div id="loading" class="loading">正在加载 AI 解读内容...</div>
     <div id="container" class="container" style="display:none;">

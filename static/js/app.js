@@ -2153,12 +2153,12 @@ function showRenameCategoryModal(categoryId) {
 
 // 显示模态框
 function showModal() {
-    modal.style.display = 'block';
+    modal.classList.add('show');
 }
 
 // 隐藏模态框
 function hideModal() {
-    modal.style.display = 'none';
+    modal.classList.remove('show');
 }
 
 // 添加分类
@@ -7221,6 +7221,7 @@ async function viewAnalysisResult(paperId, event) {
             <div class="paper-info-toolbar">
                 <div style="font-weight:600;">AI 解读</div>
             </div>
+            <button class="analysis-fullscreen-btn" onclick="openAnalysisFullscreen('${paperId}')" title="全屏查看"><i class="fas fa-expand"></i></button>
             <button class="analysis-close-btn" onclick="closeAnalysisView()" title="关闭"><i class="fas fa-times"></i></button>
             <div class="paper-info-content markdown-viewer">${htmlContent}</div>
         `;
@@ -7238,6 +7239,13 @@ async function viewAnalysisResult(paperId, event) {
         console.error('获取结果失败:', e);
         showMessage('获取结果失败', 'error');
     }
+}
+
+// 全屏查看 AI 解读
+function openAnalysisFullscreen(paperId) {
+    // 在新窗口中打开全屏查看器
+    const url = `/viewer/analysis/${paperId}`;
+    window.open(url, '_blank', 'width=1200,height=800');
 }
 
 function closeAnalysisView() {
@@ -9888,22 +9896,22 @@ async function extractAffiliationsForPaper(paperIndex) {
     const paper = papers[paperIndex];
     if (!paper) return;
     
-    // 获取 AI 解读设置中的 LLM 配置
-    let analysisSettings = {};
+    // 获取 Agentic Settings 中的 LLM 配置
+    let agenticSettings = {};
     try {
-        const res = await fetch('/api/settings/analysis');
+        const res = await fetch('/api/settings/agentic');
         if (res.ok) {
-            analysisSettings = await res.json();
+            agenticSettings = await res.json();
         }
     } catch (err) {
-        console.error('获取 AI 解读设置失败:', err);
+        console.error('获取 Agentic Settings 失败:', err);
     }
     
-    const openaiBaseUrl = analysisSettings.openaiBaseUrl;
-    const openaiApiKey = analysisSettings.openaiApiKey;
+    const llmBaseUrl = agenticSettings.llmBaseUrl;
+    const llmApiKey = agenticSettings.llmApiKey;
     
-    if (!openaiBaseUrl || !openaiApiKey) {
-        showMessage('请先在设置中配置 AI Analysis 的 OpenAI API', 'warning');
+    if (!llmBaseUrl || !llmApiKey) {
+        showMessage('请先在设置中配置 Agentic Settings 的 LLM API', 'warning');
         return;
     }
     
@@ -9924,8 +9932,6 @@ async function extractAffiliationsForPaper(paperIndex) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 arxiv_id: paper.arxiv_id,
-                openai_base_url: openaiBaseUrl,
-                openai_api_key: openaiApiKey,
                 date: paperDate,
                 fetch_category: paperCategory,
             })
@@ -10156,11 +10162,20 @@ function showDailyArxivView() {
     const dailyArxivTab = document.querySelector('.nav-tab[data-tab="daily-arxiv"]');
     if (dailyArxivTab) dailyArxivTab.classList.add('active');
     
-    // 加载设置和论文
-    loadDailyArxivSettings().then(() => {
-        if (dailyArxivPapers.length === 0 && dailyArxivCategories.length > 0) {
-            fetchDailyArxivPapers();
-        } else {
+    // 加载设置、日期和论文
+    loadDailyArxivSettings().then(async () => {
+        // 先加载可用日期（这会设置 dailyArxivCurrentDate）
+        await loadAvailableDates();
+        
+        // 检查缓存中是否有当前日期和分区的论文数据
+        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+        const hasCachedData = dailyArxivPapers[cacheKey] && dailyArxivPapers[cacheKey].length > 0;
+        
+        if (!hasCachedData && dailyArxivCategories.length > 0 && dailyArxivCurrentDate) {
+            // 如果缓存中没有数据，尝试从服务器加载
+            await loadPapersForCurrentDate();
+        } else if (hasCachedData) {
+            // 如果有缓存数据，直接渲染
             renderDailyArxivGrid();
         }
     });

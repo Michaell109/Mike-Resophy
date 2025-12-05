@@ -738,13 +738,13 @@ class DailyArxivManager:
                             paper.thumbnail_path = thumbnail_path
 
                         # 提取机构、homepage 和 github（从 PDF 第一页）
-                        if llm_config.get("openaiBaseUrl") and llm_config.get(
-                            "openaiApiKey"
+                        if llm_config.get("llmBaseUrl") and llm_config.get(
+                            "llmApiKey"
                         ):
                             extraction_result = self._extract_affiliations(
                                 pdf_path,
-                                llm_config["openaiBaseUrl"],
-                                llm_config["openaiApiKey"],
+                                llm_config["llmBaseUrl"],
+                                llm_config["llmApiKey"],
                                 prompt=affiliation_prompt,
                             )
                             paper.affiliations = extraction_result.get(
@@ -764,14 +764,14 @@ class DailyArxivManager:
                     # 提取摘要和关键词（从 abstract）
                     # 注意：即使 PDF 下载失败，也可以提取摘要和关键词
                     if (
-                        llm_config.get("openaiBaseUrl")
-                        and llm_config.get("openaiApiKey")
+                        llm_config.get("llmBaseUrl")
+                        and llm_config.get("llmApiKey")
                         and paper.abstract
                     ):
                         summary_result = extract_summary_and_keywords_with_llm(
                             paper.abstract,
-                            llm_config["openaiBaseUrl"],
-                            llm_config["openaiApiKey"],
+                            llm_config["llmBaseUrl"],
+                            llm_config["llmApiKey"],
                             prompt=summary_prompt,
                         )
                         paper.summary = summary_result.get("summary")
