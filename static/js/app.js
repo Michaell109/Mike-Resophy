@@ -345,10 +345,10 @@ function setupEventListeners() {
     document.getElementById('add-root-category').addEventListener('click', () => {
         if (currentCategoryId && currentCategoryId !== 'root') {
             // 如果有选中的分类，在该分类下添加子分类
-            showAddCategoryModal(currentCategoryId);
+            startInlineAddCategory(currentCategoryId);
         } else {
             // 如果没有选中分类，添加根分类
-            showAddCategoryModal('root');
+            startInlineAddCategory('root');
         }
     });
 
@@ -469,8 +469,8 @@ fileInput.addEventListener('change', handleFileSelect);
             if (!isCategoryMultiSelectMode) {
                 document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
                 currentCategoryId = null;
-                currentCategoryTitle.textContent = '选择一个分类查看 PDF';
-                renderRecentIfNoCategory();
+                // 显示待读列表
+                showReadingList();
                 clearPaperInfo();
             }
         }
@@ -644,24 +644,13 @@ function createCategoryElement(category, level = 0) {
             expandedCategories.add(category.id);
         }
         
-        // 若重复点击已选中的分类，则取消选中
+        // 若重复点击已选中的分类，则取消选中并显示待读列表
         if (div.classList.contains('selected')) {
             div.classList.remove('selected');
             currentCategoryId = null;
-            currentCategoryTitle.textContent = '选择一个分类查看 PDF';
-            // 清空中间列表与右侧信息
-            papersList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-file-pdf"></i>
-                    <p>选择左侧分类查看 PDF 文件</p>
-                </div>
-            `;
-            paperInfo.innerHTML = `
-                <div class="empty-state">
-                    <i class=\"fas fa-file-alt\"></i>
-                    <p>选择一篇论文查看详细信息</p>
-                </div>
-            `;
+            // 显示待读列表
+            showReadingList();
+            clearPaperInfo();
             return;
         }
         
@@ -2281,16 +2270,10 @@ async function deleteCategory(categoryId) {
         if (result.success) {
             showMessage('分类删除成功', 'success');
             
-            // 如果删除的是当前选中的分类，清空选中状态
+            // 如果删除的是当前选中的分类，显示待读列表
             if (currentCategoryId === categoryId) {
                 currentCategoryId = null;
-                currentCategoryTitle.textContent = '选择一个分类查看 PDF';
-                papersList.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-file-pdf"></i>
-                        <p>选择左侧分类查看 PDF 文件</p>
-                    </div>
-                `;
+                showReadingList();
                 clearPaperInfo();
             }
             
@@ -2317,7 +2300,7 @@ function setupContextMenu() {
 
     document.getElementById('add-subcategory').addEventListener('click', () => {
         const categoryId = contextMenu.dataset.categoryId;
-        showAddCategoryModal(categoryId);
+        startInlineAddCategory(categoryId);
         contextMenu.style.display = 'none';
     });
 
@@ -3918,6 +3901,174 @@ function startInlineRename(element, category) {
     });
 }
 
+// 内联添加新分类
+function startInlineAddCategory(parentId) {
+    // 找到父分类的容器
+    let parentContainer;
+    let insertPosition;
+    let level = 0;
+    
+    if (parentId === 'root') {
+        // 在根目录下添加
+        parentContainer = categoryTree;
+        insertPosition = parentContainer.firstChild;
+        level = 0;
+    } else {
+        // 在子目录下添加
+        const parentElement = document.querySelector(`[data-category-id="${parentId}"]`);
+        if (!parentElement) {
+            showMessage('找不到父分类', 'error');
+            return;
+        }
+        
+        level = parseInt(parentElement.dataset.level || '0') + 1;
+        const parentCategoryContainer = parentElement.closest('.category-container');
+        
+        // 确保父分类已展开
+        const childrenContainer = parentCategoryContainer.querySelector('.category-children');
+        const toggle = parentElement.querySelector('.category-toggle');
+        
+        if (childrenContainer) {
+            childrenContainer.classList.remove('collapsed');
+            if (toggle) {
+                toggle.classList.add('expanded');
+            }
+            expandedCategories.add(parentId);
+            parentContainer = childrenContainer;
+            insertPosition = parentContainer.firstChild;
+        } else {
+            // 如果没有子分类容器，创建一个
+            const newChildrenContainer = document.createElement('div');
+            newChildrenContainer.className = 'category-children';
+            parentCategoryContainer.appendChild(newChildrenContainer);
+            
+            // 更新父元素的展开按钮
+            const togglePlaceholder = parentElement.querySelector('.category-toggle-placeholder');
+            if (togglePlaceholder) {
+                togglePlaceholder.outerHTML = '<button class="category-toggle expanded"><i class="fas fa-chevron-right"></i></button>';
+                // 重新绑定事件
+                const newToggle = parentElement.querySelector('.category-toggle');
+                if (newToggle) {
+                    newToggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const category = findCategoryById(categories, parentId);
+                        if (category) {
+                            toggleCategoryChildren(parentCategoryContainer, category);
+                        }
+                    });
+                }
+            }
+            
+            expandedCategories.add(parentId);
+            parentContainer = newChildrenContainer;
+            insertPosition = null;
+        }
+    }
+    
+    // 创建临时的新分类容器
+    const tempContainer = document.createElement('div');
+    tempContainer.className = 'category-container temp-new-category';
+    
+    const tempDiv = document.createElement('div');
+    tempDiv.className = 'category-item editing';
+    tempDiv.dataset.parentId = parentId;
+    tempDiv.style.paddingLeft = `${level * 20 + 12}px`;
+    
+    // 临时占位的展开按钮
+    tempDiv.innerHTML = `
+        <span class="category-toggle-placeholder"></span>
+        <i class="fas fa-folder" style="margin-right: 6px; color: #ffc107; font-size: 12px;"></i>
+        <span class="category-name" style="display: none;"></span>
+        <span class="pdf-count">0</span>
+    `;
+    
+    tempContainer.appendChild(tempDiv);
+    
+    // 插入到适当位置
+    if (insertPosition) {
+        parentContainer.insertBefore(tempContainer, insertPosition);
+    } else {
+        parentContainer.appendChild(tempContainer);
+    }
+    
+    // 创建输入框
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '输入分类名称';
+    input.className = 'category-rename-input';
+    input.style.cssText = `
+        font-size: inherit;
+        padding: 2px 4px;
+        border: 1px solid #28a745;
+        border-radius: 3px;
+        outline: none;
+        width: 150px;
+        background: white;
+        box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.1);
+    `;
+    
+    const nameSpan = tempDiv.querySelector('.category-name');
+    nameSpan.parentNode.insertBefore(input, nameSpan.nextSibling);
+    input.focus();
+    
+    // 完成添加或取消
+    const finishAdd = async () => {
+        const newName = input.value.trim();
+        
+        if (newName) {
+            // 创建新分类
+            try {
+                const response = await fetch('/api/categories', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        parent_id: parentId,
+                        name: newName
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('分类添加成功', 'success');
+                    // 移除临时元素
+                    tempContainer.remove();
+                    // 更新并重新渲染
+                    await updateCategoriesData();
+                    await renderCategoryTreeWithState();
+                } else {
+                    showMessage(`添加失败: ${result.error}`, 'error');
+                    tempContainer.remove();
+                }
+            } catch (error) {
+                console.error('添加分类失败:', error);
+                showMessage('添加分类失败', 'error');
+                tempContainer.remove();
+            }
+        } else {
+            // 用户取消或输入为空，移除临时元素
+            tempContainer.remove();
+        }
+    };
+    
+    // 失去焦点时完成
+    input.addEventListener('blur', finishAdd);
+    
+    // 键盘事件
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+            e.preventDefault();
+            input.blur();
+        }
+        if (e.key === 'Escape') {
+            input.value = ''; // 清空输入，表示取消
+            input.blur();
+        }
+    });
+}
+
 function updateBatchUI() {
     const toolbar = document.getElementById('batch-toolbar');
     const btn = document.getElementById('toggle-multiselect');
@@ -4159,33 +4310,8 @@ function returnToHome() {
         exitMultiSelectMode();
     }
     
-    // 清空论文列表，显示空状态
-    const papersList = document.getElementById('papers-list');
-    if (papersList) {
-        papersList.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-file-pdf"></i>
-                <p>选择左侧分类查看 PDF 文件</p>
-            </div>
-        `;
-    }
-    
-    // 清空论文信息面板
-    const paperInfo = document.getElementById('paper-info');
-    if (paperInfo) {
-        paperInfo.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-file-alt"></i>
-                <p>选择一篇论文查看详细信息</p>
-            </div>
-        `;
-    }
-    
-    // 更新当前分类标题
-    const currentCategory = document.getElementById('current-category');
-    if (currentCategory) {
-        currentCategory.textContent = '选择一个分类查看 PDF';
-    }
+    // 显示待读列表
+    showReadingList();
     
     // 保存视图状态
     saveCurrentViewState();
@@ -5459,28 +5585,17 @@ function renderTaskTooltip() {
 
 // 显示空状态（未选择任何目录时）
 function showEmptyState() {
-    papers = [];
-    currentCategoryTitle.textContent = '选择一个分类查看论文';
-    papersList.innerHTML = `
-        <div class="empty-state">
-            <i class="fas fa-folder-open" style="font-size: 48px; color: #ffc107; margin-bottom: 16px;"></i>
-            <p style="font-size: 16px; color: #666; margin-bottom: 8px;">请从左侧选择一个目录</p>
-            <p style="font-size: 13px; color: #999;">点击一级目录可查看该目录及所有子目录下的论文</p>
-        </div>
-    `;
-    // 隐藏排序控件
-    const sortControls = document.getElementById('sort-controls');
-    if (sortControls) sortControls.style.display = 'none';
-    clearPaperInfo();
+    // 默认显示待读列表，而不是空状态
+    showReadingList();
 }
 
-// 保留旧函数名作为别名，但改为显示空状态
+// 保留旧函数名作为别名，默认显示待读列表
 async function renderAllPapers() {
-    showEmptyState();
+    await showReadingList();
 }
 
 async function renderRecentIfNoCategory() {
-    showEmptyState();
+    await showReadingList();
 }
 
 // 根据当前视图模式刷新列表（通用函数）

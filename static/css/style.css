@@ -1057,6 +1057,7 @@ body {
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow-x: hidden;
 }
 
 .sidebar-resizer {
@@ -1132,6 +1133,7 @@ body {
 .category-tree {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 8px;
 }
 
@@ -1146,6 +1148,8 @@ body {
     user-select: none;
     font-size: 12px;
     min-height: 24px;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .category-item:hover {
@@ -1258,6 +1262,8 @@ body {
 /* 分类容器 */
 .category-container {
     margin-bottom: 1px;
+    overflow: hidden;
+    max-width: 100%;
 }
 
 /* 上传区域 */
@@ -1561,6 +1567,42 @@ body {
 .category-item:focus {
     outline: 2px solid #007bff;
     outline-offset: -2px;
+}
+
+/* 内联编辑输入框样式 */
+.category-rename-input {
+    font-size: inherit;
+    padding: 2px 4px;
+    border: 1px solid #007bff;
+    border-radius: 3px;
+    outline: none;
+    background: white;
+    font-family: inherit;
+}
+
+/* 新建分类时的编辑状态 */
+.category-item.editing {
+    background: #e8f5e9 !important;
+    border-left: 3px solid #28a745;
+}
+
+.category-item.editing .category-rename-input {
+    border-color: #28a745;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.1);
+}
+
+/* 临时新分类容器的动画 - 淡入效果 */
+.temp-new-category {
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .category-item.drag-over {
