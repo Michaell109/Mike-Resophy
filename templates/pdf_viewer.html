@@ -255,6 +255,10 @@
         let readStartTime = null;
         let readTimeInterval = null;
         let lastRecordedSeconds = 0; // 记录上次已记录的秒数
+        let lastActivityTime = null; // 最后一次用户活动时间
+        let isTimerActive = true; // 计时器是否激活（用于区分用户无活动状态）
+        let activityCheckInterval = null; // 活动检测定时器
+        const INACTIVITY_THRESHOLD = 60000; // 无活动阈值：1分钟（毫秒）
         
         // 格式化日期为 YYYY-MM-DD（使用本地时间，避免时区问题）
         function formatDateLocal(date) {
@@ -263,6 +267,97 @@
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
+        }
+        
+        // 记录用户活动
+        function recordUserActivity() {
+            const now = Date.now();
+            const wasInactive = !isTimerActive;
+            lastActivityTime = now;
+            
+            // 如果之前是非活动状态，现在恢复活动，需要重新开始计时
+            if (wasInactive) {
+                console.log('检测到用户活动，恢复计时');
+                isTimerActive = true;
+                // 重新设置计时起点，但保留已记录的秒数
+                readStartTime = now;
+            }
+        }
+        
+        // 检测用户是否长时间无活动
+        function checkUserActivity() {
+            if (!lastActivityTime || !isTimerActive) {
+                return;
+            }
+            
+            const now = Date.now();
+            const timeSinceLastActivity = now - lastActivityTime;
+            
+            // 如果超过阈值且计时器还在活动状态，则暂停计时
+            if (timeSinceLastActivity > INACTIVITY_THRESHOLD && isTimerActive) {
+                console.log('检测到用户无活动超过1分钟，暂停计时');
+                isTimerActive = false;
+                // 保存当前的阅读时间
+                if (readStartTime) {
+                    const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000); // 使用最后活动时间
+                    const incrementSeconds = elapsed - lastRecordedSeconds;
+                    
+                    if (incrementSeconds > 0) {
+                        console.log('保存无活动前的阅读时间:', incrementSeconds, '秒');
+                        // 发送增量到后端
+                        fetch(`/api/paper/{{ paper_id }}/read-time`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                increment: incrementSeconds
+                            })
+                        }).catch(err => console.error('记录阅读时间失败:', err));
+                        
+                        // 记录到每日阅读数据
+                        recordDailyReadingTime(incrementSeconds);
+                        lastRecordedSeconds += incrementSeconds;
+                    }
+                }
+            }
+        }
+        
+        // 启动用户活动监听
+        function startActivityMonitoring() {
+            // 监听各种用户活动事件
+            const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+            
+            activityEvents.forEach(eventType => {
+                document.addEventListener(eventType, recordUserActivity, { passive: true });
+                // 也监听 iframe 内的活动（如果可以访问）
+                const iframe = document.getElementById('pdf-iframe');
+                if (iframe) {
+                    try {
+                        iframe.contentWindow?.document?.addEventListener(eventType, recordUserActivity, { passive: true });
+                    } catch (e) {
+                        // 跨域限制，无法访问 iframe 内容
+                    }
+                }
+            });
+            
+            // 初始化最后活动时间
+            lastActivityTime = Date.now();
+            isTimerActive = true;
+            
+            // 每10秒检查一次用户活动状态
+            activityCheckInterval = setInterval(checkUserActivity, 10000);
+            
+            console.log('用户活动监控已启动');
+        }
+        
+        // 停止用户活动监听
+        function stopActivityMonitoring() {
+            if (activityCheckInterval) {
+                clearInterval(activityCheckInterval);
+                activityCheckInterval = null;
+            }
+            console.log('用户活动监控已停止');
         }
         
         // 记录每日阅读时间到服务器（同时保存到 localStorage 作为备份）
@@ -315,12 +410,18 @@
         function startReadingTimer() {
             readStartTime = Date.now();
             lastRecordedSeconds = 0;
+            isTimerActive = true;
             console.log('开始记录阅读时间');
+            
+            // 启动用户活动监控
+            startActivityMonitoring();
             
             // 每30秒记录一次阅读时间（发送增量）
             readTimeInterval = setInterval(function() {
-                if (readStartTime) {
-                    const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+                // 只有在用户活动状态下才记录时间
+                if (readStartTime && isTimerActive) {
+                    const now = Date.now();
+                    const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
@@ -344,8 +445,13 @@
         }
         
         function stopReadingTimer() {
-            if (readStartTime) {
-                const elapsed = Math.floor((Date.now() - readStartTime) / 1000); // 秒
+            // 停止用户活动监控
+            stopActivityMonitoring();
+            
+            if (readStartTime && isTimerActive) {
+                // 只有在活动状态下才计算并保存时间
+                const now = Date.now();
+                const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
                 const incrementSeconds = elapsed - lastRecordedSeconds;
                 console.log('停止记录阅读时间, 本次增量:', incrementSeconds, '秒');
                 
@@ -361,11 +467,16 @@
                         })
                     }).catch(err => console.error('记录阅读时间失败:', err));
                     
+                    // 记录到每日阅读数据
+                    recordDailyReadingTime(incrementSeconds);
                 }
-                
-                readStartTime = null;
-                lastRecordedSeconds = 0;
             }
+            
+            readStartTime = null;
+            lastRecordedSeconds = 0;
+            isTimerActive = false;
+            lastActivityTime = null;
+            
             if (readTimeInterval) {
                 clearInterval(readTimeInterval);
                 readTimeInterval = null;
