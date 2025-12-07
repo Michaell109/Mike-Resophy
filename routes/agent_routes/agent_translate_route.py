@@ -9,8 +9,11 @@ from typing import Any, Callable, Dict, List
 
 from flask import jsonify, request, send_file
 
-from agent_tools.translate_pdf import TranslationDependencies, translate_paper_task
 from core.base_paper import Paper
+from tools.agent_tools.translate_pdf import (
+    TranslationDependencies,
+    translate_paper_task,
+)
 
 CategoryPath = List[str]
 

@@ -11,9 +11,12 @@ from typing import Any, Callable, Dict, Optional, Protocol
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 
-from basic_tools.upload_paper import process_uploaded_pdf_fast, fetch_bibtex_from_dblp
 from core.base_paper import Paper
 from core.paper_store import PaperStore
+from tools.basic_tools.upload_paper import (
+    fetch_bibtex_from_dblp,
+    process_uploaded_pdf_fast,
+)
 
 
 class GetCategoriesFn(Protocol):
@@ -151,12 +154,16 @@ def register_upload_from_pdf_routes(
                 print(f"[后台 阶段1] ✅ arXiv 信息已更新: {new_filename}")
 
                 # 【阶段2】后台获取 DBLP BibTeX
-                if paper_info.get("title") and paper_info.get("authors") and paper_info.get("arxiv_id"):
+                if (
+                    paper_info.get("title")
+                    and paper_info.get("authors")
+                    and paper_info.get("arxiv_id")
+                ):
                     print(f"[后台 阶段2] 开始获取 DBLP BibTeX...")
                     bibtex = fetch_bibtex_from_dblp(
                         title=paper_info["title"],
                         authors=paper_info["authors"],
-                        arxiv_id=paper_info["arxiv_id"]
+                        arxiv_id=paper_info["arxiv_id"],
                     )
                     if bibtex:
                         paper.bibtex = bibtex

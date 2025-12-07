@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import jsonify, request, send_file
 
-from agent_tools.summary_pdf import AnalysisDependencies, analyze_paper_task
+from tools.agent_tools.summary_pdf import AnalysisDependencies, analyze_paper_task
 from core.base_paper import Paper
 
 CategoryPath = List[str]

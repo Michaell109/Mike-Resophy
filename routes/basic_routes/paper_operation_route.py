@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tupl
 
 from flask import Flask, jsonify, request, send_file
 
-from basic_tools.upload_paper import process_uploaded_pdf, search_arxiv_by_title_only
+from tools.basic_tools.upload_paper import process_uploaded_pdf, search_arxiv_by_title_only
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -566,8 +566,52 @@ def register_paper_operation_routes(
                 404,
             )
 
+        # 获取论文信息
+        result = find_paper(paper_id)
+        if not result:
+            return jsonify({"success": False, "error": "Paper not found"}), 404
+
+        paper, category_path, category_id = result
+        
+        # 检查是否在临时目录
+        # 方法1: 检查 category_id
+        # 方法2: 检查文件路径是否包含 _ReadingListTemp
+        is_in_temp = (
+            category_id == "reading_list_temp" or
+            (category_path and len(category_path) > 1 and category_path[1] == "_ReadingListTemp") or
+            (paper.file_path and "_ReadingListTemp" in paper.file_path)
+        )
+        
+        # 获取删除选项
+        data = request.json or {}
+        delete_files = data.get("delete_files", False)
+        
+        # 如果在临时目录，需要用户确认删除文件（不管来源）
+        if is_in_temp and not delete_files:
+            return jsonify({
+                "success": False,
+                "error": "需要确认删除",
+                "requires_confirmation": True,
+                "message": "该论文还未移动到某个目录，是否要删除论文文件、AI解读和AI翻译？"
+            }), 200  # 返回 200 以便前端处理
+        
+        # 如果确认删除文件，删除论文及其相关文件
+        # 只要在 temp 目录就删除文件
+        if delete_files and is_in_temp and paper.file_path:
+            delete_paper_files(paper.file_path)
+            paper_store.remove(paper_id)
+        elif not is_in_temp:
+            # 如果不在 temp 目录，只从待读列表移除，不删除文件
+            # 论文仍然保留在原来的目录中
+            pass
+        
+        # 从待读列表移除
         remove_from_reading_list(paper_id)
-        return jsonify({"success": True})
+        
+        return jsonify({
+            "success": True,
+            "deleted_files": delete_files if (is_in_temp and is_from_daily_arxiv) else False
+        })
 
     @app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
     def api_record_read_time(paper_id: str):

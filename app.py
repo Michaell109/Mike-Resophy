@@ -8,7 +8,6 @@ from typing import Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from basic_tools import category_manager, paper_repository
 from core.base_paper import Paper
 from core.paper_store import paper_store
 from core.search_index import SearchIndex
@@ -26,13 +25,14 @@ from routes.basic_routes.search_route import register_search_routes
 from routes.basic_routes.settings_route import register_settings_routes
 from routes.basic_routes.update_from_url_route import register_update_from_url_routes
 from routes.basic_routes.upload_from_pdf_route import register_upload_from_pdf_routes
+from tools.basic_tools import category_manager, paper_repository
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./new_new_papers",
+    default="./papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
@@ -60,6 +60,7 @@ AGENTIC_SETTINGS_FILE = None  # AI 功能设置（统一的LLM配置）
 DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv 设置
 AVATARS_DIR = None  # 头像图片目录
 TEMP_PAPERS_DIR = None  # Daily arXiv 临时论文目录
+READING_LIST_TEMP_DIR = None  # 待读列表临时论文目录
 SEARCH_INDEX_DB = None  # 搜索索引数据库路径
 search_index = None  # 搜索索引实例
 # 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
@@ -218,7 +219,7 @@ def init_app(papers_dir=None):
     """初始化应用配置和目录"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE
     global USER_SETTINGS_FILE, READING_HISTORY_FILE, AGENTIC_SETTINGS_FILE, AVATARS_DIR
-    global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR
+    global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR, READING_LIST_TEMP_DIR
     global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
@@ -241,12 +242,14 @@ def init_app(papers_dir=None):
     DAILY_ARXIV_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "daily_arxiv_settings.json")
     AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
     TEMP_PAPERS_DIR = os.path.join(UPLOAD_FOLDER, ".daily_arxiv_temp")
+    READING_LIST_TEMP_DIR = os.path.join(UPLOAD_FOLDER, "_ReadingListTemp")
     SEARCH_INDEX_DB = os.path.join(UPLOAD_FOLDER, ".search_index.db")
 
     # 确保必要的目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(AVATARS_DIR, exist_ok=True)
     os.makedirs(TEMP_PAPERS_DIR, exist_ok=True)
+    os.makedirs(READING_LIST_TEMP_DIR, exist_ok=True)
 
     # 初始化搜索索引
     search_index = SearchIndex(SEARCH_INDEX_DB)
@@ -384,6 +387,7 @@ def register_routes():
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
+        reading_list_temp_dir=READING_LIST_TEMP_DIR,
         paper_store=paper_store,
     )
 
@@ -434,6 +438,7 @@ def register_routes():
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
+        reading_list_temp_dir=READING_LIST_TEMP_DIR,
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
     )
 

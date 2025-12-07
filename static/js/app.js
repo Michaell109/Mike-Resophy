@@ -364,7 +364,8 @@ function setupEventListeners() {
 
     // arXiv 导入按钮
     document.getElementById('upload-arxiv-btn').addEventListener('click', () => {
-        if (currentCategoryId) {
+        // 如果在待读列表界面，也允许上传
+        if (currentCategoryId || currentViewMode === 'reading-list') {
             showArxivUploadModal();
         } else {
             showMessage('请先选择一个分类', 'warning');
@@ -934,9 +935,23 @@ async function showReadingList() {
         `;
         const response = await fetch('/api/reading-list');
         papers = await response.json();
-        // 更新计数
+        // 更新计数和ID集合（确保在渲染前完成）
         readingListCount = papers.length;
-        updateReadingListCount();
+        readingListPaperIds.clear();
+        papers.forEach(p => readingListPaperIds.add(p.id));
+        // 更新UI显示
+        const tiReadingCount = document.getElementById('ti-reading-count');
+        if (tiReadingCount) {
+            tiReadingCount.textContent = readingListCount;
+        }
+        const btnReading = document.getElementById('btn-show-reading-list');
+        if (btnReading) {
+            if (readingListCount > 0) {
+                btnReading.classList.add('has-tasks');
+            } else {
+                btnReading.classList.remove('has-tasks');
+            }
+        }
         // 如果没有论文，显示空状态
         if (papers.length === 0) {
             papersList.innerHTML = `
@@ -1011,11 +1026,51 @@ async function addToReadingList(paperId, event) {
 async function removeFromReadingList(paperId, event) {
     if (event) event.stopPropagation();
     try {
+        // 先尝试移除，看是否需要确认
         const response = await fetch(`/api/reading-list/${paperId}/remove`, {
-            method: 'POST'
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delete_files: false })
         });
-        if (response.ok) {
-            showMessage('已从待读列表移除', 'success');
+        
+        const data = await response.json();
+        
+        if (data.requires_confirmation) {
+            // 需要确认删除，显示弹窗
+            const confirmed = confirm(data.message || '该论文还未移动到某个目录，是否要删除论文文件、AI解读和AI翻译？');
+            if (confirmed) {
+                // 用户确认，删除文件
+                const deleteResponse = await fetch(`/api/reading-list/${paperId}/remove`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_files: true })
+                });
+                const deleteData = await deleteResponse.json();
+                if (deleteData.success) {
+                    showMessage('已从待读列表移除并删除相关文件', 'success');
+                    // 更新ID集合和计数
+                    readingListPaperIds.delete(paperId);
+                    await updateReadingListCount();
+                    // 如果当前正在查看待读列表，刷新列表
+                    if (currentViewMode === 'reading-list') {
+                        showReadingList();
+                    } else if (currentViewMode === 'category' && currentCategoryId) {
+                        // 如果在分类列表中，更新显示
+                        renderPapersList();
+                    }
+                } else {
+                    showMessage(deleteData.error || '删除失败', 'error');
+                }
+            }
+            // 用户取消，不做任何操作
+            return;
+        }
+        
+        if (response.ok && data.success) {
+            const message = data.deleted_files 
+                ? '已从待读列表移除并删除相关文件' 
+                : '已从待读列表移除';
+            showMessage(message, 'success');
             // 更新ID集合和计数
             readingListPaperIds.delete(paperId);
             await updateReadingListCount();
@@ -1026,8 +1081,9 @@ async function removeFromReadingList(paperId, event) {
                 // 如果在分类列表中，更新显示
                 renderPapersList();
             }
-        } else {
-            showMessage('移除失败', 'error');
+        } else if (!data.requires_confirmation) {
+            // 如果不是需要确认的情况，显示错误
+            showMessage(data.error || '移除失败', 'error');
         }
     } catch (error) {
         console.error('移除失败:', error);
@@ -3061,25 +3117,38 @@ function showArxivUploadModal() {
         // 后台下载并在完成后刷新分类计数/当前列表
         (async () => {
             try {
+                // 如果在待读列表界面，使用临时目录；否则使用当前分类
+                const isInReadingList = currentViewMode === 'reading-list';
+                const requestBody = {
+                    arxiv_url: arxivUrl,
+                };
+                
+                if (isInReadingList) {
+                    requestBody.use_temp_dir = true;
+                } else {
+                    requestBody.category_id = currentCategoryId;
+                }
+                
                 const response = await fetch('/api/upload/arxiv', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        arxiv_url: arxivUrl,
-                        category_id: currentCategoryId
-                    })
+                    body: JSON.stringify(requestBody)
                 });
                 const result = await response.json();
                 if (response.ok && result.success) {
                     showMessage('论文导入成功', 'success');
-                    if (currentCategoryId) {
+                    // 先更新待读列表计数和ID集合，确保状态同步
+                    await updateReadingListCount();
+                    if (isInReadingList) {
+                        // 如果在待读列表界面，刷新待读列表
+                        await showReadingList();
+                    } else if (currentCategoryId) {
                         loadPapers(currentCategoryId);
                     }
                     await updateCategoriesData();
                     renderCategoryTreeWithState();
-                    updateReadingListCount();
                 } else {
                     showMessage(result.error || '导入失败', 'error');
                 }
@@ -9490,8 +9559,10 @@ function renderDailyArxivGrid() {
                 }
                 
                 // 显示"等待中"提示
+                // 添加类使 grid 容器居中
+                gridEl.classList.add('daily-arxiv-grid-no-results');
                 gridEl.innerHTML = `
-                    <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666;">
+                    <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666; width: 100%;">
                         <i class="fas fa-clock fa-3x" style="margin-bottom: 20px; color: #999;"></i>
                         <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">暂无新论文</h3>
                         <p style="margin-bottom: 30px; font-size: 1em; color: #888;">等待自动抓取，或点击下方按钮手动触发</p>
@@ -10421,18 +10492,8 @@ function onDailyArxivAddToReadingList(paperIndex, event) {
     const paper = papers[paperIndex];
     if (!paper) return;
 
-    // 2. 选择一个默认分类：如果有分类树，就取第一个顶层分类；否则直接提示配置分类
-    let defaultCategoryId = null;
-    if (categories && Array.isArray(categories.children) && categories.children.length > 0) {
-        defaultCategoryId = categories.children[0].id;
-    }
-
-    if (!defaultCategoryId) {
-        showMessage('请先在左侧创建一个分类，再添加到待读列表', 'warning');
-        return;
-    }
-
-    // 3. 调用后端：先导入到默认分类，再加入待读列表
+    // 2. 使用待读列表临时目录，不需要选择分类
+    // 3. 调用后端：先导入到临时目录，再加入待读列表
     (async () => {
         try {
             // 使用论文自身的抓取分区；如果当前视图是 "all"，不要把 "all" 传给后端
@@ -10442,7 +10503,7 @@ function onDailyArxivAddToReadingList(paperIndex, event) {
 
             const body = {
                 arxiv_id: paper.arxiv_id,
-                category_id: defaultCategoryId,
+                use_temp_dir: true,  // 使用临时目录
                 date: dailyArxivCurrentDate,
             };
             if (fetchCategory) {

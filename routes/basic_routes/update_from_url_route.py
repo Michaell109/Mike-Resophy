@@ -11,9 +11,12 @@ from typing import Any, Dict, Optional, Protocol
 import requests
 from flask import Flask, jsonify, request
 
-from basic_tools.upload_paper import fetch_paper_by_arxiv_id_fast, fetch_bibtex_from_dblp
 from core.base_paper import Paper
 from core.paper_store import PaperStore
+from tools.basic_tools.upload_paper import (
+    fetch_bibtex_from_dblp,
+    fetch_paper_by_arxiv_id_fast,
+)
 
 
 class GetCategoriesFn(Protocol):
@@ -91,6 +94,7 @@ def register_update_from_url_routes(
     create_category_folder: CreateCategoryFolderFn,
     save_paper_metadata: SavePaperMetadataFn,
     reading_list_file: str,
+    reading_list_temp_dir: str,
     paper_store: PaperStore,
 ) -> None:
     def _load_reading_list() -> list[str]:
@@ -128,12 +132,14 @@ def register_update_from_url_routes(
         try:
             print(f"[后台 DBLP] 开始获取 BibTeX: {title[:50]}...")
             bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
-            
+
             if bibtex:
                 paper = paper_store.get(paper_id)
                 if paper:
                     paper.bibtex = bibtex
-                    paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
                     save_paper_metadata(file_path, paper)
                     print(f"[后台 DBLP] ✅ BibTeX 已更新: {paper_id}")
                 else:
@@ -150,12 +156,27 @@ def register_update_from_url_routes(
             data = request.json or {}
             arxiv_url = data.get("arxiv_url", "").strip()
             category_id = data.get("category_id")
+            use_temp_dir = data.get("use_temp_dir", False)  # 是否使用待读列表临时目录
 
             if not arxiv_url:
                 return jsonify({"success": False, "error": "未提供 arXiv URL"}), 400
 
-            if not category_id:
-                return jsonify({"success": False, "error": "未选择分类"}), 400
+            # 如果使用 temp 目录，直接使用 temp 目录路径
+            if use_temp_dir:
+                category_folder = reading_list_temp_dir
+                category_path = ["Root", "_ReadingListTemp"]
+                category_id = "reading_list_temp"  # 使用特殊 ID
+            else:
+                if not category_id:
+                    return jsonify({"success": False, "error": "未选择分类"}), 400
+
+                categories = get_categories()
+                category_path = get_category_path(categories, category_id)
+
+                if not category_path:
+                    return jsonify({"success": False, "error": "分类未找到"}), 404
+
+                category_folder = create_category_folder(category_path[1:])
 
             arxiv_id = _extract_arxiv_id_from_url(arxiv_url)
             if not arxiv_id:
@@ -171,14 +192,6 @@ def register_update_from_url_routes(
                 return jsonify({"success": False, "error": "下载 PDF 失败"}), 500
 
             pdf_content, filename = result
-
-            categories = get_categories()
-            category_path = get_category_path(categories, category_id)
-
-            if not category_path:
-                return jsonify({"success": False, "error": "分类未找到"}), 404
-
-            category_folder = create_category_folder(category_path[1:])
             file_path = os.path.join(category_folder, filename)
 
             counter = 1
@@ -255,6 +268,10 @@ def register_update_from_url_routes(
             paper = Paper.from_dict(paper_info)
             if not paper:
                 return jsonify({"success": False, "error": "创建论文对象失败"}), 500
+
+            # 如果使用 temp 目录，标记来源
+            if use_temp_dir:
+                paper.upload_source = "reading_list_url"
 
             registered_paper = paper_store.upsert(
                 paper, category_id=category_id, category_path=category_path

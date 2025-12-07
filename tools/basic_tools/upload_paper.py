@@ -23,8 +23,8 @@ from typing import Any, Dict, Optional
 import arxiv
 import PyPDF2
 
-from basic_tools.arxiv_client import get_bibtex_enhanced
-from basic_tools.pdf_extractor import (
+from tools.basic_tools.arxiv_client import get_bibtex_enhanced
+from tools.basic_tools.pdf_extractor import (
     extract_title_by_fontsize,
     extract_title_from_text,
     preprocess_pdf_text,

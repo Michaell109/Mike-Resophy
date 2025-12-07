@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import Flask, jsonify, request, send_file
 
-from basic_tools.daily_arxiv import (
+from tools.basic_tools.daily_arxiv import (
     DailyArxivManager,
     extract_affiliations_with_llm,
     extract_pdf_first_page_text,
@@ -36,6 +36,7 @@ def register_daily_arxiv_routes(
     create_category_folder: Callable[[List[str]], str],
     save_paper_metadata: Callable[[str, Any], None],
     reading_list_file: str,
+    reading_list_temp_dir: str,
     agentic_settings_file: str = None,
 ) -> None:
     """
@@ -267,21 +268,28 @@ def register_daily_arxiv_routes(
             category_id = data.get("category_id")
             date_str = data.get("date", get_today_arxiv_date())
             fetch_category = data.get("fetch_category")
+            use_temp_dir = data.get("use_temp_dir", False)  # 是否使用待读列表临时目录
 
             if not arxiv_id:
                 return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
 
-            if not category_id:
-                return jsonify({"success": False, "error": "请选择目标分类"}), 400
+            # 如果使用 temp 目录，直接使用 temp 目录路径
+            if use_temp_dir:
+                folder_path = reading_list_temp_dir
+                category_path = ["Root", "_ReadingListTemp"]
+                category_id = "reading_list_temp"  # 使用特殊 ID
+            else:
+                if not category_id:
+                    return jsonify({"success": False, "error": "请选择目标分类"}), 400
 
-            # 获取分类路径
-            categories = get_categories()
-            category_path = get_category_path(categories, category_id)
-            if not category_path:
-                return jsonify({"success": False, "error": "分类不存在"}), 404
+                # 获取分类路径
+                categories = get_categories()
+                category_path = get_category_path(categories, category_id)
+                if not category_path:
+                    return jsonify({"success": False, "error": "分类不存在"}), 404
 
-            # 创建分类文件夹
-            folder_path = create_category_folder(category_path[1:])
+                # 创建分类文件夹
+                folder_path = create_category_folder(category_path[1:])
 
             # 从存储中获取论文信息
             paper_info = None
@@ -391,6 +399,7 @@ def register_daily_arxiv_routes(
                     "paper_id": paper.id,
                     "file_path": target_path,
                     "message": f"已添加到 {'/'.join(category_path[1:])}",
+                    "is_temp": use_temp_dir,  # 标记是否在 temp 目录
                 }
             )
 

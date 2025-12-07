@@ -21,7 +21,7 @@ import requests
 from flask import Flask, Response, jsonify, request
 from werkzeug.utils import secure_filename
 
-from basic_tools.upload_paper import (
+from tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp,
     fetch_paper_by_arxiv_id_fast,
     search_arxiv_by_title_and_author_fast,
@@ -786,7 +786,7 @@ def register_import_routes(
 
             # 解析 RDF 文件
             try:
-                from basic_tools.zotero_parser import ZoteroRDFParser
+                from tools.basic_tools.zotero_parser import ZoteroRDFParser
 
                 parser = ZoteroRDFParser(temp_path)
                 papers = parser.parse()
