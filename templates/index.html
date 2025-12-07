@@ -281,6 +281,10 @@
                     <i class="fas fa-file-import"></i>
                     <span>Import</span>
                 </button>
+                <button class="setting-nav-item" data-setting="export">
+                    <i class="fas fa-file-export"></i>
+                    <span>Export</span>
+                </button>
             </nav>
         </div>
 
@@ -596,9 +600,24 @@
             <!-- Import Panel -->
             <div class="setting-panel" id="setting-panel-import" style="display:none;">
                 <div class="panel-header">
-                    <h2><i class="fas fa-file-import"></i> Import from Zotero</h2>
-                    <p>从 Zotero 导入论文库，支持导入目录结构和 PDF 文件</p>
+                    <h2><i class="fas fa-file-import"></i> Import Data</h2>
+                    <p>从 Zotero 或其他来源导入论文库</p>
                 </div>
+                
+                <!-- 导入类型选择 -->
+                <div class="import-type-tabs">
+                    <button class="import-type-tab active" data-import-type="zotero">
+                        <i class="fas fa-book"></i>
+                        从 Zotero 导入
+                    </button>
+                    <button class="import-type-tab" data-import-type="export">
+                        <i class="fas fa-file-archive"></i>
+                        从导出文件导入
+                    </button>
+                </div>
+                
+                <!-- Zotero 导入 -->
+                <div id="import-zotero-panel" class="import-content-panel">
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-upload"></i>
@@ -711,6 +730,212 @@
                                 <div class="step-content">
                                     <strong>自动下载 PDF</strong>
                                     <p>系统会根据论文信息从 arXiv 自动下载 PDF 文件</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+                
+                <!-- 从导出文件导入 -->
+                <div id="import-export-panel" class="import-content-panel" style="display:none;">
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-file-archive"></i>
+                        <span>上传导出文件</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="export-info-box" style="margin-bottom: 20px;">
+                            <i class="fas fa-info-circle"></i>
+                            <div class="export-info-text">
+                                <p><strong>关于导出文件导入：</strong></p>
+                                <ul>
+                                    <li>支持导入从 Export 功能生成的 ZIP 文件</li>
+                                    <li>将自动恢复论文、目录结构、翻译和解读</li>
+                                    <li>如果分类已存在，将自动合并</li>
+                                    <li>重复的论文将被跳过</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="import-drop-zone" id="export-import-drop-zone">
+                            <div class="drop-zone-content" id="export-drop-zone-content">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>拖拽导出的 ZIP 文件到此处</p>
+                                <p>或者</p>
+                                <label for="export-file-input" class="btn btn-primary">
+                                    <i class="fas fa-folder-open"></i>
+                                    选择文件
+                                </label>
+                                <input type="file" id="export-file-input" accept=".zip" style="display: none;">
+                            </div>
+                        </div>
+                        
+                        <!-- 导入进度 -->
+                        <div id="export-import-progress-container" style="display:none; margin-top: 20px;">
+                            <div class="import-progress-header">
+                                <span id="export-import-status-text">正在导入...</span>
+                                <span id="export-import-progress-percent">0%</span>
+                            </div>
+                            <div class="import-progress-bar">
+                                <div id="export-import-progress-fill" class="import-progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <div id="export-import-current-item" class="import-current-item"></div>
+                            <div class="import-details" id="export-import-details">
+                                <span>成功: <strong id="export-import-success-count">0</strong></span>
+                                <span>失败: <strong id="export-import-failed-count">0</strong></span>
+                                <span>跳过: <strong id="export-import-skipped-count">0</strong></span>
+                                <span>重复: <strong id="export-import-duplicate-count">0</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 导入说明 -->
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-info-circle"></i>
+                        <span>使用说明</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="import-instructions">
+                            <div class="instruction-step">
+                                <span class="step-number">1</span>
+                                <div class="step-content">
+                                    <strong>准备导出文件</strong>
+                                    <p>确保你有一个从 Export 功能生成的 ZIP 文件。该文件包含完整的论文库备份。</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">2</span>
+                                <div class="step-content">
+                                    <strong>上传 ZIP 文件</strong>
+                                    <p>将导出的 ZIP 文件拖拽到上方区域，或点击「选择文件」按钮选择文件。</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">3</span>
+                                <div class="step-content">
+                                    <strong>自动导入</strong>
+                                    <p>系统将自动解析 ZIP 文件并导入所有论文、目录结构、翻译和解读。导入过程可能需要一些时间。</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">4</span>
+                                <div class="step-content">
+                                    <strong>查看结果</strong>
+                                    <p>导入完成后，可以在主界面查看导入的论文和目录结构。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+            <!-- Export Panel -->
+            <div class="setting-panel" id="setting-panel-export" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-file-export"></i> Export Data</h2>
+                    <p>导出论文库数据，可在其他服务器或新安装中恢复</p>
+                </div>
+                
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-box-archive"></i>
+                        <span>导出说明</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="export-info-box export-warning-box">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <div>
+                                <strong>浏览器限制说明</strong>
+                                <p>由于浏览器对文件上传大小的限制，导出功能仅导出 <strong>JSON 元数据和目录结构</strong>，不包含 PDF 文件、AI 翻译和 AI 解读。</p>
+                                <p>导入时系统会自动从 arXiv 重新下载 PDF 文件。</p>
+                            </div>
+                        </div>
+                        
+                        <div class="export-info-box">
+                            <i class="fas fa-server"></i>
+                            <div>
+                                <strong>完整数据迁移方案</strong>
+                                <p>如需迁移包含 PDF、翻译、解读的完整数据，请直接在服务器端复制整个 <code>papers</code> 目录：</p>
+                                <code id="papers-dir-path" style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 4px; word-break: break-all;">加载中...</code>
+                            </div>
+                        </div>
+                        
+                        <div class="export-info-box">
+                            <i class="fas fa-info-circle"></i>
+                            <div class="export-info-text">
+                                <p><strong>导出内容包括：</strong></p>
+                                <ul>
+                                    <li>完整的目录结构</li>
+                                    <li>所有论文的元数据（标题、作者、摘要等）</li>
+                                    <li>待读列表</li>
+                                    <li>阅读历史记录</li>
+                                    <li>用户设置（头像、偏好等）</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="export-actions">
+                            <button id="btn-start-export" class="btn btn-primary">
+                                <i class="fas fa-download"></i>
+                                开始导出
+                            </button>
+                        </div>
+                        
+                        <!-- 导出进度 -->
+                        <div id="export-progress-container" style="display:none; margin-top: 20px;">
+                            <div class="export-progress-header">
+                                <span id="export-status-text">正在导出...</span>
+                                <span id="export-progress-text">0 / 0</span>
+                            </div>
+                            <div class="export-progress-bar">
+                                <div id="export-progress-fill" class="export-progress-fill" style="width: 0%;"></div>
+                            </div>
+                            <div id="export-current-paper" class="export-current-paper"></div>
+                            <div class="export-actions" style="margin-top: 15px;">
+                                <button id="btn-download-export" class="btn btn-success" style="display:none;">
+                                    <i class="fas fa-file-download"></i>
+                                    下载导出文件
+                                </button>
+                                <button id="btn-cancel-export" class="btn btn-secondary">
+                                    <i class="fas fa-times"></i>
+                                    取消导出
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 导出说明 -->
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-info-circle"></i>
+                        <span>使用说明</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <div class="import-instructions">
+                            <div class="instruction-step">
+                                <span class="step-number">1</span>
+                                <div class="step-content">
+                                    <strong>开始导出</strong>
+                                    <p>点击「开始导出」按钮，系统将收集所有论文的 JSON 元数据和目录结构并打包成 ZIP 文件。</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">2</span>
+                                <div class="step-content">
+                                    <strong>下载并保存</strong>
+                                    <p>导出完成后，点击「下载导出文件」按钮。ZIP 文件包含论文元数据、分类结构和配置信息。</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <span class="step-number">3</span>
+                                <div class="step-content">
+                                    <strong>导入到新环境</strong>
+                                    <p>在新环境中，进入 Import 面板，上传导出的 ZIP 文件。系统会自动恢复目录结构，并从 arXiv 重新下载 PDF 文件。</p>
                                 </div>
                             </div>
                         </div>

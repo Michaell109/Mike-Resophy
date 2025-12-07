@@ -738,9 +738,7 @@ class DailyArxivManager:
                             paper.thumbnail_path = thumbnail_path
 
                         # 提取机构、homepage 和 github（从 PDF 第一页）
-                        if llm_config.get("llmBaseUrl") and llm_config.get(
-                            "llmApiKey"
-                        ):
+                        if llm_config.get("llmBaseUrl") and llm_config.get("llmApiKey"):
                             extraction_result = self._extract_affiliations(
                                 pdf_path,
                                 llm_config["llmBaseUrl"],

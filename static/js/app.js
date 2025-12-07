@@ -322,6 +322,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     await initDailyArxiv();
     // 初始化导航栏头像
     updateAvatars();
+    // 先更新待读列表计数（在恢复视图状态之前）
+    await updateReadingListCount();
     // 先恢复队列状态，再恢复运行中的任务
     restoreQueuesFromStorage();
     cleanupCompletedQueues();
@@ -333,10 +335,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (analysisQueue.length > 0 && !isAnalyzing) {
         processAnalysisQueue();
     }
-    // 恢复上次视图状态
+    // 恢复上次视图状态（此时 readingListCount 已经加载好了）
     await restoreViewState();
     updateTaskIndicator();
-    updateReadingListCount();
 });
 
 // 设置事件监听器
@@ -469,9 +470,11 @@ fileInput.addEventListener('change', handleFileSelect);
             if (!isCategoryMultiSelectMode) {
                 document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
                 currentCategoryId = null;
-                // 显示待读列表
-                showReadingList();
-                clearPaperInfo();
+                // 只有当前不在待读列表时才切换到待读列表
+                if (currentViewMode !== 'reading-list') {
+                    showReadingList();
+                    clearPaperInfo();
+                }
             }
         }
     });
@@ -6163,6 +6166,16 @@ let importInProgress = false;
 
 // 初始化导入功能
 async function initImportFeature() {
+    // 初始化导入类型选项卡切换
+    const importTypeTabs = document.querySelectorAll('.import-type-tab');
+    importTypeTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const importType = tab.getAttribute('data-import-type');
+            switchImportType(importType);
+        });
+    });
+    
+    // 初始化 Zotero 导入
     const dropZone = document.getElementById('import-drop-zone');
     const fileInput = document.getElementById('rdf-file-input');
     
@@ -6205,7 +6218,268 @@ async function initImportFeature() {
     // 检查是否有正在进行的导入任务（页面刷新后恢复）
     checkExistingImportTask();
     
+    // 初始化从导出文件导入
+    initExportFileImport();
+    
     console.log('Import 功能初始化完成');
+}
+
+// 切换导入类型
+function switchImportType(type) {
+    // 更新选项卡状态
+    document.querySelectorAll('.import-type-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.getAttribute('data-import-type') === type) {
+            tab.classList.add('active');
+        }
+    });
+    
+    // 切换面板显示
+    const zoteroPanel = document.getElementById('import-zotero-panel');
+    const exportPanel = document.getElementById('import-export-panel');
+    
+    if (type === 'zotero') {
+        zoteroPanel.style.display = 'block';
+        exportPanel.style.display = 'none';
+    } else if (type === 'export') {
+        zoteroPanel.style.display = 'none';
+        exportPanel.style.display = 'block';
+    }
+}
+
+// 初始化从导出文件导入
+function initExportFileImport() {
+    const dropZone = document.getElementById('export-import-drop-zone');
+    const fileInput = document.getElementById('export-file-input');
+    
+    if (!dropZone || !fileInput) return;
+    
+    // 拖拽事件
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+    });
+    
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleExportZipFile(files[0]);
+        }
+    });
+    
+    // 点击上传
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleExportZipFile(e.target.files[0]);
+        }
+    });
+}
+
+// 处理导出 ZIP 文件
+async function handleExportZipFile(file) {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+        showMessage('请选择 ZIP 文件', 'error');
+        return;
+    }
+    
+    const dropZone = document.getElementById('export-import-drop-zone');
+    const progressContainer = document.getElementById('export-import-progress-container');
+    
+    // 隐藏拖拽区域，显示进度
+    dropZone.style.display = 'none';
+    progressContainer.style.display = 'block';
+    
+    // 重置进度
+    updateExportImportProgress({
+        status: 'uploading',
+        progress: 0,
+        current: 0,
+        total: 0,
+        message: '正在上传文件...',
+        success_count: 0,
+        failed_count: 0,
+        skipped_count: 0,
+        duplicate_count: 0,
+    });
+    
+    // 使用 XMLHttpRequest 以支持上传进度
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    // 监听上传进度
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            updateExportImportProgress({
+                status: 'uploading',
+                progress: percentComplete,
+                current: e.loaded,
+                total: e.total,
+                message: `正在上传文件... ${percentComplete}%`,
+                success_count: 0,
+                failed_count: 0,
+                skipped_count: 0,
+                duplicate_count: 0,
+            });
+        }
+    });
+    
+    // 监听上传完成
+    xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                
+                if (!data.success) {
+                    showMessage(data.error || '导入失败', 'error');
+                    dropZone.style.display = 'block';
+                    progressContainer.style.display = 'none';
+                    return;
+                }
+                
+                // 上传完成，开始处理
+                updateExportImportProgress({
+                    status: 'processing',
+                    progress: 100,
+                    current: 0,
+                    total: 0,
+                    message: '文件上传完成，开始解压并导入...',
+                    success_count: 0,
+                    failed_count: 0,
+                    skipped_count: 0,
+                    duplicate_count: 0,
+                });
+                
+                // 开始监听导入进度
+                const taskId = data.task_id;
+                startExportImportProgressStream(taskId);
+                
+                showMessage('导入任务已启动', 'success');
+                
+            } catch (error) {
+                console.error('解析响应失败:', error);
+                showMessage('导入失败: ' + error.message, 'error');
+                dropZone.style.display = 'block';
+                progressContainer.style.display = 'none';
+            }
+        } else {
+            showMessage(`上传失败: HTTP ${xhr.status}`, 'error');
+            dropZone.style.display = 'block';
+            progressContainer.style.display = 'none';
+        }
+    });
+    
+    // 监听上传错误
+    xhr.addEventListener('error', () => {
+        showMessage('上传失败: 网络错误', 'error');
+        dropZone.style.display = 'block';
+        progressContainer.style.display = 'none';
+    });
+    
+    // 监听上传取消
+    xhr.addEventListener('abort', () => {
+        showMessage('上传已取消', 'error');
+        dropZone.style.display = 'block';
+        progressContainer.style.display = 'none';
+    });
+    
+    // 发送请求
+    xhr.open('POST', '/api/import/from-export');
+    xhr.send(formData);
+}
+
+// 开始监听导出文件导入进度（SSE）
+function startExportImportProgressStream(taskId) {
+    let exportImportEventSource = new EventSource(`/api/import/zotero/progress/${taskId}`);
+    
+    exportImportEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            updateExportImportProgress(data);
+            
+            // 如果完成或失败，关闭连接
+            if (data.status === 'completed' || data.status === 'error') {
+                exportImportEventSource.close();
+                
+                // 刷新分类树
+                loadCategories();
+                
+                // 3秒后重置 UI
+                setTimeout(() => {
+                    const dropZone = document.getElementById('export-import-drop-zone');
+                    const progressContainer = document.getElementById('export-import-progress-container');
+                    dropZone.style.display = 'block';
+                    progressContainer.style.display = 'none';
+                }, 3000);
+            }
+        } catch (e) {
+            console.error('解析进度数据失败:', e);
+        }
+    };
+    
+    exportImportEventSource.onerror = (e) => {
+        console.error('SSE 连接错误:', e);
+        if (exportImportEventSource) {
+            exportImportEventSource.close();
+        }
+    };
+}
+
+// 更新导出文件导入进度
+function updateExportImportProgress(data) {
+    const { status, progress, current, total, message, success_count, failed_count, skipped_count, duplicate_count } = data;
+    
+    const statusText = document.getElementById('export-import-status-text');
+    const progressPercent = document.getElementById('export-import-progress-percent');
+    const progressFill = document.getElementById('export-import-progress-fill');
+    const currentItem = document.getElementById('export-import-current-item');
+    const successCountEl = document.getElementById('export-import-success-count');
+    const failedCountEl = document.getElementById('export-import-failed-count');
+    const skippedCountEl = document.getElementById('export-import-skipped-count');
+    const duplicateCountEl = document.getElementById('export-import-duplicate-count');
+    
+    if (status === 'parsing' || status === 'uploading') {
+        statusText.textContent = message || '正在处理...';
+        progressPercent.textContent = '0%';
+        progressFill.style.width = '0%';
+    } else if (status === 'importing') {
+        statusText.textContent = '正在导入论文...';
+        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+        progressPercent.textContent = `${percent}%`;
+        progressFill.style.width = percent + '%';
+        currentItem.textContent = message || '';
+    } else if (status === 'completed') {
+        statusText.textContent = '导入完成！';
+        statusText.style.color = '#2da44e';
+        progressPercent.textContent = '100%';
+        progressFill.style.width = '100%';
+        currentItem.textContent = `成功导入 ${success_count} 篇论文`;
+        currentItem.style.color = '#2da44e';
+    } else if (status === 'error') {
+        statusText.textContent = '导入失败';
+        statusText.style.color = '#d73a49';
+        currentItem.textContent = message || '未知错误';
+        currentItem.style.color = '#d73a49';
+    }
+    
+    // 更新计数
+    if (successCountEl) successCountEl.textContent = success_count || 0;
+    if (failedCountEl) failedCountEl.textContent = failed_count || 0;
+    if (skippedCountEl) skippedCountEl.textContent = skipped_count || 0;
+    if (duplicateCountEl) duplicateCountEl.textContent = duplicate_count || 0;
 }
 
 // 填充导入目标目录选择列表（异步获取最新目录数据）
@@ -6503,6 +6777,11 @@ async function switchSettingPanel(panelName) {
     // 如果切换到 Import 面板，刷新目录选择列表（获取最新数据）
     if (panelName === 'import') {
         await populateImportTargetCategories();
+    }
+    
+    // 如果切换到 Export 面板，重置 UI
+    if (panelName === 'export') {
+        resetExportUI();
     }
     
     // 如果切换到 Daily arXiv 面板，加载设置
@@ -10719,5 +10998,262 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 100);
         });
     }
+});
+
+// ==================== Export 功能 ====================
+let exportTaskId = null;
+let exportProgressInterval = null;
+
+// 初始化导出功能
+async function initExportFeature() {
+    const btnStartExport = document.getElementById('btn-start-export');
+    const btnCancelExport = document.getElementById('btn-cancel-export');
+    const btnDownloadExport = document.getElementById('btn-download-export');
+    
+    if (btnStartExport) {
+        btnStartExport.addEventListener('click', startExport);
+    }
+    
+    if (btnCancelExport) {
+        btnCancelExport.addEventListener('click', cancelExport);
+    }
+    
+    if (btnDownloadExport) {
+        btnDownloadExport.addEventListener('click', downloadExport);
+    }
+    
+    // 获取并显示 papers 目录路径
+    try {
+        const response = await fetch('/api/papers-dir');
+        const data = await response.json();
+        if (data.success) {
+            const pathElement = document.getElementById('papers-dir-path');
+            if (pathElement) {
+                pathElement.textContent = data.path;
+            }
+        }
+    } catch (error) {
+        console.error('获取 papers 目录路径失败:', error);
+    }
+}
+
+// 开始导出
+async function startExport() {
+    const btnStart = document.getElementById('btn-start-export');
+    const progressContainer = document.getElementById('export-progress-container');
+    
+    // 禁用开始按钮
+    btnStart.disabled = true;
+    btnStart.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 启动中...';
+    
+    try {
+        const response = await fetch('/api/export/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({})
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            showMessage(data.error || '启动导出失败', 'error');
+            btnStart.disabled = false;
+            btnStart.innerHTML = '<i class="fas fa-download"></i> 开始导出';
+            return;
+        }
+        
+        exportTaskId = data.task_id;
+        
+        // 显示进度容器
+        progressContainer.style.display = 'block';
+        btnStart.style.display = 'none';
+        
+        // 开始轮询进度
+        startExportProgressPolling();
+        
+        showMessage('导出任务已启动', 'success');
+        
+    } catch (error) {
+        console.error('启动导出失败:', error);
+        showMessage('启动导出失败: ' + error.message, 'error');
+        btnStart.disabled = false;
+        btnStart.innerHTML = '<i class="fas fa-download"></i> 开始导出';
+    }
+}
+
+// 轮询导出进度
+function startExportProgressPolling() {
+    if (exportProgressInterval) {
+        clearInterval(exportProgressInterval);
+    }
+    
+    // 立即查询一次
+    checkExportProgress();
+    
+    // 每秒查询一次
+    exportProgressInterval = setInterval(checkExportProgress, 1000);
+}
+
+// 检查导出进度
+async function checkExportProgress() {
+    if (!exportTaskId) return;
+    
+    try {
+        const response = await fetch(`/api/export/status/${exportTaskId}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            stopExportProgressPolling();
+            return;
+        }
+        
+        const task = data.task;
+        updateExportProgress(task);
+        
+        // 如果任务完成或失败，停止轮询
+        if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+            stopExportProgressPolling();
+        }
+        
+    } catch (error) {
+        console.error('查询导出进度失败:', error);
+    }
+}
+
+// 停止轮询
+function stopExportProgressPolling() {
+    if (exportProgressInterval) {
+        clearInterval(exportProgressInterval);
+        exportProgressInterval = null;
+    }
+}
+
+// 更新导出进度显示
+function updateExportProgress(task) {
+    const statusText = document.getElementById('export-status-text');
+    const progressText = document.getElementById('export-progress-text');
+    const progressFill = document.getElementById('export-progress-fill');
+    const currentPaper = document.getElementById('export-current-paper');
+    const btnDownload = document.getElementById('btn-download-export');
+    const btnCancel = document.getElementById('btn-cancel-export');
+    
+    // 更新状态文本
+    if (task.status === 'pending') {
+        statusText.textContent = '准备中...';
+    } else if (task.status === 'running') {
+        statusText.textContent = '正在导出...';
+    } else if (task.status === 'completed') {
+        statusText.textContent = '导出完成！';
+        btnDownload.style.display = 'inline-flex';
+        btnCancel.style.display = 'none';
+    } else if (task.status === 'failed') {
+        statusText.textContent = '导出失败';
+        statusText.style.color = '#d73a49';
+        currentPaper.textContent = task.error || '未知错误';
+        currentPaper.style.color = '#d73a49';
+        btnCancel.style.display = 'none';
+    } else if (task.status === 'cancelled') {
+        statusText.textContent = '已取消';
+        statusText.style.color = '#6a737d';
+        btnCancel.style.display = 'none';
+    }
+    
+    // 更新进度
+    if (task.total > 0) {
+        const percent = Math.round((task.progress / task.total) * 100);
+        progressText.textContent = `${task.progress} / ${task.total}`;
+        progressFill.style.width = percent + '%';
+    } else {
+        progressText.textContent = '0 / 0';
+        progressFill.style.width = '0%';
+    }
+    
+    // 更新当前论文
+    if (task.current_paper && task.status === 'running') {
+        currentPaper.textContent = task.current_paper;
+        currentPaper.style.color = '#57606a';
+    }
+}
+
+// 取消导出
+async function cancelExport() {
+    if (!exportTaskId) return;
+    
+    if (!confirm('确定要取消导出吗？')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/export/cancel/${exportTaskId}`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showMessage('已取消导出', 'info');
+            resetExportUI();
+        } else {
+            showMessage(data.error || '取消失败', 'error');
+        }
+        
+    } catch (error) {
+        console.error('取消导出失败:', error);
+        showMessage('取消导出失败: ' + error.message, 'error');
+    }
+}
+
+// 下载导出文件
+async function downloadExport() {
+    if (!exportTaskId) return;
+    
+    try {
+        // 直接通过浏览器下载
+        window.location.href = `/api/export/download/${exportTaskId}`;
+        
+        showMessage('导出文件下载已开始', 'success');
+        
+        // 下载后重置 UI
+        setTimeout(() => {
+            resetExportUI();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('下载导出文件失败:', error);
+        showMessage('下载失败: ' + error.message, 'error');
+    }
+}
+
+// 重置导出 UI
+function resetExportUI() {
+    const btnStart = document.getElementById('btn-start-export');
+    const progressContainer = document.getElementById('export-progress-container');
+    const btnDownload = document.getElementById('btn-download-export');
+    const btnCancel = document.getElementById('btn-cancel-export');
+    const statusText = document.getElementById('export-status-text');
+    const currentPaper = document.getElementById('export-current-paper');
+    
+    btnStart.disabled = false;
+    btnStart.innerHTML = '<i class="fas fa-download"></i> 开始导出';
+    btnStart.style.display = 'inline-flex';
+    
+    progressContainer.style.display = 'none';
+    btnDownload.style.display = 'none';
+    btnCancel.style.display = 'inline-flex';
+    
+    statusText.textContent = '正在导出...';
+    statusText.style.color = '';
+    currentPaper.textContent = '';
+    currentPaper.style.color = '';
+    
+    exportTaskId = null;
+    stopExportProgressPolling();
+}
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    initExportFeature();
 });
 

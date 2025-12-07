@@ -16,6 +16,7 @@ from routes.agent_routes.agent_summary_route import register_agent_summary_route
 from routes.agent_routes.agent_translate_route import register_agent_translate_routes
 from routes.basic_routes.category_tree_route import register_category_routes
 from routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
+from routes.basic_routes.export_route import register_export_routes
 from routes.basic_routes.import_route import register_import_routes
 from routes.basic_routes.institution_mapping_route import (
     register_institution_mapping_routes,
@@ -31,7 +32,7 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./papers",
+    default="./new_new_papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
@@ -418,6 +419,11 @@ def register_routes():
         upload_folder=UPLOAD_FOLDER,
     )
 
+    register_export_routes(
+        app,
+        papers_dir=UPLOAD_FOLDER,
+    )
+
     register_daily_arxiv_routes(
         app,
         daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
@@ -528,6 +534,12 @@ if __name__ == "__main__":
 
     # 重建搜索索引
     rebuild_search_index()
+
+    # 添加获取 papers 目录路径的 API
+    @app.route("/api/papers-dir", methods=["GET"])
+    def get_papers_dir():
+        """获取 papers 目录的绝对路径"""
+        return jsonify({"success": True, "path": os.path.abspath(UPLOAD_FOLDER)})
 
     # 论文数据现在直接存储在PDF文件旁边的JSON文件中
     print(f"启动服务器: http://{args.host}:{args.port}")

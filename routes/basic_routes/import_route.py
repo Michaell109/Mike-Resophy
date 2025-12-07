@@ -8,9 +8,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
@@ -78,19 +81,28 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 
 def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
-    """下载 arXiv PDF"""
-    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-    try:
-        print(f"[Import] 正在从 arXiv 下载 PDF: {pdf_url}")
-        response = requests.get(pdf_url, timeout=60, stream=True)
-        response.raise_for_status()
-        pdf_content = response.content
-        filename = f"{arxiv_id}.pdf"
-        print(f"[Import] 成功下载 PDF, 大小: {len(pdf_content)} bytes")
-        return pdf_content, filename
-    except requests.exceptions.RequestException as exc:
-        print(f"[Import] 下载 arXiv PDF 失败: {exc}")
-        return None
+    """下载 arXiv PDF（优先使用 export.arxiv.org）"""
+    # 优先尝试 export.arxiv.org
+    pdf_urls = [
+        f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
+        f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+    ]
+    
+    for pdf_url in pdf_urls:
+        try:
+            print(f"[Import] 正在从 arXiv 下载 PDF: {pdf_url}")
+            response = requests.get(pdf_url, timeout=60, stream=True)
+            response.raise_for_status()
+            pdf_content = response.content
+            filename = f"{arxiv_id}.pdf"
+            print(f"[Import] 成功下载 PDF, 大小: {len(pdf_content)} bytes")
+            return pdf_content, filename
+        except requests.exceptions.RequestException as exc:
+            print(f"[Import] 从 {pdf_url} 下载失败: {exc}")
+            continue
+    
+    print(f"[Import] 所有 URL 都下载失败")
+    return None
 
 
 def _clean_filename(text: Optional[str]) -> Optional[str]:
@@ -953,3 +965,592 @@ def register_import_routes(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.route("/api/import/from-export", methods=["POST"])
+    def api_import_from_export():
+        """导入从导出功能生成的 ZIP 文件"""
+        import zipfile
+        import tempfile
+        import shutil
+        
+        if "file" not in request.files:
+            return jsonify({"success": False, "error": "未提供文件"}), 400
+
+        file = request.files["file"]
+        if not file or file.filename == "":
+            return jsonify({"success": False, "error": "未选择文件"}), 400
+
+        # 检查文件扩展名
+        if not file.filename.lower().endswith(".zip"):
+            return jsonify({"success": False, "error": "仅支持 ZIP 文件"}), 400
+
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp(prefix="import_export_")
+        
+        try:
+            # 保存上传的 ZIP 文件
+            zip_path = os.path.join(temp_dir, "export.zip")
+            file.save(zip_path)
+            
+            # 解压 ZIP 文件
+            extract_dir = os.path.join(temp_dir, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            print(f"[Import] 解压 ZIP 文件到: {extract_dir}")
+            with zipfile.ZipFile(zip_path, "r") as zipf:
+                zipf.extractall(extract_dir)
+            
+            # 检查是否有 papers 文件夹
+            papers_folder = os.path.join(extract_dir, "papers")
+            if not os.path.exists(papers_folder) or not os.path.isdir(papers_folder):
+                return jsonify({"success": False, "error": "无效的导出文件：缺少 papers 文件夹"}), 400
+            
+            # 1. 先复制整个文件夹结构到目标位置（这样目录树立即可见）
+            print(f"[Import] 开始复制文件夹结构到: {upload_folder}")
+            for item in os.listdir(papers_folder):
+                src_path = os.path.join(papers_folder, item)
+                dst_path = os.path.join(upload_folder, item)
+                
+                if os.path.isdir(src_path):
+                    # 复制整个目录
+                    if os.path.exists(dst_path):
+                        # 如果目标目录已存在，合并内容
+                        shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                    else:
+                        shutil.copytree(src_path, dst_path)
+                else:
+                    # 复制文件
+                    shutil.copy2(src_path, dst_path)
+            
+            print(f"[Import] 文件夹复制完成")
+            
+            # 计算 JSON 文件数量（论文数量）
+            total_papers = sum([len([f for f in files if f.endswith('.json')]) for _, _, files in os.walk(upload_folder)])
+            
+            # 检查是否已有正在进行的导入任务
+            global current_import_task_id
+            if current_import_task_id:
+                with import_tasks_lock:
+                    existing_task = import_tasks.get(current_import_task_id)
+                    if existing_task and existing_task.get("status") not in ["completed", "error"]:
+                        return jsonify({
+                            "success": False,
+                            "error": "已有导入任务正在进行中",
+                            "task_id": current_import_task_id,
+                        }), 400
+            
+            # 创建导入任务
+            task_id = str(uuid.uuid4())
+            current_import_task_id = task_id
+
+            with import_tasks_lock:
+                import_tasks[task_id] = {
+                    "status": "starting",
+                    "progress": 0,
+                    "current": 0,
+                    "total": total_papers,
+                    "success_count": 0,
+                    "failed_count": 0,
+                    "skipped_count": 0,
+                    "duplicate_count": 0,
+                    "others_count": 0,
+                    "message": "文件夹已复制，开始重建论文...",
+                    "start_time": datetime.now().isoformat(),
+                    "last_update": datetime.now().isoformat(),
+                }
+
+            # 2. 启动后台任务重建论文（从 arXiv 下载 PDF）
+            thread = threading.Thread(
+                target=_rebuild_papers_from_json,
+                args=(task_id, upload_folder),
+                daemon=False,
+            )
+            thread.start()
+
+            # 清理临时目录
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+            return jsonify({
+                "success": True,
+                "task_id": task_id,
+                "total_papers": total_papers,
+                "message": "文件夹已导入，正在后台重建论文"
+            })
+
+        except zipfile.BadZipFile:
+            return jsonify({"success": False, "error": "无效的 ZIP 文件"}), 400
+        except Exception as e:
+            print(f"导入失败: {e}")
+            import traceback
+            traceback.print_exc()
+            # 清理临时目录
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    def _rebuild_papers_from_json(
+        task_id: str,
+        papers_folder: str,
+    ):
+        """后台任务：从 JSON 元数据重建论文（从 arXiv 下载 PDF）"""
+        global current_import_task_id
+        
+        def update_progress(status=None, progress=None, current=None, total=None, message=None, 
+                          success_count=None, failed_count=None, skipped_count=None, duplicate_count=None):
+            """更新任务进度"""
+            with import_tasks_lock:
+                if task_id in import_tasks:
+                    task = import_tasks[task_id]
+                    if status is not None:
+                        task["status"] = status
+                    if progress is not None:
+                        task["progress"] = progress
+                    if current is not None:
+                        task["current"] = current
+                    if total is not None:
+                        task["total"] = total
+                    if message is not None:
+                        task["message"] = message
+                    if success_count is not None:
+                        task["success_count"] = success_count
+                    if failed_count is not None:
+                        task["failed_count"] = failed_count
+                    if skipped_count is not None:
+                        task["skipped_count"] = skipped_count
+                    if duplicate_count is not None:
+                        task["duplicate_count"] = duplicate_count
+                    task["last_update"] = datetime.now().isoformat()
+        
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        duplicate_count = 0
+        
+        try:
+            # 1. 收集所有 JSON 文件（排除配置文件）
+            json_files = []
+            exclude_files = {'categories.json', 'reading_list.json', 'user_settings.json', 
+                           'reading_history.json', 'agentic_settings.json', 'daily_arxiv_settings.json'}
+            
+            for root, dirs, files in os.walk(papers_folder):
+                # 排除隐藏目录
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                
+                for file in files:
+                    if file.endswith('.json') and file not in exclude_files:
+                        json_path = os.path.join(root, file)
+                        json_files.append(json_path)
+            
+            total_papers = len(json_files)
+            print(f"[Import] 找到 {total_papers} 个论文 JSON 文件")
+            
+            update_progress(
+                status="importing",
+                progress=0,
+                current=0,
+                total=total_papers,
+                message="开始导入论文...",
+            )
+            
+            # 2. 逐个处理 JSON 文件
+            for idx, json_path in enumerate(json_files):
+                try:
+                    # 读取 JSON 元数据
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        paper_meta = json.load(f)
+                    
+                    title = paper_meta.get('title', '')
+                    authors = paper_meta.get('authors', '')
+                    arxiv_id = paper_meta.get('arxiv_id', '')
+                    
+                    if not title:
+                        print(f"[Import] 跳过：缺少标题")
+                        skipped_count += 1
+                        continue
+                    
+                    # 更新进度
+                    update_progress(
+                        status="importing",
+                        progress=int((idx / total_papers) * 100),
+                        current=idx,
+                        total=total_papers,
+                        message=f"正在导入: {title[:50]}...",
+                        success_count=success_count,
+                        failed_count=failed_count,
+                        skipped_count=skipped_count,
+                        duplicate_count=duplicate_count,
+                    )
+                    
+                    # 获取论文所在目录
+                    paper_dir = os.path.dirname(json_path)
+                    
+                    # 检查该目录下是否已有 PDF
+                    pdf_exists = False
+                    expected_pdf_name = os.path.basename(json_path).replace('.json', '.pdf')
+                    expected_pdf_path = os.path.join(paper_dir, expected_pdf_name)
+                    
+                    if os.path.exists(expected_pdf_path):
+                        print(f"[Import] PDF 已存在，跳过下载: {title[:50]}")
+                        # 但仍需要注册到系统
+                        pdf_exists = True
+                        pdf_path = expected_pdf_path
+                    
+                    # 3. 如果 PDF 不存在，从 arXiv 下载
+                    if not pdf_exists:
+                        pdf_content = None
+                        pdf_filename = None
+                        
+                        if arxiv_id:
+                            # 有 arXiv ID，直接下载
+                            result = _download_arxiv_pdf(arxiv_id)
+                            if result:
+                                pdf_content, pdf_filename = result
+                        else:
+                            # 没有 arXiv ID，尝试搜索
+                            if title and authors:
+                                print(f"[Import] 尝试搜索 arXiv: {title[:50]}...")
+                                paper_info = search_arxiv_by_title_and_author_fast(title, authors)
+                                if paper_info and paper_info.get('arxiv_id'):
+                                    result = _download_arxiv_pdf(paper_info['arxiv_id'])
+                                    if result:
+                                        pdf_content, pdf_filename = result
+                                        # 更新元数据中的 arXiv ID
+                                        paper_meta['arxiv_id'] = paper_info['arxiv_id']
+                                        if not paper_meta.get('arxiv_url'):
+                                            paper_meta['arxiv_url'] = paper_info.get('url', '')
+                        
+                        if not pdf_content:
+                            print(f"[Import] 无法下载 PDF: {title[:50]}")
+                            failed_count += 1
+                            continue
+                        
+                        # 4. 保存 PDF
+                        pdf_path = expected_pdf_path
+                        with open(pdf_path, 'wb') as f:
+                            f.write(pdf_content)
+                    
+                    # 5. 更新元数据
+                    paper_meta['file_path'] = pdf_path
+                    if not paper_meta.get('id'):
+                        paper_meta['id'] = str(uuid.uuid4())
+                    paper_meta['upload_source'] = 'export_import'
+                    
+                    # 保存更新后的 JSON
+                    with open(json_path, 'w', encoding='utf-8') as f:
+                        json.dump(paper_meta, f, ensure_ascii=False, indent=2)
+                    
+                    # 6. 注册到 paper_store
+                    from core.base_paper import Paper
+                    new_paper = Paper(
+                        id=paper_meta['id'],
+                        title=paper_meta.get('title', ''),
+                        authors=paper_meta.get('authors', ''),
+                        file_path=pdf_path,
+                        upload_date=paper_meta.get('upload_date', ''),
+                        filename=paper_meta.get('filename', ''),
+                        original_filename=paper_meta.get('original_filename', ''),
+                        arxiv_url=paper_meta.get('arxiv_url') or paper_meta.get('url', ''),
+                        arxiv_id=paper_meta.get('arxiv_id', ''),
+                        arxiv_published_date=paper_meta.get('arxiv_published_date', ''),
+                        year=paper_meta.get('year', ''),
+                        abstract=paper_meta.get('abstract', ''),
+                        summary=paper_meta.get('summary', ''),
+                        bibtex=paper_meta.get('bibtex', ''),
+                        notes=paper_meta.get('notes', ''),
+                        upload_source='export_import',
+                        affiliation=paper_meta.get('affiliation', ''),
+                        journal=paper_meta.get('journal', ''),
+                        subject=paper_meta.get('subject', ''),
+                        keywords=paper_meta.get('keywords', ''),
+                        starred=paper_meta.get('starred', False),
+                        read_time=paper_meta.get('read_time', 0),
+                        analysis_view_time=paper_meta.get('analysis_view_time', 0),
+                        translation_time=paper_meta.get('translation_time', 0),
+                        analysis_time=paper_meta.get('analysis_time', 0),
+                    )
+                    
+                    # 获取分类路径（相对于 papers_folder）
+                    rel_dir = os.path.relpath(paper_dir, papers_folder)
+                    category_path_parts = rel_dir.split(os.sep) if rel_dir != '.' else []
+                    
+                    if category_path_parts:
+                        # 查找或创建分类
+                        current_categories = get_categories()
+                        category_id = _find_or_create_category(
+                            current_categories,
+                            category_path_parts,
+                            save_categories,
+                            create_category_folder,
+                        )
+                        
+                        if category_id:
+                            category_path = ['root'] + category_path_parts
+                            paper_store.upsert(new_paper, category_id=category_id, category_path=category_path)
+                            save_paper_metadata(pdf_path, new_paper)
+                    else:
+                        # 根目录下的论文
+                        paper_store.upsert(new_paper, category_id='root', category_path=['root'])
+                        save_paper_metadata(pdf_path, new_paper)
+                    
+                    success_count += 1
+                    print(f"[Import] ✅ 成功导入: {title[:50]}")
+                
+                except Exception as e:
+                    print(f"[Import] ❌ 处理失败: {json_path}, 错误: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    failed_count += 1
+            
+            # 导入完成
+            update_progress(
+                status="completed",
+                progress=100,
+                current=total_papers,
+                total=total_papers,
+                message="导入完成",
+                success_count=success_count,
+                failed_count=failed_count,
+                skipped_count=skipped_count,
+                duplicate_count=duplicate_count,
+            )
+            
+            print(f"[Import] 导入完成: 成功 {success_count}, 失败 {failed_count}, 跳过 {skipped_count}, 重复 {duplicate_count}")
+        
+        except Exception as e:
+            print(f"[Import] 导入任务失败: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            update_progress(
+                status="error",
+                message=f"导入失败: {str(e)}",
+            )
+        
+        finally:
+            # 清除当前任务标记
+            current_import_task_id = None
+
+    def _import_from_export_task_old(
+        task_id: str,
+        papers_list: List[Dict[str, Any]],
+        extract_dir: str,
+        manifest: Dict[str, Any],
+    ):
+        """后台任务：导入从导出功能生成的论文"""
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        duplicate_count = 0
+        others_count = 0
+        total = len(papers_list)
+
+        try:
+            # 恢复分类结构
+            exported_categories = manifest.get("categories", {})
+            current_categories = get_categories()
+            
+            # 合并分类结构（简单的追加到根目录）
+            # TODO: 可以更智能地合并分类
+            
+            for idx, paper_info in enumerate(papers_list):
+                try:
+                    _update_task_progress(
+                        task_id,
+                        status="importing",
+                        progress=int((idx / total) * 100),
+                        current=idx,
+                        total=total,
+                        success_count=success_count,
+                        failed_count=failed_count,
+                        skipped_count=skipped_count,
+                        duplicate_count=duplicate_count,
+                        others_count=others_count,
+                        message=f"正在导入: {paper_info['metadata'].get('title', '')[:50]}...",
+                    )
+                    
+                    paper_metadata = paper_info["metadata"]
+                    category_path_list = paper_info["category_path"]  # ['CS', 'ML']
+                    
+                    # 确保目标分类存在
+                    full_category_path = ["root"] + category_path_list
+                    category_id = None
+                    
+                    # 遍历分类路径，创建不存在的分类
+                    current_node = current_categories
+                    for cat_name in category_path_list:
+                        # 查找子分类
+                        found = False
+                        for child in current_node.get("children", []):
+                            if child.get("name") == cat_name:
+                                current_node = child
+                                category_id = child.get("id")
+                                found = True
+                                break
+                        
+                        # 如果不存在，创建新分类
+                        if not found:
+                            # 创建新分类
+                            new_cat_id = str(uuid.uuid4())
+                            new_category = {
+                                "id": new_cat_id,
+                                "name": cat_name,
+                                "children": [],
+                                "isPinned": False,
+                            }
+                            if "children" not in current_node:
+                                current_node["children"] = []
+                            current_node["children"].append(new_category)
+                            current_node = new_category
+                            category_id = new_cat_id
+                            
+                            # 保存分类树
+                            save_categories(current_categories)
+                    
+                    if not category_id:
+                        print(f"[Import] ⚠️ 无法创建分类路径: {category_path_list}")
+                        failed_count += 1
+                        continue
+                    
+                    # 创建分类文件夹
+                    category_folder = create_category_folder(full_category_path)
+                    
+                    # 检查是否已存在相同的论文
+                    paper_id = paper_metadata.get("id")
+                    existing_paper = paper_store.get(paper_id) if paper_id else None
+                    if existing_paper:
+                        print(f"[Import] 📋 论文已存在，跳过: {paper_metadata.get('title', '')[:50]}")
+                        duplicate_count += 1
+                        continue
+                    
+                    # 生成新的 paper_id
+                    new_paper_id = str(uuid.uuid4())
+                    
+                    # 复制 PDF 文件
+                    pdf_filename = os.path.basename(paper_metadata.get("file_path", ""))
+                    if not pdf_filename:
+                        pdf_filename = f"{new_paper_id}.pdf"
+                    
+                    zip_pdf_path = os.path.join(extract_dir, "papers", "/".join(category_path_list), pdf_filename)
+                    
+                    if not os.path.exists(zip_pdf_path):
+                        print(f"[Import] ⚠️ PDF 文件不存在: {zip_pdf_path}")
+                        skipped_count += 1
+                        continue
+                    
+                    # 复制 PDF 到目标位置
+                    dest_pdf_path = os.path.join(category_folder, pdf_filename)
+                    shutil.copy2(zip_pdf_path, dest_pdf_path)
+                    
+                    # 复制中文翻译（如果有）
+                    chinese_path = paper_metadata.get("chinese_version_path")
+                    if chinese_path:
+                        chinese_filename = os.path.basename(chinese_path)
+                        zip_chinese_path = os.path.join(extract_dir, "papers", "/".join(category_path_list), chinese_filename)
+                        if os.path.exists(zip_chinese_path):
+                            dest_chinese_path = os.path.join(category_folder, chinese_filename)
+                            shutil.copy2(zip_chinese_path, dest_chinese_path)
+                            paper_metadata["chinese_version_path"] = dest_chinese_path
+                    
+                    # 复制 AI 解读（如果有）
+                    analysis_path = paper_metadata.get("analysis_result_path")
+                    if analysis_path:
+                        analysis_filename = os.path.basename(analysis_path)
+                        zip_analysis_path = os.path.join(extract_dir, "papers", "/".join(category_path_list), analysis_filename)
+                        if os.path.exists(zip_analysis_path):
+                            dest_analysis_path = os.path.join(category_folder, analysis_filename)
+                            shutil.copy2(zip_analysis_path, dest_analysis_path)
+                            paper_metadata["analysis_result_path"] = dest_analysis_path
+                            
+                            # 复制图片文件夹
+                            images_folder_name = analysis_filename.replace("_analysis.md", "_images")
+                            zip_images_path = os.path.join(extract_dir, "papers", "/".join(category_path_list), images_folder_name)
+                            if os.path.exists(zip_images_path) and os.path.isdir(zip_images_path):
+                                dest_images_path = os.path.join(category_folder, images_folder_name)
+                                if os.path.exists(dest_images_path):
+                                    shutil.rmtree(dest_images_path)
+                                shutil.copytree(zip_images_path, dest_images_path)
+                    
+                    # 创建 Paper 对象
+                    new_paper = Paper(
+                        id=new_paper_id,
+                        title=paper_metadata.get("title", ""),
+                        authors=paper_metadata.get("authors", ""),
+                        file_path=dest_pdf_path,
+                        url=paper_metadata.get("url", ""),
+                        arxiv_id=paper_metadata.get("arxiv_id", ""),
+                        arxiv_published_date=paper_metadata.get("arxiv_published_date", ""),
+                        year=paper_metadata.get("year", ""),
+                        abstract=paper_metadata.get("abstract", ""),
+                        summary=paper_metadata.get("summary", ""),
+                        bibtex=paper_metadata.get("bibtex", ""),
+                        notes=paper_metadata.get("notes", ""),
+                        upload_source="export_import",
+                        has_chinese_version=paper_metadata.get("has_chinese_version", False),
+                        chinese_version_path=paper_metadata.get("chinese_version_path", ""),
+                        has_analysis_result=paper_metadata.get("has_analysis_result", False),
+                        analysis_result_path=paper_metadata.get("analysis_result_path", ""),
+                        read_time=paper_metadata.get("read_time", 0),
+                        analysis_view_time=paper_metadata.get("analysis_view_time", 0),
+                    )
+                    
+                    # 注册到 paper_store
+                    registered_paper = paper_store.upsert(
+                        new_paper, category_id=category_id, category_path=full_category_path
+                    )
+                    
+                    # 保存元数据
+                    save_paper_metadata(dest_pdf_path, registered_paper)
+                    
+                    success_count += 1
+                    print(f"[Import] ✅ 成功导入: {paper_metadata.get('title', '')[:50]}")
+                    
+                except Exception as e:
+                    print(f"[Import] ❌ 导入论文失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    failed_count += 1
+            
+            # 导入完成
+            _update_task_progress(
+                task_id,
+                status="completed",
+                progress=100,
+                current=total,
+                total=total,
+                success_count=success_count,
+                failed_count=failed_count,
+                skipped_count=skipped_count,
+                duplicate_count=duplicate_count,
+                others_count=others_count,
+                message="导入完成",
+            )
+            
+            # TODO: 恢复待读列表、阅读历史、用户设置
+            # reading_list = manifest.get("reading_list", [])
+            # reading_history = manifest.get("reading_history", {})
+            # user_settings = manifest.get("user_settings", {})
+            
+        except Exception as e:
+            print(f"[Import] ❌ 导入任务失败: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            update_progress(
+                status="error",
+                message=f"导入失败: {str(e)}",
+            )
+        
+        finally:
+            # 清除当前任务标记
+            global current_import_task_id
+            current_import_task_id = None
+            
+            # 清理临时目录
+            temp_dir = os.path.dirname(extract_dir)
+            if os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as e:
+                    print(f"[Import] 清理临时目录失败: {e}")
+            
+            print(f"[Import] 导入完成: 成功 {success_count}, 失败 {failed_count}, 跳过 {skipped_count}, 重复 {duplicate_count}")
