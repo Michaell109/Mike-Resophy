@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List
 
 from core.base_paper import Paper
+from core.paper_store import paper_store
 
 PaperList = List[Paper]
 CategoryPath = List[str]
@@ -114,30 +115,40 @@ def translate_paper_task(
                     if os.path.exists(mono_file):
                         os.remove(mono_file)
 
-                    categories = deps.get_categories()
+                    # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+                    entry = paper_store.get_entry(paper_id)
+                    if entry:
+                        paper = entry.paper
+                        paper.mark_chinese_version(dual_file)
+                        target_path = paper.file_path or pdf_path
+                        if target_path:
+                            deps.save_paper_metadata(target_path, paper)
+                    else:
+                        # 如果 paper_store 中找不到，使用递归搜索分类树
+                        categories = deps.get_categories()
 
-                    def search_and_update_paper(node):
-                        category_path = deps.get_category_path(categories, node["id"])
-                        if category_path:
-                            papers = deps.get_papers_in_category(
-                                node["id"], category_path
-                            )
-                            for paper in papers:
-                                if paper.id == paper_id:
-                                    paper.mark_chinese_version(dual_file)
-                                    target_path = paper.file_path or pdf_path
-                                    if target_path:
-                                        deps.save_paper_metadata(target_path, paper)
-                                    return True
-                        if "children" in node:
-                            for child in node["children"]:
-                                if search_and_update_paper(child):
-                                    return True
-                        return False
+                        def search_and_update_paper(node):
+                            category_path = deps.get_category_path(categories, node["id"])
+                            if category_path:
+                                papers = deps.get_papers_in_category(
+                                    node["id"], category_path
+                                )
+                                for paper in papers:
+                                    if paper.id == paper_id:
+                                        paper.mark_chinese_version(dual_file)
+                                        target_path = paper.file_path or pdf_path
+                                        if target_path:
+                                            deps.save_paper_metadata(target_path, paper)
+                                        return True
+                            if "children" in node:
+                                for child in node["children"]:
+                                    if search_and_update_paper(child):
+                                        return True
+                            return False
 
-                    for child in categories.get("children", []):
-                        if search_and_update_paper(child):
-                            break
+                        for child in categories.get("children", []):
+                            if search_and_update_paper(child):
+                                break
 
                     log_file = os.path.join(pdf_dir, f"{base_name}.translate.log")
                     try:
@@ -149,33 +160,46 @@ def translate_paper_task(
                     end_time = datetime.now()
                     translation_duration = int((end_time - start_time).total_seconds())
 
-                    categories = deps.get_categories()
+                    # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+                    entry = paper_store.get_entry(paper_id)
+                    if entry:
+                        paper = entry.paper
+                        paper.translation_time = max(
+                            getattr(paper, "translation_time", 0),
+                            translation_duration,
+                        )
+                        path = paper.file_path
+                        if path and os.path.exists(path):
+                            deps.save_paper_metadata(path, paper)
+                    else:
+                        # 如果 paper_store 中找不到，使用递归搜索分类树
+                        categories = deps.get_categories()
 
-                    def search_and_update_time(node):
-                        category_path = deps.get_category_path(categories, node["id"])
-                        if category_path:
-                            papers = deps.get_papers_in_category(
-                                node["id"], category_path
-                            )
-                            for paper in papers:
-                                if paper.id == paper_id:
-                                    paper.translation_time = max(
-                                        getattr(paper, "translation_time", 0),
-                                        translation_duration,
-                                    )
-                                    path = paper.file_path
-                                    if path and os.path.exists(path):
-                                        deps.save_paper_metadata(path, paper)
-                                    return True
-                        if "children" in node:
-                            for child in node["children"]:
-                                if search_and_update_time(child):
-                                    return True
-                        return False
+                        def search_and_update_time(node):
+                            category_path = deps.get_category_path(categories, node["id"])
+                            if category_path:
+                                papers = deps.get_papers_in_category(
+                                    node["id"], category_path
+                                )
+                                for paper in papers:
+                                    if paper.id == paper_id:
+                                        paper.translation_time = max(
+                                            getattr(paper, "translation_time", 0),
+                                            translation_duration,
+                                        )
+                                        path = paper.file_path
+                                        if path and os.path.exists(path):
+                                            deps.save_paper_metadata(path, paper)
+                                        return True
+                            if "children" in node:
+                                for child in node["children"]:
+                                    if search_and_update_time(child):
+                                        return True
+                            return False
 
-                    for child in categories.get("children", []):
-                        if search_and_update_time(child):
-                            break
+                        for child in categories.get("children", []):
+                            if search_and_update_time(child):
+                                break
 
                     deps.translation_tasks[task_id]["status"] = "completed"
                     deps.translation_tasks[task_id]["result"] = {

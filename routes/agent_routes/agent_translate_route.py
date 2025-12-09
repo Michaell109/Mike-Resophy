@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List
 from flask import jsonify, request, send_file
 
 from core.base_paper import Paper
+from core.paper_store import paper_store
 from tools.agent_tools.translate_pdf import (
     TranslationDependencies,
     translate_paper_task,
@@ -63,34 +64,41 @@ def register_agent_translate_routes(
                             400,
                         )
 
-            categories = get_categories()
+            # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+            entry = paper_store.get_entry(paper_id)
+            if entry:
+                paper = entry.paper
+                category_path = list(entry.category_path)
+            else:
+                # 如果 paper_store 中找不到，使用递归搜索分类树
+                categories = get_categories()
 
-            def search_paper_recursive(node):
-                category_path = get_category_path(categories, node["id"])
-                if category_path:
-                    papers = get_papers_in_category(node["id"], category_path)
-                    for paper in papers:
-                        if paper.id == paper_id:
-                            return paper, category_path
+                def search_paper_recursive(node):
+                    category_path = get_category_path(categories, node["id"])
+                    if category_path:
+                        papers = get_papers_in_category(node["id"], category_path)
+                        for paper in papers:
+                            if paper.id == paper_id:
+                                return paper, category_path
 
-                if "children" in node:
-                    for child in node["children"]:
-                        result = search_paper_recursive(child)
-                        if result:
-                            return result
+                    if "children" in node:
+                        for child in node["children"]:
+                            result = search_paper_recursive(child)
+                            if result:
+                                return result
 
-                return None
+                    return None
 
-            result = None
-            for child in categories.get("children", []):
-                result = search_paper_recursive(child)
-                if result:
-                    break
+                result = None
+                for child in categories.get("children", []):
+                    result = search_paper_recursive(child)
+                    if result:
+                        break
 
-            if not result:
-                return jsonify({"success": False, "error": "论文未找到"}), 404
+                if not result:
+                    return jsonify({"success": False, "error": "论文未找到"}), 404
 
-            paper, _ = result
+                paper, category_path = result
             pdf_path = paper.file_path
 
             if not pdf_path or not os.path.exists(pdf_path):
@@ -224,40 +232,50 @@ def register_agent_translate_routes(
     @app.route("/api/paper/<paper_id>/chinese/file")
     def api_get_chinese_paper_file(paper_id):
         """获取中文版本PDF文件"""
-        categories = get_categories()
+        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        entry = paper_store.get_entry(paper_id)
+        if entry:
+            paper = entry.paper
+        else:
+            # 如果 paper_store 中找不到，使用递归搜索分类树
+            categories = get_categories()
 
-        def search_paper_file(node):
-            category_path = get_category_path(categories, node["id"])
-            if category_path:
-                papers = get_papers_in_category(node["id"], category_path)
-                for paper in papers:
-                    if paper.id == paper_id:
-                        chinese_path = paper.chinese_version_path
-                        if chinese_path and os.path.exists(chinese_path):
-                            response = send_file(
-                                chinese_path,
-                                as_attachment=False,
-                                mimetype="application/pdf",
-                            )
-                            response.headers["Access-Control-Allow-Origin"] = "*"
-                            response.headers["Access-Control-Allow-Methods"] = "GET"
-                            response.headers["Access-Control-Allow-Headers"] = (
-                                "Content-Type"
-                            )
-                            return response
-                        return jsonify({"error": "中文版本文件不存在"}), 404
+            def search_paper_file(node):
+                category_path = get_category_path(categories, node["id"])
+                if category_path:
+                    papers = get_papers_in_category(node["id"], category_path)
+                    for paper in papers:
+                        if paper.id == paper_id:
+                            return paper
 
-            if "children" in node:
-                for child in node["children"]:
-                    result = search_paper_file(child)
-                    if result:
-                        return result
+                if "children" in node:
+                    for child in node["children"]:
+                        result = search_paper_file(child)
+                        if result:
+                            return result
 
-            return None
+                return None
 
-        for child in categories.get("children", []):
-            result = search_paper_file(child)
-            if result:
-                return result
+            paper = None
+            for child in categories.get("children", []):
+                paper = search_paper_file(child)
+                if paper:
+                    break
 
-        return jsonify({"error": "论文未找到"}), 404
+            if not paper:
+                return jsonify({"error": "论文未找到"}), 404
+
+        chinese_path = paper.chinese_version_path
+        if chinese_path and os.path.exists(chinese_path):
+            response = send_file(
+                chinese_path,
+                as_attachment=False,
+                mimetype="application/pdf",
+            )
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET"
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type"
+            )
+            return response
+        return jsonify({"error": "中文版本文件不存在"}), 404

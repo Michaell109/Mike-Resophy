@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List
 
 from core.base_paper import Paper
+from core.paper_store import paper_store
 
 PaperList = List[Paper]
 CategoryPath = List[str]
@@ -224,54 +225,74 @@ INPUT: <MARKDOWN>"""
             log_lines.append(f"结果文件: {result_file}")
             log_lines.append("=" * 50)
 
-        categories = deps.get_categories()
+        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        entry = paper_store.get_entry(paper_id)
+        if entry:
+            paper = entry.paper
+            paper.mark_analysis_result(result_file)
+            deps.save_paper_metadata(pdf_path, paper)
+        else:
+            # 如果 paper_store 中找不到，使用递归搜索分类树
+            categories = deps.get_categories()
 
-        def search_and_update_paper(node):
-            category_path = deps.get_category_path(categories, node["id"])
-            if category_path:
-                papers_list = deps.get_papers_in_category(node["id"], category_path)
-                for paper in papers_list:
-                    if paper.id == paper_id:
-                        paper.mark_analysis_result(result_file)
-                        deps.save_paper_metadata(pdf_path, paper)
-                        return True
-            if "children" in node:
-                for child in node["children"]:
-                    if search_and_update_paper(child):
-                        return True
-            return False
+            def search_and_update_paper(node):
+                category_path = deps.get_category_path(categories, node["id"])
+                if category_path:
+                    papers_list = deps.get_papers_in_category(node["id"], category_path)
+                    for paper in papers_list:
+                        if paper.id == paper_id:
+                            paper.mark_analysis_result(result_file)
+                            deps.save_paper_metadata(pdf_path, paper)
+                            return True
+                if "children" in node:
+                    for child in node["children"]:
+                        if search_and_update_paper(child):
+                            return True
+                return False
 
-        for child in categories.get("children", []):
-            if search_and_update_paper(child):
-                break
+            for child in categories.get("children", []):
+                if search_and_update_paper(child):
+                    break
 
         end_time = datetime.now()
         analysis_duration = int((end_time - start_time).total_seconds())
 
-        categories = deps.get_categories()
+        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        entry = paper_store.get_entry(paper_id)
+        if entry:
+            paper = entry.paper
+            paper.analysis_time = max(
+                getattr(paper, "analysis_time", 0), analysis_duration
+            )
+            path = paper.file_path
+            if path and os.path.exists(path):
+                deps.save_paper_metadata(path, paper)
+        else:
+            # 如果 paper_store 中找不到，使用递归搜索分类树
+            categories = deps.get_categories()
 
-        def search_and_update_analysis_time(node):
-            category_path = deps.get_category_path(categories, node["id"])
-            if category_path:
-                papers = deps.get_papers_in_category(node["id"], category_path)
-                for paper in papers:
-                    if paper.id == paper_id:
-                        paper.analysis_time = max(
-                            getattr(paper, "analysis_time", 0), analysis_duration
-                        )
-                        path = paper.file_path
-                        if path and os.path.exists(path):
-                            deps.save_paper_metadata(path, paper)
-                        return True
-            if "children" in node:
-                for child in node["children"]:
-                    if search_and_update_analysis_time(child):
-                        return True
-            return False
+            def search_and_update_analysis_time(node):
+                category_path = deps.get_category_path(categories, node["id"])
+                if category_path:
+                    papers = deps.get_papers_in_category(node["id"], category_path)
+                    for paper in papers:
+                        if paper.id == paper_id:
+                            paper.analysis_time = max(
+                                getattr(paper, "analysis_time", 0), analysis_duration
+                            )
+                            path = paper.file_path
+                            if path and os.path.exists(path):
+                                deps.save_paper_metadata(path, paper)
+                            return True
+                if "children" in node:
+                    for child in node["children"]:
+                        if search_and_update_analysis_time(child):
+                            return True
+                return False
 
-        for child in categories.get("children", []):
-            if search_and_update_analysis_time(child):
-                break
+            for child in categories.get("children", []):
+                if search_and_update_analysis_time(child):
+                    break
 
         with deps.analysis_tasks_lock:
             deps.analysis_tasks[task_id]["status"] = "completed"

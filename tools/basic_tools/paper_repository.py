@@ -144,13 +144,52 @@ def scan_papers_in_directory(
     return papers
 
 
+def refresh_paper_status(paper: Paper) -> None:
+    """检查文件系统并更新论文的翻译和解读状态"""
+    if not paper.file_path or not os.path.exists(paper.file_path):
+        return
+    
+    pdf_dir = os.path.dirname(paper.file_path)
+    base_name = os.path.splitext(os.path.basename(paper.file_path))[0]
+    
+    # 检查翻译文件
+    dual_file = os.path.join(pdf_dir, f"{base_name}.zh.dual.pdf")
+    paper.mark_chinese_version(dual_file if os.path.exists(dual_file) else None)
+    
+    # 检查解读结果
+    outputs_dir = os.path.join(pdf_dir, "outputs")
+    analysis_result_path = None
+    if os.path.exists(outputs_dir):
+        for item in os.listdir(outputs_dir):
+            item_path = os.path.join(outputs_dir, item)
+            if os.path.isdir(item_path) and base_name in item:
+                vlm_dir = os.path.join(item_path, "vlm")
+                if os.path.exists(vlm_dir):
+                    result_file = os.path.join(vlm_dir, "result.md")
+                    if os.path.exists(result_file):
+                        analysis_result_path = result_file
+                        break
+    paper.mark_analysis_result(analysis_result_path)
+
+
 def get_papers_in_category(
     upload_folder: str, category_id: str, category_path: List[str]
 ) -> List[Paper]:
     if not category_path:
         return []
     if paper_store.is_category_initialized(category_id):
-        return paper_store.list_by_category(category_id)
+        papers = paper_store.list_by_category(category_id)
+        # 刷新每个论文的状态（检查文件系统）
+        for paper in papers:
+            old_has_chinese = paper.has_chinese_version
+            old_has_analysis = paper.has_analysis_result
+            refresh_paper_status(paper)
+            # 如果状态有变化，保存到 JSON 文件
+            if (paper.has_chinese_version != old_has_chinese or 
+                paper.has_analysis_result != old_has_analysis):
+                if paper.file_path and os.path.exists(paper.file_path):
+                    save_paper_metadata(paper.file_path, paper)
+        return papers
     directory_path = os.path.join(upload_folder, *category_path[1:])
     return scan_papers_in_directory(
         directory_path, category_id=category_id, category_path=category_path

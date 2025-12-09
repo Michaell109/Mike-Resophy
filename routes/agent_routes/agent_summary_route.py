@@ -11,6 +11,7 @@ from flask import jsonify, request, send_file
 
 from tools.agent_tools.summary_pdf import AnalysisDependencies, analyze_paper_task
 from core.base_paper import Paper
+from core.paper_store import paper_store
 
 CategoryPath = List[str]
 
@@ -61,34 +62,41 @@ def register_agent_summary_routes(
                             400,
                         )
 
-            categories = get_categories()
+            # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+            entry = paper_store.get_entry(paper_id)
+            if entry:
+                paper = entry.paper
+                category_path = list(entry.category_path)
+            else:
+                # 如果 paper_store 中找不到，使用递归搜索分类树
+                categories = get_categories()
 
-            def search_paper_recursive(node):
-                category_path = get_category_path(categories, node["id"])
-                if category_path:
-                    papers = get_papers_in_category(node["id"], category_path)
-                    for paper in papers:
-                        if paper.id == paper_id:
-                            return paper, category_path
+                def search_paper_recursive(node):
+                    category_path = get_category_path(categories, node["id"])
+                    if category_path:
+                        papers = get_papers_in_category(node["id"], category_path)
+                        for paper in papers:
+                            if paper.id == paper_id:
+                                return paper, category_path
 
-                if "children" in node:
-                    for child in node["children"]:
-                        result = search_paper_recursive(child)
-                        if result:
-                            return result
+                    if "children" in node:
+                        for child in node["children"]:
+                            result = search_paper_recursive(child)
+                            if result:
+                                return result
 
-                return None
+                    return None
 
-            result = None
-            for child in categories.get("children", []):
-                result = search_paper_recursive(child)
-                if result:
-                    break
+                result = None
+                for child in categories.get("children", []):
+                    result = search_paper_recursive(child)
+                    if result:
+                        break
 
-            if not result:
-                return jsonify({"success": False, "error": "论文未找到"}), 404
+                if not result:
+                    return jsonify({"success": False, "error": "论文未找到"}), 404
 
-            paper, _ = result
+                paper, category_path = result
             pdf_path = paper.file_path
 
             if not pdf_path or not os.path.exists(pdf_path):
@@ -226,34 +234,40 @@ def register_agent_summary_routes(
     @app.route("/api/paper/<paper_id>/analysis/result")
     def api_get_analysis_result(paper_id):
         """获取解读结果文件"""
-        categories = get_categories()
+        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        entry = paper_store.get_entry(paper_id)
+        if entry:
+            paper = entry.paper
+        else:
+            # 如果 paper_store 中找不到，使用递归搜索分类树
+            categories = get_categories()
 
-        def search_paper_recursive(node):
-            category_path = get_category_path(categories, node["id"])
-            if category_path:
-                papers = get_papers_in_category(node["id"], category_path)
-                for paper in papers:
-                    if paper.id == paper_id:
-                        return paper, category_path
+            def search_paper_recursive(node):
+                category_path = get_category_path(categories, node["id"])
+                if category_path:
+                    papers = get_papers_in_category(node["id"], category_path)
+                    for paper in papers:
+                        if paper.id == paper_id:
+                            return paper, category_path
 
-            if "children" in node:
-                for child in node["children"]:
-                    result = search_paper_recursive(child)
-                    if result:
-                        return result
+                if "children" in node:
+                    for child in node["children"]:
+                        result = search_paper_recursive(child)
+                        if result:
+                            return result
 
-            return None
+                return None
 
-        result = None
-        for child in categories.get("children", []):
-            result = search_paper_recursive(child)
-            if result:
-                break
+            result = None
+            for child in categories.get("children", []):
+                result = search_paper_recursive(child)
+                if result:
+                    break
 
-        if not result:
-            return jsonify({"error": "论文未找到"}), 404
+            if not result:
+                return jsonify({"error": "论文未找到"}), 404
 
-        paper, _ = result
+            paper, _ = result
         pdf_path = paper.file_path
 
         if not pdf_path or not os.path.exists(pdf_path):
@@ -294,34 +308,40 @@ def register_agent_summary_routes(
     @app.route("/api/paper/<paper_id>/analysis/image")
     def api_get_analysis_image(paper_id):
         """获取解读结果中的图片"""
-        categories = get_categories()
+        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        entry = paper_store.get_entry(paper_id)
+        if entry:
+            paper = entry.paper
+        else:
+            # 如果 paper_store 中找不到，使用递归搜索分类树
+            categories = get_categories()
 
-        def search_paper_recursive(node):
-            category_path = get_category_path(categories, node["id"])
-            if category_path:
-                papers = get_papers_in_category(node["id"], category_path)
-                for paper in papers:
-                    if paper.id == paper_id:
-                        return paper, category_path
+            def search_paper_recursive(node):
+                category_path = get_category_path(categories, node["id"])
+                if category_path:
+                    papers = get_papers_in_category(node["id"], category_path)
+                    for paper in papers:
+                        if paper.id == paper_id:
+                            return paper, category_path
 
-            if "children" in node:
-                for child in node["children"]:
-                    result = search_paper_recursive(child)
-                    if result:
-                        return result
+                if "children" in node:
+                    for child in node["children"]:
+                        result = search_paper_recursive(child)
+                        if result:
+                            return result
 
-            return None
+                return None
 
-        result = None
-        for child in categories.get("children", []):
-            result = search_paper_recursive(child)
-            if result:
-                break
+            result = None
+            for child in categories.get("children", []):
+                result = search_paper_recursive(child)
+                if result:
+                    break
 
-        if not result:
-            return jsonify({"error": "论文未找到"}), 404
+            if not result:
+                return jsonify({"error": "论文未找到"}), 404
 
-        paper, _ = result
+            paper, _ = result
         pdf_path = paper.file_path
 
         if not pdf_path or not os.path.exists(pdf_path):

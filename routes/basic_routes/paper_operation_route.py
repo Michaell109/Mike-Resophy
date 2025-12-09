@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tupl
 from flask import Flask, jsonify, request, send_file
 
 from tools.basic_tools.upload_paper import process_uploaded_pdf, search_arxiv_by_title_only
+from tools.basic_tools.paper_repository import scan_papers_in_directory
 from core.base_paper import Paper
 from core.paper_store import PaperStore
 
@@ -545,6 +546,28 @@ def register_paper_operation_routes(
     @app.route("/api/reading-list", methods=["GET"])
     def api_get_reading_list():
         paper_ids = load_reading_list()
+        
+        # 自动同步：扫描 _ReadingListTemp 目录，将目录下的论文添加到待读列表
+        reading_list_temp_path = os.path.join(upload_folder, "_ReadingListTemp")
+        if os.path.exists(reading_list_temp_path):
+            # 扫描目录下的所有论文
+            temp_papers = scan_papers_in_directory(
+                reading_list_temp_path,
+                category_id="reading_list_temp",
+                category_path=["Root", "_ReadingListTemp"],
+            )
+            
+            # 将 _ReadingListTemp 目录下的论文添加到待读列表（如果还没有）
+            updated = False
+            for paper in temp_papers:
+                if paper.id not in paper_ids:
+                    paper_ids.append(paper.id)
+                    updated = True
+            
+            # 如果有更新，保存待读列表
+            if updated:
+                save_reading_list(paper_ids)
+        
         # 返回所有待读列表论文（不再限制数量）
         papers = collect_papers_by_ids(paper_ids)
         return jsonify([paper.to_dict() for paper in papers])
@@ -608,9 +631,10 @@ def register_paper_operation_routes(
         # 从待读列表移除
         remove_from_reading_list(paper_id)
         
+        # 返回是否删除了文件（只有在临时目录且用户确认删除时才删除文件）
         return jsonify({
             "success": True,
-            "deleted_files": delete_files if (is_in_temp and is_from_daily_arxiv) else False
+            "deleted_files": delete_files and is_in_temp
         })
 
     @app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
