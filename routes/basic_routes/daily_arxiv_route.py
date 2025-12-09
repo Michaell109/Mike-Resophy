@@ -14,6 +14,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import Flask, jsonify, request, send_file
 
+from core.base_paper import Paper
+from core.paper_store import paper_store
 from tools.basic_tools.daily_arxiv import (
     DailyArxivManager,
     extract_affiliations_with_llm,
@@ -21,8 +23,6 @@ from tools.basic_tools.daily_arxiv import (
     get_manager,
     get_today_arxiv_date,
 )
-from core.base_paper import Paper
-from core.paper_store import paper_store
 
 
 def register_daily_arxiv_routes(
@@ -334,7 +334,7 @@ def register_daily_arxiv_routes(
                         category_id=category_id,
                         category_path=category_path,
                     )
-                    
+
                     # 如果使用 temp 目录，添加到待读列表
                     if use_temp_dir:
                         try:
@@ -342,15 +342,22 @@ def register_daily_arxiv_routes(
                             with open(reading_list_file, "r", encoding="utf-8") as f:
                                 reading_list_data = json.load(f)
                             paper_ids = reading_list_data.get("papers", [])
-                            
+
                             # 如果论文 ID 不在列表中，添加它
                             if existing_paper.id not in paper_ids:
                                 paper_ids.append(existing_paper.id)
-                                with open(reading_list_file, "w", encoding="utf-8") as f:
-                                    json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
+                                with open(
+                                    reading_list_file, "w", encoding="utf-8"
+                                ) as f:
+                                    json.dump(
+                                        {"papers": paper_ids},
+                                        f,
+                                        ensure_ascii=False,
+                                        indent=2,
+                                    )
                         except Exception as e:
                             print(f"添加到待读列表失败: {e}")
-                    
+
                     return jsonify(
                         {
                             "success": True,
@@ -417,12 +424,14 @@ def register_daily_arxiv_routes(
                     with open(reading_list_file, "r", encoding="utf-8") as f:
                         reading_list_data = json.load(f)
                     paper_ids = reading_list_data.get("papers", [])
-                    
+
                     # 如果论文 ID 不在列表中，添加它
                     if paper.id not in paper_ids:
                         paper_ids.append(paper.id)
                         with open(reading_list_file, "w", encoding="utf-8") as f:
-                            json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
+                            json.dump(
+                                {"papers": paper_ids}, f, ensure_ascii=False, indent=2
+                            )
                 except Exception as e:
                     print(f"添加到待读列表失败: {e}")
 
@@ -464,7 +473,15 @@ def register_daily_arxiv_routes(
             openai_api_key = llm_config.get("llmApiKey")
 
             if not openai_base_url or not openai_api_key:
-                return jsonify({"success": False, "error": "请先在设置中配置 Agentic Settings 的 LLM API"}), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "请先在设置中配置 Agentic Settings 的 LLM API",
+                        }
+                    ),
+                    400,
+                )
 
             # 获取论文信息
             papers = manager.get_papers_for_date(date_str, fetch_category)
@@ -585,7 +602,7 @@ def register_daily_arxiv_routes(
                 paper_map = _thumbnail_cache.get(cache_key, {})
 
             paper = paper_map.get(arxiv_id)
-            
+
             # 如果缓存中找不到论文，重新读取文件系统（可能在爬取过程中新增了论文）
             if not paper:
                 print(f"[DailyArxiv] 缓存中未找到论文 {arxiv_id}，重新读取文件系统...")
@@ -596,7 +613,7 @@ def register_daily_arxiv_routes(
                         p.get("arxiv_id"): p for p in papers if p.get("arxiv_id")
                     }
                     _thumbnail_cache[cache_key] = paper_map
-                
+
                 paper = paper_map.get(arxiv_id)
                 if not paper:
                     return jsonify({"success": False, "error": "论文未找到"}), 404

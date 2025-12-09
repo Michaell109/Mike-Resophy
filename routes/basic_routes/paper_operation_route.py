@@ -10,10 +10,13 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tupl
 
 from flask import Flask, jsonify, request, send_file
 
-from tools.basic_tools.upload_paper import process_uploaded_pdf, search_arxiv_by_title_only
-from tools.basic_tools.paper_repository import scan_papers_in_directory
 from core.base_paper import Paper
 from core.paper_store import PaperStore
+from tools.basic_tools.paper_repository import scan_papers_in_directory
+from tools.basic_tools.upload_paper import (
+    process_uploaded_pdf,
+    search_arxiv_by_title_only,
+)
 
 
 class GetCategoriesFn(Protocol):
@@ -546,7 +549,7 @@ def register_paper_operation_routes(
     @app.route("/api/reading-list", methods=["GET"])
     def api_get_reading_list():
         paper_ids = load_reading_list()
-        
+
         # 自动同步：扫描 _ReadingListTemp 目录，将目录下的论文添加到待读列表
         reading_list_temp_path = os.path.join(upload_folder, "_ReadingListTemp")
         if os.path.exists(reading_list_temp_path):
@@ -556,18 +559,18 @@ def register_paper_operation_routes(
                 category_id="reading_list_temp",
                 category_path=["Root", "_ReadingListTemp"],
             )
-            
+
             # 将 _ReadingListTemp 目录下的论文添加到待读列表（如果还没有）
             updated = False
             for paper in temp_papers:
                 if paper.id not in paper_ids:
                     paper_ids.append(paper.id)
                     updated = True
-            
+
             # 如果有更新，保存待读列表
             if updated:
                 save_reading_list(paper_ids)
-        
+
         # 返回所有待读列表论文（不再限制数量）
         papers = collect_papers_by_ids(paper_ids)
         return jsonify([paper.to_dict() for paper in papers])
@@ -595,29 +598,38 @@ def register_paper_operation_routes(
             return jsonify({"success": False, "error": "Paper not found"}), 404
 
         paper, category_path, category_id = result
-        
+
         # 检查是否在临时目录
         # 方法1: 检查 category_id
         # 方法2: 检查文件路径是否包含 _ReadingListTemp
         is_in_temp = (
-            category_id == "reading_list_temp" or
-            (category_path and len(category_path) > 1 and category_path[1] == "_ReadingListTemp") or
-            (paper.file_path and "_ReadingListTemp" in paper.file_path)
+            category_id == "reading_list_temp"
+            or (
+                category_path
+                and len(category_path) > 1
+                and category_path[1] == "_ReadingListTemp"
+            )
+            or (paper.file_path and "_ReadingListTemp" in paper.file_path)
         )
-        
+
         # 获取删除选项
         data = request.json or {}
         delete_files = data.get("delete_files", False)
-        
+
         # 如果在临时目录，需要用户确认删除文件（不管来源）
         if is_in_temp and not delete_files:
-            return jsonify({
-                "success": False,
-                "error": "需要确认删除",
-                "requires_confirmation": True,
-                "message": "该论文还未移动到某个目录，是否要删除论文文件、AI解读和AI翻译？"
-            }), 200  # 返回 200 以便前端处理
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "需要确认删除",
+                        "requires_confirmation": True,
+                        "message": "该论文还未移动到某个目录，是否要删除论文文件、AI解读和AI翻译？",
+                    }
+                ),
+                200,
+            )  # 返回 200 以便前端处理
+
         # 如果确认删除文件，删除论文及其相关文件
         # 只要在 temp 目录就删除文件
         if delete_files and is_in_temp and paper.file_path:
@@ -627,15 +639,12 @@ def register_paper_operation_routes(
             # 如果不在 temp 目录，只从待读列表移除，不删除文件
             # 论文仍然保留在原来的目录中
             pass
-        
+
         # 从待读列表移除
         remove_from_reading_list(paper_id)
-        
+
         # 返回是否删除了文件（只有在临时目录且用户确认删除时才删除文件）
-        return jsonify({
-            "success": True,
-            "deleted_files": delete_files and is_in_temp
-        })
+        return jsonify({"success": True, "deleted_files": delete_files and is_in_temp})
 
     @app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
     def api_record_read_time(paper_id: str):
