@@ -3404,9 +3404,27 @@ function renderSearchResults(panel, q, results) {
             // 隐藏搜索结果面板
             panel.style.display = 'none';
             
+            // 优化：先检查论文是否已经在当前列表中
+            const existingPaperItem = document.querySelector(`.paper-item[data-paper-id="${pid}"]`);
+            if (existingPaperItem && currentCategoryId === categoryId) {
+                // 论文已经在当前分类中，直接选中并滚动
+                selectPaper(pid);
+                setTimeout(() => {
+                    existingPaperItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 50);
+                return;
+            }
+            
             // 如果论文有分类信息，先切换到那个分类
             if (categoryId && categoryId !== 'null' && categoryId !== 'undefined') {
                 try {
+                    // 先获取论文信息，用于快速显示
+                    const paperResponse = await fetch(`/api/paper/${pid}`);
+                    let targetPaper = null;
+                    if (paperResponse.ok) {
+                        targetPaper = await paperResponse.json();
+                    }
+                    
                     // 获取分类信息
                     const categories = await fetch('/api/categories').then(r => r.json());
                     const category = findCategoryById(categories, categoryId);
@@ -3415,29 +3433,61 @@ function renderSearchResults(panel, q, results) {
                         // 先设置 currentPaperId，这样 renderPapersList 会自动选中
                         currentPaperId = pid;
                         
-                        // 切换到该分类
+                        // 如果目标论文信息已获取，先显示它（优化体验）
+                        if (targetPaper) {
+                            // 临时显示目标论文，提供即时反馈
+                            papersList.innerHTML = `
+                                <div class="paper-header">
+                                    <div class="paper-header-col"></div>
+                                    <div class="paper-header-col">标题<div class="paper-header-resizer" data-col="1"></div></div>
+                                    <div class="paper-header-col">日期<div class="paper-header-resizer" data-col="2"></div></div>
+                                    <div class="paper-header-col">AI 翻译<div class="paper-header-resizer" data-col="3"></div></div>
+                                    <div class="paper-header-col">AI 解读<div class="paper-header-resizer" data-col="4"></div></div>
+                                    <div class="paper-header-col">待读</div>
+                                </div>
+                            `;
+                            // 添加列宽调整功能
+                            setupColumnResizing();
+                            const tempDiv = document.createElement('div');
+                            tempDiv.className = 'paper-item selected';
+                            tempDiv.dataset.paperId = targetPaper.id;
+                            tempDiv.innerHTML = generatePaperItemHTML(targetPaper, true);
+                            papersList.appendChild(tempDiv);
+                            setupPaperDrag(tempDiv, targetPaper);
+                            tempDiv.addEventListener('click', () => selectPaper(pid));
+                            tempDiv.addEventListener('dblclick', (e) => {
+                                if (!e.target.closest('button') && !e.target.closest('.paper-col-btn')) {
+                                    e.preventDefault();
+                                    openPDFViewer(pid);
+                                }
+                            });
+                            // 立即选中并加载论文信息
+                            selectPaper(pid);
+                            loadPaperInfo(pid);
+                        }
+                        
+                        // 切换到该分类（异步加载完整列表）
                         selectCategory(categoryId, category.name);
                         
-                        // 等待论文列表加载完成后再选中论文
-                        // 使用轮询等待论文列表加载
+                        // 等待论文列表加载完成后再确保选中状态
+                        // 使用更智能的等待机制
                         let attempts = 0;
-                        const maxAttempts = 30; // 最多等待 3 秒
+                        const maxAttempts = 50; // 最多等待 5 秒（论文多时可能需要更长时间）
                         const checkAndSelect = setInterval(() => {
                             attempts++;
                             const paperItem = document.querySelector(`.paper-item[data-paper-id="${pid}"]`);
-                            if (paperItem || attempts >= maxAttempts) {
+                            if (paperItem) {
                                 clearInterval(checkAndSelect);
-                                if (paperItem) {
-                                    // 确保选中状态
-                                    selectPaper(pid);
-                                    // 滚动到论文项
-                                    setTimeout(() => {
-                                        paperItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    }, 100);
-                                } else {
-                                    // 如果找不到，直接尝试选中（可能论文已经在列表中）
-                                    selectPaper(pid);
-                                }
+                                // 确保选中状态
+                                selectPaper(pid);
+                                // 滚动到论文项
+                                setTimeout(() => {
+                                    paperItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 100);
+                            } else if (attempts >= maxAttempts) {
+                                clearInterval(checkAndSelect);
+                                // 超时后直接尝试选中（可能论文已经在列表中）
+                                selectPaper(pid);
                             }
                         }, 100);
                     } else {
