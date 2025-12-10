@@ -1142,9 +1142,9 @@ body {
     align-items: center;
     padding: 3px 8px;
     margin: 0;
-    border-radius: 3px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     user-select: none;
     font-size: 12px;
     min-height: 24px;
@@ -1153,16 +1153,21 @@ body {
 }
 
 .category-item:hover {
-    background: #e9ecef;
+    background: linear-gradient(135deg, #f0f4f8 0%, #e8ecf0 100%);
+    transform: translateX(2px);
 }
 
 .category-item.selected {
-    background: #007bff;
-    color: white;
+    background: linear-gradient(135deg, #d0e8f8 0%, #b8daf2 50%, #a5d0ed 100%);
+    color: #2d5a8a;
+    font-weight: 500;
+    box-shadow: 0 2px 4px rgba(165, 208, 237, 0.25);
 }
 
 .category-item.selected:hover {
-    background: #0056b3;
+    background: linear-gradient(135deg, #c5e1f5 0%, #add4ef 50%, #9acaea 100%);
+    box-shadow: 0 3px 6px rgba(165, 208, 237, 0.35);
+    transform: translateY(-1px);
 }
 
 /* 子目录样式 - 不同颜色 */
@@ -1171,17 +1176,22 @@ body {
 }
 
 .category-children .category-item:hover {
-    background: #f0f0f0;
-    color: #495057;
+    background: linear-gradient(135deg, #f5f0f8 0%, #ede5f5 100%);
+    color: #6b2c91;
+    transform: translateX(2px);
 }
 
 .category-children .category-item.selected {
-    background: #6c757d;
-    color: white;
+    background: linear-gradient(135deg, #e8d9f2 0%, #dfc8ec 50%, #d6b7e6 100%);
+    color: #7d4a9d;
+    font-weight: 500;
+    box-shadow: 0 2px 4px rgba(214, 183, 230, 0.25);
 }
 
 .category-children .category-item.selected:hover {
-    background: #5a6268;
+    background: linear-gradient(135deg, #e3d2ef 0%, #d9c1e9 0%, #d0b0e3 100%);
+    box-shadow: 0 3px 6px rgba(214, 183, 230, 0.35);
+    transform: translateY(-1px);
 }
 
 .category-item.drag-over {

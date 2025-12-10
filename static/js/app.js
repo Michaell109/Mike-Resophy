@@ -2459,26 +2459,54 @@ async function changeCategoryColor(categoryId, color) {
     const category = findCategoryById(categories, categoryId);
     if (!category) return;
     
-    try {
-        const response = await fetch(`/api/categories/${categoryId}/color`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color: color })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            category.iconColor = color;
-            await updateCategoriesData();
-            await renderCategoryTreeWithState();
-            // 不显示提示，静默更新
-        } else {
+    // 保存原始颜色（用于失败时恢复）
+    const isOthers = category.name === 'Others';
+    const originalColor = category.iconColor || (isOthers ? '#8b949e' : '#ffc107');
+    
+    // 立即更新UI（乐观更新）
+    const categoryElement = document.querySelector(`[data-category-id="${categoryId}"]`);
+    if (categoryElement) {
+        const folderIcon = categoryElement.querySelector('.fa-folder');
+        if (folderIcon) {
+            folderIcon.style.color = color;
+        }
+    }
+    
+    // 更新本地数据
+    category.iconColor = color;
+    
+    // 异步更新服务器（不阻塞UI）
+    fetch(`/api/categories/${categoryId}/color`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: color })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (!result.success) {
+            // 如果失败，恢复原颜色
+            if (categoryElement) {
+                const folderIcon = categoryElement.querySelector('.fa-folder');
+                if (folderIcon) {
+                    folderIcon.style.color = originalColor;
+                }
+            }
+            category.iconColor = originalColor;
             showMessage('更新失败', 'error');
         }
-    } catch (e) {
+    })
+    .catch(e => {
         console.error('更新颜色失败:', e);
+        // 如果失败，恢复原颜色
+        if (categoryElement) {
+            const folderIcon = categoryElement.querySelector('.fa-folder');
+            if (folderIcon) {
+                folderIcon.style.color = originalColor;
+            }
+        }
+        category.iconColor = originalColor;
         showMessage('更新失败', 'error');
-    }
+    });
 }
 
 // 设置论文右键菜单
