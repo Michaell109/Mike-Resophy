@@ -5469,6 +5469,49 @@ async function renderOverviewStats() {
         const totalHours = Math.floor(totalMinutes / 60);
         const remainingMinutes = totalMinutes % 60;
         
+        // 计算本周数据（从本周一到今天）
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 如果是周日，往前推6天；否则推到周一
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + mondayOffset);
+        
+        let weekMinutes = 0;
+        const weekDates = [];
+        for (let i = 0; i <= dayOfWeek || (dayOfWeek === 0 && i <= 6); i++) {
+            const date = new Date(monday);
+            date.setDate(monday.getDate() + i);
+            const dateStr = formatDateLocal(date);
+            weekDates.push(dateStr);
+            weekMinutes += (dailyData[dateStr] || 0);
+        }
+        
+        const weekHours = Math.floor(weekMinutes / 60);
+        const weekRemainingMinutes = weekMinutes % 60;
+        
+        // 计算本周阅读的论文数
+        // 注意：由于系统只记录每天的阅读总时长，不记录具体阅读了哪些论文，
+        // 所以无法精确计算。这里使用基于阅读时长的估算方法：
+        // 假设平均每篇论文阅读时间为 30-60 分钟，根据本周总阅读时长来估算
+        let weekPapers = 0;
+        if (weekMinutes > 0) {
+            // 假设平均每篇论文阅读 45 分钟，根据总阅读时长估算论文数
+            // 最少1篇，最多不超过有阅读活动的天数 * 3（防止估算过高）
+            const estimatedPapers = Math.round(weekMinutes / 45);
+            const weekActiveDays = weekDates.filter(dateStr => dailyData[dateStr] && dailyData[dateStr] > 0).length;
+            const maxPapers = weekActiveDays * 3; // 每天最多3篇的合理上限
+            weekPapers = Math.max(1, Math.min(estimatedPapers, maxPapers));
+        }
+        
+        // 格式化本周时间显示
+        let weekTimeDisplay;
+        if (weekHours > 0) {
+            weekTimeDisplay = weekRemainingMinutes > 0 ? `${weekHours}h ${weekRemainingMinutes}m` : `${weekHours}h`;
+        } else {
+            weekTimeDisplay = `${weekMinutes}m`;
+        }
+        
         // 计算连续阅读天数
         const { currentStreak, bestStreak } = calculateStreaks(dailyData);
         
@@ -5483,12 +5526,16 @@ async function renderOverviewStats() {
         // 更新 UI
         const totalPapersEl = document.getElementById('stat-total-papers');
         const totalTimeEl = document.getElementById('stat-total-time');
+        const weekPapersEl = document.getElementById('stat-week-papers');
+        const weekTimeEl = document.getElementById('stat-week-time');
         const currentStreakEl = document.getElementById('stat-current-streak');
         const bestStreakEl = document.getElementById('stat-best-streak');
         const userStatsEl = document.getElementById('setting-total-stats');
         
         if (totalPapersEl) totalPapersEl.textContent = totalPapers;
         if (totalTimeEl) totalTimeEl.textContent = timeDisplay;
+        if (weekPapersEl) weekPapersEl.textContent = weekPapers;
+        if (weekTimeEl) weekTimeEl.textContent = weekTimeDisplay;
         if (currentStreakEl) currentStreakEl.textContent = currentStreak;
         if (bestStreakEl) bestStreakEl.textContent = bestStreak;
         

@@ -274,7 +274,7 @@
                     <span>Agentic</span>
                 </button>
                 <button class="setting-nav-item" data-setting="daily-arxiv">
-                    <i class="fas fa-newspaper"></i>
+                    <img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="setting-nav-arxiv-icon">
                     <span>Daily arXiv</span>
                 </button>
                 <button class="setting-nav-item" data-setting="import">
@@ -294,7 +294,6 @@
             <div class="setting-panel" id="setting-panel-overview" style="display:block;">
                 <div class="overview-header">
                     <h2>Reading Activity</h2>
-                    <p class="overview-subtitle">过去一年的论文阅读记录</p>
                 </div>
                 
                 <!-- 统计卡片 -->
@@ -314,17 +313,17 @@
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon streak"><i class="fas fa-fire"></i></div>
+                        <div class="stat-icon papers"><i class="fas fa-file-pdf"></i></div>
                         <div class="stat-content">
-                            <span class="stat-value" id="stat-current-streak">0</span>
-                            <span class="stat-label">连续阅读天数</span>
+                            <span class="stat-value" id="stat-week-papers">0</span>
+                            <span class="stat-label">本周阅读论文数</span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon best"><i class="fas fa-trophy"></i></div>
+                        <div class="stat-icon time"><i class="fas fa-clock"></i></div>
                         <div class="stat-content">
-                            <span class="stat-value" id="stat-best-streak">0</span>
-                            <span class="stat-label">最长连续天数</span>
+                            <span class="stat-value" id="stat-week-time">0h</span>
+                            <span class="stat-label">本周阅读时长</span>
                         </div>
                     </div>
                 </div>
