@@ -5530,3 +5530,173 @@ mark { background: #fff59d; }
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* ========== 新手指引样式 ========== */
+.onboarding-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.onboarding-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.onboarding-card {
+    position: relative;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 520px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 10001;
+    animation: onboardingFadeIn 0.3s ease-out;
+}
+
+@keyframes onboardingFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.onboarding-header {
+    padding: 24px 24px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.onboarding-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.onboarding-header h2 i {
+    color: #7d4a9d;
+}
+
+.onboarding-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.onboarding-close:hover {
+    background: #f3f4f6;
+    color: #1f2937;
+}
+
+.onboarding-body {
+    padding: 24px;
+}
+
+.onboarding-step {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.onboarding-step:last-child {
+    margin-bottom: 0;
+}
+
+.onboarding-step-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #f5f0f8 0%, #dfc8ec 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #7d4a9d;
+    font-size: 20px;
+}
+
+.onboarding-step-icon .onboarding-arxiv-icon {
+    width: 24px;
+    height: auto;
+}
+
+.onboarding-step-content {
+    flex: 1;
+}
+
+.onboarding-step-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.onboarding-step-content p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #6b7280;
+}
+
+.onboarding-step-content strong {
+    color: #7d4a9d;
+    font-weight: 600;
+}
+
+.onboarding-footer {
+    padding: 20px 24px 24px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.onboarding-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #6b7280;
+    user-select: none;
+}
+
+.onboarding-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #7d4a9d;
+}
+
+.onboarding-footer .btn {
+    min-width: 120px;
+}

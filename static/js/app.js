@@ -11834,3 +11834,56 @@ document.addEventListener('DOMContentLoaded', () => {
     initExportFeature();
 });
 
+// ========== 新手指引功能 ==========
+function showOnboardingModal() {
+    const modal = document.getElementById('onboarding-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        // 防止背景滚动
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeOnboardingModal() {
+    const modal = document.getElementById('onboarding-modal');
+    const checkbox = document.getElementById('onboarding-dont-show');
+    
+    if (modal) {
+        modal.style.display = 'none';
+        // 恢复背景滚动
+        document.body.style.overflow = '';
+    }
+    
+    // 如果用户勾选了"下次不再提醒"，保存到 localStorage
+    if (checkbox && checkbox.checked) {
+        try {
+            localStorage.setItem('onboarding_dont_show', 'true');
+        } catch (e) {
+            console.error('保存新手指引设置失败:', e);
+        }
+    }
+}
+
+function checkAndShowOnboarding() {
+    try {
+        // 检查是否已经设置过"下次不再提醒"
+        const dontShow = localStorage.getItem('onboarding_dont_show');
+        if (dontShow === 'true') {
+            return; // 用户已经选择不再显示
+        }
+        
+        // 显示新手指引
+        // 延迟一点显示，确保页面已完全加载
+        setTimeout(() => {
+            showOnboardingModal();
+        }, 500);
+    } catch (e) {
+        console.error('检查新手指引设置失败:', e);
+    }
+}
+
+// 在页面加载完成后检查是否需要显示新手指引
+document.addEventListener('DOMContentLoaded', () => {
+    checkAndShowOnboarding();
+});
+

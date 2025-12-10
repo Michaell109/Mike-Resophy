@@ -1089,6 +1089,57 @@
         </div>
     </div>
 
+    <!-- 新手指引模态框 -->
+    <div id="onboarding-modal" class="onboarding-modal" style="display: none;">
+        <div class="onboarding-overlay" onclick="closeOnboardingModal()"></div>
+        <div class="onboarding-card">
+            <div class="onboarding-header">
+                <h2><i class="fas fa-graduation-cap"></i> 欢迎使用 Resophy</h2>
+                <button class="onboarding-close" onclick="closeOnboardingModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="onboarding-body">
+                <div class="onboarding-step">
+                    <div class="onboarding-step-icon">
+                        <i class="fas fa-cog"></i>
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>1. 配置 AI 功能</h3>
+                        <p>前往 <strong>Settings → Agentic</strong> 设置 LLM API 和 MinerU 服务，这是使用 AI 翻译，AI 解读，Daily Arxiv 的前提。</p>
+                    </div>
+                </div>
+                <div class="onboarding-step">
+                    <div class="onboarding-step-icon">
+                        <i class="fas fa-file-pdf"></i>
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>2. 基本操作</h3>
+                        <p>上传 PDF 论文、创建分类管理、使用搜索功能查找论文。点击论文可查看详情，双击打开阅读器。</p>
+                    </div>
+                </div>
+                <div class="onboarding-step">
+                    <div class="onboarding-step-icon">
+                        <img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="onboarding-arxiv-icon">
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>3. Daily arXiv</h3>
+                        <p>自动抓取每日最新论文，支持按机构、地区、关键词过滤。感兴趣的论文可一键导入到主库。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="onboarding-footer">
+                <label class="onboarding-checkbox">
+                    <input type="checkbox" id="onboarding-dont-show" checked>
+                    <span>下次不再提醒</span>
+                </label>
+                <button class="btn btn-primary" onclick="closeOnboardingModal()">
+                    开始使用
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
