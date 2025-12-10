@@ -32,11 +32,37 @@ class SearchIndex:
         self._rebuild_callback = None  # 重建索引的回调函数
         self._is_rebuilding = False  # 是否正在重建索引
         self._rebuild_lock = threading.Lock()  # 重建操作的锁
+        self._last_checkpoint_time = 0  # 上次 checkpoint 的时间戳
+        self._checkpoint_interval = 300  # 每 5 分钟执行一次 checkpoint
         self._init_database()
 
     def set_rebuild_callback(self, callback):
         """设置重建索引的回调函数"""
         self._rebuild_callback = callback
+
+    def _maybe_checkpoint(self, force: bool = False) -> None:
+        """
+        定期执行 WAL checkpoint，防止 WAL 文件过大导致数据库损坏
+        
+        Args:
+            force: 是否强制执行 checkpoint（忽略时间间隔）
+        """
+        import time
+        current_time = time.time()
+        
+        # 如果距离上次 checkpoint 超过间隔时间，或者强制执行
+        if force or (current_time - self._last_checkpoint_time) >= self._checkpoint_interval:
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
+                try:
+                    # 执行被动 checkpoint（不会阻塞其他连接）
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                    self._last_checkpoint_time = current_time
+                finally:
+                    conn.close()
+            except Exception as e:
+                # checkpoint 失败不影响主操作，只记录日志
+                print(f"WAL checkpoint 失败: {e}")
 
     def _extract_context_snippet(
         self, text: str, query: str, context_chars: int = 150
@@ -119,7 +145,7 @@ class SearchIndex:
     def _check_database_integrity(self) -> bool:
         """检查数据库完整性"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
             try:
                 cursor = conn.cursor()
                 # 执行完整性检查
@@ -172,14 +198,16 @@ class SearchIndex:
         """初始化数据库表结构"""
         with self._lock:
             # 使用 WAL 模式提高并发性能
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
             try:
                 # 启用 WAL 模式（Write-Ahead Logging）
                 conn.execute("PRAGMA journal_mode=WAL")
-                # 设置同步模式为 NORMAL（性能更好，但仍安全）
-                conn.execute("PRAGMA synchronous=NORMAL")
+                # 设置同步模式为 FULL（更安全，避免数据损坏）
+                conn.execute("PRAGMA synchronous=FULL")
                 # 设置缓存大小
                 conn.execute("PRAGMA cache_size=-64000")  # 64MB
+                # 设置 WAL 自动 checkpoint（当 WAL 文件超过 10MB 时自动 checkpoint）
+                conn.execute("PRAGMA wal_autocheckpoint=10000")  # 10MB
                 cursor = conn.cursor()
 
                 # 创建论文元数据表（包含 notes 字段，用于全文搜索备注）
@@ -279,8 +307,9 @@ class SearchIndex:
         """
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
                     cursor.execute(
@@ -303,6 +332,8 @@ class SearchIndex:
                     conn.commit()
                 finally:
                     conn.close()
+                # 定期执行 checkpoint 以防止 WAL 文件过大
+                self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
                 if "malformed" in error_msg or "corrupt" in error_msg:
@@ -320,14 +351,16 @@ class SearchIndex:
         """
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
                     conn.commit()
                 finally:
                     conn.close()
+                self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
                 if "malformed" in error_msg or "corrupt" in error_msg:
@@ -346,8 +379,9 @@ class SearchIndex:
         """
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
                     cursor.execute(
@@ -357,6 +391,7 @@ class SearchIndex:
                     conn.commit()
                 finally:
                     conn.close()
+                self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
                 if "malformed" in error_msg or "corrupt" in error_msg:
@@ -393,8 +428,9 @@ class SearchIndex:
         with self._lock:
             conn = None
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 cursor = conn.cursor()
 
                 # 构建 FTS 查询
@@ -649,8 +685,9 @@ class SearchIndex:
                     self._repair_database()
 
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=60.0)  # 重建索引需要更长时间
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
 
@@ -687,6 +724,8 @@ class SearchIndex:
                     )
 
                     conn.commit()
+                    # 重建后执行完整 checkpoint
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                     print(f"搜索索引重建完成，共索引 {len(papers)} 篇论文")
                 finally:
                     conn.close()
@@ -720,8 +759,9 @@ class SearchIndex:
         """
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
                     if category_id:
@@ -747,13 +787,15 @@ class SearchIndex:
         """清空所有索引数据"""
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM papers")
                     cursor.execute("DELETE FROM papers_fts")
                     conn.commit()
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 finally:
                     conn.close()
             except sqlite3.DatabaseError as e:
