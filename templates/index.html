@@ -431,8 +431,14 @@
                                 <label for="llm-api-key">API Key</label>
                                 <small>API 访问密钥</small>
                             </div>
-                            <input type="password" id="llm-api-key" placeholder="token-abc123" class="setting-input" />
+                            <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                                <input type="password" id="llm-api-key" placeholder="token-abc123" class="setting-input" style="flex: 1;" />
+                                <button id="test-llm-api" class="btn btn-secondary" style="white-space: nowrap;" title="测试 LLM API 连接">
+                                    <i class="fas fa-vial"></i> 测试
+                                </button>
+                            </div>
                         </div>
+                        <div id="llm-test-result" style="margin-top: 8px; display: none;"></div>
                     </div>
                 </div>
 
@@ -452,8 +458,14 @@
                                 <label for="mineru-server-url">MinerU Server URL</label>
                                 <small>PDF 解析服务地址</small>
                             </div>
-                            <input type="text" id="mineru-server-url" placeholder="http://192.168.81.138:9000" class="setting-input" />
+                            <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                                <input type="text" id="mineru-server-url" placeholder="http://192.168.81.138:9000" class="setting-input" style="flex: 1;" />
+                                <button id="test-mineru-api" class="btn btn-secondary" style="white-space: nowrap;" title="测试 MinerU API 连接">
+                                    <i class="fas fa-vial"></i> 测试
+                                </button>
+                            </div>
                         </div>
+                        <div id="mineru-test-result" style="margin-top: 8px; display: none;"></div>
                     </div>
                 </div>
 
@@ -467,9 +479,13 @@
                         <div class="setting-row full-width">
                             <div class="setting-info">
                                 <label for="analysis-system-prompt">System Prompt</label>
-                                <small>自定义 AI 解读的系统提示词（可选，留空使用默认）</small>
+                                <small>AI 解读的系统提示词（下方显示的是当前使用的提示词，可以修改）</small>
                             </div>
-                            <textarea id="analysis-system-prompt" rows="10" placeholder="留空使用默认提示词..." class="setting-textarea"></textarea>
+                            <textarea id="analysis-system-prompt" rows="12" placeholder="加载中..." class="setting-textarea"></textarea>
+                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                                <i class="fas fa-info-circle"></i> 
+                                <span id="prompt-status-text">提示：修改后将保存为自定义提示词</span>
+                            </div>
                         </div>
                     </div>
                 </div>

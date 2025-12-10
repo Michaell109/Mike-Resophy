@@ -287,6 +287,17 @@ def register_settings_routes(
                 settings = {}
             merged = default_agentic_settings.copy()
             merged.update(settings)
+            
+            # 如果用户没有自定义 System Prompt，返回默认值供前端显示
+            if not merged.get("analysisSystemPrompt"):
+                default_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
+图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
+
+INPUT: <MARKDOWN>"""
+                merged["analysisSystemPrompt"] = default_prompt
+                merged["_isDefaultPrompt"] = True  # 标记这是默认提示词
+            
             return jsonify(merged)
 
         data = request.json or {}
@@ -321,3 +332,191 @@ def register_settings_routes(
             ),
             410,
         )
+
+    # ========================================
+    # API Test Endpoints
+    # ========================================
+    @app.route("/api/settings/test/llm", methods=["POST"])
+    def api_test_llm():
+        """测试 LLM API 连接"""
+        try:
+            data = request.json or {}
+            llm_model = data.get("llmModel", "").strip()
+            llm_base_url = data.get("llmBaseUrl", "").strip()
+            llm_api_key = data.get("llmApiKey", "").strip()
+
+            if not llm_model or not llm_base_url or not llm_api_key:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "请填写完整的 LLM API 配置（Model、Base URL、API Key）",
+                    }
+                ), 400
+
+            # 导入 OpenAI 客户端
+            try:
+                from openai import OpenAI
+            except ImportError:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "OpenAI 库未安装，请运行: pip install openai",
+                    }
+                ), 500
+
+            # 创建客户端
+            client = OpenAI(
+                base_url=llm_base_url,
+                api_key=llm_api_key,
+                timeout=30.0,  # 30秒超时
+            )
+
+            # 发送测试消息
+            test_message = "Can you see my message, if you can, respond with Yes."
+            try:
+                response = client.chat.completions.create(
+                    model=llm_model,
+                    messages=[
+                        {"role": "user", "content": test_message},
+                    ],
+                    max_tokens=50,  # 限制回复长度
+                )
+
+                # 检查回复
+                if response.choices and len(response.choices) > 0:
+                    reply = response.choices[0].message.content.strip()
+                    # 检查是否包含 "Yes"（不区分大小写）
+                    if "yes" in reply.lower():
+                        return jsonify(
+                            {
+                                "success": True,
+                                "message": "LLM API 连接成功！",
+                                "reply": reply,
+                            }
+                        )
+                    else:
+                        return jsonify(
+                            {
+                                "success": False,
+                                "error": f"LLM API 返回了回复，但不符合预期。回复内容: {reply}",
+                                "reply": reply,
+                            }
+                        )
+                else:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "LLM API 返回了空回复",
+                        }
+                    )
+
+            except Exception as e:
+                error_msg = str(e)
+                # 提供更友好的错误信息
+                if "401" in error_msg or "Unauthorized" in error_msg:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "API Key 无效或未授权",
+                        }
+                    )
+                elif "404" in error_msg or "Not Found" in error_msg:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "API 端点不存在，请检查 Base URL 是否正确",
+                        }
+                    )
+                elif "timeout" in error_msg.lower():
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "连接超时，请检查网络连接和 Base URL",
+                        }
+                    )
+                else:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": f"LLM API 调用失败: {error_msg}",
+                        }
+                    )
+
+        except Exception as exc:
+            return jsonify({"success": False, "error": f"测试失败: {str(exc)}"}), 500
+
+    @app.route("/api/settings/test/mineru", methods=["POST"])
+    def api_test_mineru():
+        """测试 MinerU API 连接"""
+        try:
+            import requests
+
+            data = request.json or {}
+            mineru_server_url = data.get("mineruServerUrl", "").strip()
+
+            if not mineru_server_url:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "请填写 MinerU Server URL",
+                    }
+                ), 400
+
+            # 移除末尾的斜杠
+            mineru_server_url = mineru_server_url.rstrip("/")
+
+            # 尝试连接 MinerU 服务
+            # 通常 MinerU 服务可能有健康检查端点，如果没有则尝试根路径
+            test_urls = [
+                f"{mineru_server_url}/health",
+                f"{mineru_server_url}/",
+                f"{mineru_server_url}/api/health",
+            ]
+
+            last_error = None
+            for test_url in test_urls:
+                try:
+                    response = requests.get(
+                        test_url,
+                        timeout=10.0,  # 10秒超时
+                        allow_redirects=True,
+                    )
+                    # 如果返回 200-299 状态码，认为连接成功
+                    if 200 <= response.status_code < 300:
+                        return jsonify(
+                            {
+                                "success": True,
+                                "message": "MinerU API 连接成功！",
+                                "status_code": response.status_code,
+                                "tested_url": test_url,
+                            }
+                        )
+                    # 如果是其他状态码，继续尝试下一个 URL
+                    last_error = f"HTTP {response.status_code}"
+                except requests.exceptions.Timeout:
+                    last_error = "连接超时"
+                    continue
+                except requests.exceptions.ConnectionError:
+                    last_error = "无法连接到服务器"
+                    continue
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+
+            # 所有 URL 都失败
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"MinerU API 连接失败: {last_error}。请检查 URL 是否正确，服务是否正在运行",
+                }
+            )
+
+        except ImportError:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "requests 库未安装，请运行: pip install requests",
+                }
+            ), 500
+        except Exception as exc:
+            return jsonify({"success": False, "error": f"测试失败: {str(exc)}"}), 500

@@ -4593,12 +4593,14 @@ function switchTab(tabName) {
 // 保存翻译设置
 // ========== Agentic 设置（统一的AI功能配置）==========
 async function saveAgenticSettings(silent = false) {
+    const promptValue = document.getElementById('analysis-system-prompt').value.trim();
     const settings = {
         llmModel: document.getElementById('llm-model').value.trim(),
         llmBaseUrl: document.getElementById('llm-base-url').value.trim(),
         llmApiKey: document.getElementById('llm-api-key').value.trim(),
         mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
-        analysisSystemPrompt: document.getElementById('analysis-system-prompt').value.trim()
+        // 如果用户清空了提示词，保存为空字符串（后端会使用默认值）
+        analysisSystemPrompt: promptValue
     };
     
     try {
@@ -4667,12 +4669,202 @@ async function loadAgenticSettings() {
                 mineruEl.addEventListener('input', autoSaveAgenticSettings);
             }
             if (promptEl) {
-                promptEl.value = settings.analysisSystemPrompt || '';
-                promptEl.addEventListener('input', autoSaveAgenticSettings);
+                // 保存默认提示词（用于恢复）
+                const defaultPrompt = settings.analysisSystemPrompt || '';
+                const isDefaultPrompt = settings._isDefaultPrompt || false;
+                
+                // 显示 System Prompt（如果后端返回了默认值，也会显示）
+                promptEl.value = defaultPrompt;
+                promptEl.placeholder = '请输入 AI 解读的系统提示词...';
+                
+                // 更新状态文本
+                const statusText = document.getElementById('prompt-status-text');
+                if (statusText) {
+                    if (isDefaultPrompt) {
+                        statusText.textContent = '当前显示的是默认提示词，修改后将保存为自定义提示词';
+                        statusText.style.color = '#666';
+                    } else if (defaultPrompt) {
+                        statusText.textContent = '当前使用的是自定义提示词';
+                        statusText.style.color = '#28a745';
+                    } else {
+                        statusText.textContent = '提示：修改后将保存为自定义提示词';
+                        statusText.style.color = '#666';
+                    }
+                }
+                
+                // 监听输入变化，更新状态
+                promptEl.addEventListener('input', () => {
+                    if (statusText) {
+                        const currentValue = promptEl.value.trim();
+                        if (currentValue) {
+                            statusText.textContent = '当前使用的是自定义提示词';
+                            statusText.style.color = '#28a745';
+                        } else {
+                            statusText.textContent = '提示：留空将使用默认提示词';
+                            statusText.style.color = '#666';
+                        }
+                    }
+                    autoSaveAgenticSettings();
+                });
+            }
+            
+            // 绑定测试按钮事件
+            const testLlmBtn = document.getElementById('test-llm-api');
+            const testMineruBtn = document.getElementById('test-mineru-api');
+            
+            if (testLlmBtn) {
+                testLlmBtn.addEventListener('click', testLLMAPI);
+            }
+            if (testMineruBtn) {
+                testMineruBtn.addEventListener('click', testMineruAPI);
             }
         }
     } catch (e) {
         console.error('加载AI功能设置失败:', e);
+    }
+}
+
+// 测试 LLM API
+async function testLLMAPI() {
+    const btn = document.getElementById('test-llm-api');
+    const resultDiv = document.getElementById('llm-test-result');
+    
+    if (!btn || !resultDiv) return;
+    
+    // 获取当前配置
+    const llmModel = document.getElementById('llm-model').value.trim();
+    const llmBaseUrl = document.getElementById('llm-base-url').value.trim();
+    const llmApiKey = document.getElementById('llm-api-key').value.trim();
+    
+    if (!llmModel || !llmBaseUrl || !llmApiKey) {
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404;">
+                <i class="fas fa-exclamation-triangle"></i> 请先填写完整的 LLM API 配置
+            </div>
+        `;
+        resultDiv.style.display = 'block';
+        return;
+    }
+    
+    // 更新按钮状态
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 测试中...';
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `
+        <div style="padding: 12px; background: #e7f3ff; border: 1px solid #2196F3; border-radius: 6px; color: #0d47a1;">
+            <i class="fas fa-spinner fa-spin"></i> 正在测试 LLM API 连接...
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/api/settings/test/llm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                llmModel: llmModel,
+                llmBaseUrl: llmBaseUrl,
+                llmApiKey: llmApiKey
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
+                    <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
+                    ${data.reply ? `<div style="margin-top: 8px; font-size: 13px;">回复: "${data.reply}"</div>` : ''}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                    <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
+                    <div style="margin-top: 8px; font-size: 13px;">${data.error || '未知错误'}</div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
+                <div style="margin-top: 8px; font-size: 13px;">网络错误: ${error.message}</div>
+            </div>
+        `;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    }
+}
+
+// 测试 MinerU API
+async function testMineruAPI() {
+    const btn = document.getElementById('test-mineru-api');
+    const resultDiv = document.getElementById('mineru-test-result');
+    
+    if (!btn || !resultDiv) return;
+    
+    // 获取当前配置
+    const mineruServerUrl = document.getElementById('mineru-server-url').value.trim();
+    
+    if (!mineruServerUrl) {
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404;">
+                <i class="fas fa-exclamation-triangle"></i> 请先填写 MinerU Server URL
+            </div>
+        `;
+        resultDiv.style.display = 'block';
+        return;
+    }
+    
+    // 更新按钮状态
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 测试中...';
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `
+        <div style="padding: 12px; background: #e7f3ff; border: 1px solid #2196F3; border-radius: 6px; color: #0d47a1;">
+            <i class="fas fa-spinner fa-spin"></i> 正在测试 MinerU API 连接...
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/api/settings/test/mineru', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mineruServerUrl: mineruServerUrl
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
+                    <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
+                    ${data.tested_url ? `<div style="margin-top: 8px; font-size: 13px;">测试地址: ${data.tested_url}</div>` : ''}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                    <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
+                    <div style="margin-top: 8px; font-size: 13px;">${data.error || '未知错误'}</div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
+                <div style="margin-top: 8px; font-size: 13px;">网络错误: ${error.message}</div>
+            </div>
+        `;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
     }
 }
 
