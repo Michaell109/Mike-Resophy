@@ -1105,16 +1105,20 @@ body {
 }
 
 .sidebar-header h3 {
-    font-size: 16px;
+    font-size: 14px;
     color: #333;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+}
+
+.sidebar-header h3 i {
+    font-size: 14px;
 }
 
 .btn-add {
-    background: #007bff;
-    color: white;
+    background: linear-gradient(135deg, #e8d9f2 0%, #dfc8ec 50%, #d6b7e6 100%);
+    color: #7d4a9d;
     border: none;
     border-radius: 4px;
     width: 28px;
@@ -1123,11 +1127,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(214, 183, 230, 0.25);
 }
 
 .btn-add:hover {
-    background: #0056b3;
+    background: linear-gradient(135deg, #e3d2ef 0%, #d9c1e9 0%, #d0b0e3 100%);
+    box-shadow: 0 3px 6px rgba(214, 183, 230, 0.35);
+    transform: translateY(-1px);
 }
 
 .category-tree {
