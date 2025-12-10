@@ -602,9 +602,9 @@ function createCategoryElement(category, level = 0) {
 
     const hasChildren = category.children && category.children.length > 0;
     
-    // 获取图标颜色：自定义颜色 > Others灰色 > 默认黄色
+    // 获取图标颜色：自定义颜色 > Others灰色 > 默认紫色
     const isOthers = category.name === 'Others';
-    const folderColor = category.iconColor || (isOthers ? '#8b949e' : '#ffc107');
+    const folderColor = category.iconColor || (isOthers ? '#8b949e' : '#7d4a9d');
     
     // 置顶图标
     const pinIcon = category.pinned ? '<i class="fas fa-thumbtack pin-icon"></i>' : '';
@@ -2415,7 +2415,7 @@ function showContextMenu(e, categoryId) {
     }
     
     // 更新颜色选择中的选中状态
-    const currentColor = category?.iconColor || '#ffc107';
+    const currentColor = category?.iconColor || '#7d4a9d';
     document.querySelectorAll('.color-submenu .color-option').forEach(option => {
         option.classList.toggle('selected', option.dataset.color === currentColor);
     });
@@ -2585,7 +2585,7 @@ async function changeCategoryColor(categoryId, color) {
     
     // 保存原始颜色（用于失败时恢复）
     const isOthers = category.name === 'Others';
-    const originalColor = category.iconColor || (isOthers ? '#8b949e' : '#ffc107');
+    const originalColor = category.iconColor || (isOthers ? '#8b949e' : '#7d4a9d');
     
     // 立即更新UI（乐观更新）
     const categoryElement = document.querySelector(`[data-category-id="${categoryId}"]`);
@@ -2870,7 +2870,7 @@ function setupCategoryDrag(categoryElement, category) {
         dragImage.style.left = '-9999px';
         dragImage.style.padding = '8px 12px';
         dragImage.style.background = '#f8f9fa';
-        dragImage.style.border = '2px solid #ffc107';
+            dragImage.style.border = '2px solid #7d4a9d';
         dragImage.style.borderRadius = '6px';
         dragImage.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
         dragImage.style.fontSize = '13px';
@@ -2881,9 +2881,9 @@ function setupCategoryDrag(categoryElement, category) {
         dragImage.style.gap = '6px';
         
         if (draggedCategories.length > 0) {
-            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${draggedCategories.length} 个目录`;
-        } else {
-            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #ffc107;"></i> ${category.name}`;
+            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #7d4a9d;"></i> ${draggedCategories.length} 个目录`;
+            } else {
+            dragImage.innerHTML = `<i class="fas fa-folder" style="color: #7d4a9d;"></i> ${category.name}`;
         }
         
         document.body.appendChild(dragImage);
@@ -3758,7 +3758,7 @@ function renderCategorySelectTree(root, container) {
 
         const hasChildren = node.children && node.children.length > 0;
         const isOthers = node.name === 'Others';
-        const folderColor = isOthers ? '#8b949e' : '#ffc107';
+        const folderColor = isOthers ? '#8b949e' : '#7d4a9d';
         item.innerHTML = `
             ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span style="width: 16px; margin-right: 5px;"></span>'}
             <i class="fas fa-folder" style="margin-right: 8px; color: ${folderColor};"></i>
@@ -4199,7 +4199,7 @@ function startInlineAddCategory(parentId) {
     // 临时占位的展开按钮
     tempDiv.innerHTML = `
         <span class="category-toggle-placeholder"></span>
-        <i class="fas fa-folder" style="margin-right: 6px; color: #ffc107; font-size: 12px;"></i>
+        <i class="fas fa-folder" style="margin-right: 6px; color: #7d4a9d; font-size: 12px;"></i>
         <span class="category-name" style="display: none;"></span>
         <span class="pdf-count">0</span>
     `;
