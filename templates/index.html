@@ -40,11 +40,12 @@
                     <span class="ti-label">待读</span>
                     <span class="ti-count" id="ti-reading-count">0</span>
                 </button>
-                <button class="nav-tab active" data-tab="paper">
-                    <i class="fas fa-file-pdf"></i> Paper
+                <button class="nav-tab ti-item ti-paper active" data-tab="paper" title="Paper">
+                    <i class="fas fa-file-pdf"></i> <span class="ti-label">Paper</span>
                 </button>
-                <button class="nav-tab" data-tab="daily-arxiv">
-                    <i class="fas fa-newspaper"></i> Daily arXiv
+                <button class="nav-tab ti-item ti-daily-arxiv" data-tab="daily-arxiv" title="Daily arXiv">
+                    <img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="arxiv-logo-icon">
+                    <span class="ti-label">Daily arXiv</span>
                 </button>
                 <div class="nav-avatar" id="nav-avatar" data-tab="setting" title="Settings">
                     <canvas id="nav-avatar-canvas" width="32" height="32"></canvas>

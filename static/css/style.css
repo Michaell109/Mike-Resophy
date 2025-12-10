@@ -1350,6 +1350,10 @@ body {
     margin: 0;
 }
 
+#current-category {
+    display: none !important;
+}
+
 .content-actions {
     display: flex;
     gap: 10px;
@@ -1704,25 +1708,25 @@ body {
 }
 
 .paper-col-btn.reading {
-    background: #f3e5f5;
-    color: #7b1fa2;
-    border: 1px solid #ce93d8;
+    background: #f5f0f8;
+    color: #7d4a9d;
+    border: 1px solid #dfc8ec;
 }
 
 .paper-col-btn.reading:hover {
-    background: #e1bee7;
-    border-color: #ba68c8;
+    background: #ede5f5;
+    border-color: #d6b7e6;
 }
 
 .paper-col-btn.reading.in-list {
-    background: #9c27b0;
-    color: #fff;
-    border-color: #7b1fa2;
+    background: #f5f0f8;
+    color: #7d4a9d;
+    border-color: #dfc8ec;
 }
 
 .paper-col-btn.reading.in-list:hover {
-    background: #7b1fa2;
-    border-color: #6a1b9a;
+    background: #ede5f5;
+    border-color: #d6b7e6;
 }
 
 .paper-col-btn i {
@@ -1968,23 +1972,73 @@ body {
 }
 
 .ti-item.ti-reading {
-    background: #f3e5f5;
-    color: #7b1fa2;
-    border-color: #ce93d8;
+    background: #f5f0f8 !important;
+    color: #7d4a9d !important;
+    border: 1px solid #dfc8ec !important;
 }
 
 .ti-item.ti-reading:hover {
-    background: #e1bee7;
-    border-color: #ba68c8;
+    background: #ede5f5 !important;
+    border-color: #d6b7e6 !important;
 }
 
 .ti-item.has-tasks.ti-reading {
-    background: #9c27b0;
+    background: #7d4a9d;
     color: #fff;
-    border-color: #7b1fa2;
+    border-color: #6b2c91;
+}
+
+.nav-tab.ti-daily-arxiv {
+    background: #fff0f0 !important;
+    color: #c62828 !important;
+    border: 1px solid #ffcccb !important;
+}
+
+.nav-tab.ti-daily-arxiv:hover {
+    background: #ffe8e8 !important;
+    border-color: #ffb3b3 !important;
+}
+
+.nav-tab.ti-daily-arxiv.active {
+    background: #c62828 !important;
+    color: #fff !important;
+    border-color: #b71c1c !important;
+}
+
+.nav-tab.ti-daily-arxiv.active:hover {
+    background: #b71c1c !important;
+    border-color: #a01212 !important;
+}
+
+.nav-tab.ti-paper {
+    background: #fff0f0 !important;
+    color: #c62828 !important;
+    border: 1px solid #ffcccb !important;
+}
+
+.nav-tab.ti-paper:hover {
+    background: #ffe8e8 !important;
+    border-color: #ffb3b3 !important;
+}
+
+.nav-tab.ti-paper.active {
+    background: #c62828 !important;
+    color: #fff !important;
+    border-color: #b71c1c !important;
+}
+
+.nav-tab.ti-paper.active:hover {
+    background: #b71c1c !important;
+    border-color: #a01212 !important;
 }
 
 .ti-item i { font-size: 12px; }
+.ti-item .arxiv-logo-icon {
+    height: 12px;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+}
 .ti-item .ti-label { font-size: 13px; }
 .ti-item .ti-count {
     padding: 2px 6px;
