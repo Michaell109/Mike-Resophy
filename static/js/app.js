@@ -5010,11 +5010,12 @@ async function initSettingsPage() {
 
 // 获取有阅读数据的年份范围
 function getReadingYearRange() {
-    const data = getDailyReadingDataSync();
+    const historyData = getDailyReadingDataSync();
+    const dailyData = getDailyReadingMinutes(historyData);
     const years = new Set();
     
-    Object.keys(data).forEach(dateStr => {
-        if (data[dateStr] > 0) {
+    Object.keys(dailyData).forEach(dateStr => {
+        if (dailyData[dateStr] > 0) {
             const year = parseInt(dateStr.split('-')[0], 10);
             years.add(year);
         }
@@ -5236,6 +5237,23 @@ function getDailyReadingDataSync() {
     return {};
 }
 
+// 从阅读历史中获取每日阅读时长（兼容新旧格式）
+// 新格式: { "date": { "total": minutes, "papers": [...] } }
+// 旧格式: { "date": minutes }
+function getDailyReadingMinutes(historyData) {
+    const result = {};
+    for (const [date, value] of Object.entries(historyData)) {
+        if (typeof value === 'object' && value !== null) {
+            // 新格式
+            result[date] = value.total || 0;
+        } else {
+            // 旧格式
+            result[date] = value || 0;
+        }
+    }
+    return result;
+}
+
 // 添加测试阅读数据
 async function addTestReadingData() {
     const today = formatDateLocal(new Date());
@@ -5308,7 +5326,8 @@ function renderHeatmap(year) {
     
     year = year || new Date().getFullYear();
     // 使用同步缓存版本，调用前需确保数据已加载
-    const data = getDailyReadingDataSync();
+    const historyData = getDailyReadingDataSync();
+    const data = getDailyReadingMinutes(historyData);
     console.log('热力图数据:', data, '年份:', year);
     
     const today = new Date();
@@ -5459,7 +5478,8 @@ async function renderOverviewStats() {
         }
         
         // 从服务器获取每日阅读数据计算总阅读时长
-        const dailyData = getDailyReadingDataSync();
+        const historyData = getDailyReadingDataSync();
+        const dailyData = getDailyReadingMinutes(historyData);
         
         // 计算总阅读时长（分钟，因为 dailyData 中存储的就是分钟）
         let totalMinutes = 0;
@@ -5490,18 +5510,25 @@ async function renderOverviewStats() {
         const weekHours = Math.floor(weekMinutes / 60);
         const weekRemainingMinutes = weekMinutes % 60;
         
-        // 计算本周阅读的论文数
-        // 注意：由于系统只记录每天的阅读总时长，不记录具体阅读了哪些论文，
-        // 所以无法精确计算。这里使用基于阅读时长的估算方法：
-        // 假设平均每篇论文阅读时间为 30-60 分钟，根据本周总阅读时长来估算
+        // 计算本周阅读的论文数（精确计算）
         let weekPapers = 0;
-        if (weekMinutes > 0) {
-            // 假设平均每篇论文阅读 45 分钟，根据总阅读时长估算论文数
-            // 最少1篇，最多不超过有阅读活动的天数 * 3（防止估算过高）
-            const estimatedPapers = Math.round(weekMinutes / 45);
-            const weekActiveDays = weekDates.filter(dateStr => dailyData[dateStr] && dailyData[dateStr] > 0).length;
-            const maxPapers = weekActiveDays * 3; // 每天最多3篇的合理上限
-            weekPapers = Math.max(1, Math.min(estimatedPapers, maxPapers));
+        try {
+            const response = await fetch('/api/settings/reading-history/week-papers');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    weekPapers = data.count || 0;
+                }
+            }
+        } catch (e) {
+            console.error('获取本周阅读论文数失败:', e);
+            // 如果API失败，使用估算方法作为后备
+            if (weekMinutes > 0) {
+                const estimatedPapers = Math.round(weekMinutes / 45);
+                const weekActiveDays = weekDates.filter(dateStr => dailyData[dateStr] && dailyData[dateStr] > 0).length;
+                const maxPapers = weekActiveDays * 3;
+                weekPapers = Math.max(1, Math.min(estimatedPapers, maxPapers));
+            }
         }
         
         // 格式化本周时间显示

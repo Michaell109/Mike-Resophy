@@ -650,6 +650,10 @@ def register_paper_operation_routes(
     def api_record_read_time(paper_id: str):
         """记录论文阅读时间（累加增量）"""
         try:
+            import json as json_lib
+            import os
+            from datetime import datetime
+
             data = request.json or {}
             # 使用增量方式
             increment = data.get("increment", 0)
@@ -669,6 +673,55 @@ def register_paper_operation_routes(
             # 保存到文件
             if paper.file_path:
                 save_paper_metadata(paper.file_path, paper)
+
+            # 同时更新阅读历史，记录论文ID和日期
+            reading_history_file = os.path.join(upload_folder, "reading_history.json")
+
+            if os.path.exists(reading_history_file):
+                try:
+                    with open(reading_history_file, "r", encoding="utf-8") as fp:
+                        history = json_lib.load(fp)
+                except:
+                    history = {}
+
+                # 获取今天的日期
+                today = datetime.now().strftime("%Y-%m-%d")
+                minutes = int(increment / 60)  # 转换为分钟
+
+                # 更新阅读历史结构
+                # 新格式: { "date": { "total": minutes, "papers": ["paper_id1", "paper_id2"] } }
+                # 兼容旧格式: { "date": minutes }
+                if today in history:
+                    if isinstance(history[today], dict):
+                        # 新格式
+                        history[today]["total"] = (
+                            history[today].get("total", 0) + minutes
+                        )
+                        if paper_id not in history[today].get("papers", []):
+                            if "papers" not in history[today]:
+                                history[today]["papers"] = []
+                            history[today]["papers"].append(paper_id)
+                    else:
+                        # 旧格式，转换为新格式
+                        old_minutes = history[today]
+                        history[today] = {
+                            "total": old_minutes + minutes,
+                            "papers": [paper_id],
+                        }
+                else:
+                    history[today] = {"total": minutes, "papers": [paper_id]}
+
+                # 保存更新后的历史
+                with open(reading_history_file, "w", encoding="utf-8") as fp:
+                    json_lib.dump(history, fp, ensure_ascii=False, indent=2)
+            else:
+                # 如果文件不存在，创建新文件
+                today = datetime.now().strftime("%Y-%m-%d")
+                minutes = int(increment / 60)
+                history = {today: {"total": minutes, "papers": [paper_id]}}
+                os.makedirs(os.path.dirname(reading_history_file), exist_ok=True)
+                with open(reading_history_file, "w", encoding="utf-8") as fp:
+                    json_lib.dump(history, fp, ensure_ascii=False, indent=2)
 
             return jsonify({"success": True, "read_time": paper.read_time})
 

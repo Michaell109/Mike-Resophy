@@ -744,12 +744,14 @@ body {
     width: 40px;
     height: 40px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #f5f0f8;
+    color: #7d4a9d;
+    border: 1px solid #dfc8ec;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
     font-size: 16px;
+    transition: all 0.2s ease;
 }
 
 .recent-item-content {
@@ -807,6 +809,13 @@ body {
 
 .panel-header h2 i {
     color: #6b7280;
+}
+
+.panel-header h2 .panel-header-arxiv-icon {
+    width: 24px;
+    height: auto;
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .panel-header p {

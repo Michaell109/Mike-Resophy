@@ -161,11 +161,12 @@ def register_settings_routes(
 
     @app.route("/api/settings/reading-history/record", methods=["POST"])
     def api_record_reading():
-        """记录今日阅读时间"""
+        """记录今日阅读时间（兼容新旧格式）"""
         try:
             data = request.json or {}
             minutes = data.get("minutes", 0)
             date = data.get("date")  # YYYY-MM-DD
+            paper_id = data.get("paper_id")  # 可选，论文ID
 
             if not date:
                 from datetime import datetime
@@ -179,13 +180,37 @@ def register_settings_routes(
             except:
                 history = {}
 
-            # 累加今日阅读时间
-            history[date] = history.get(date, 0) + minutes
+            # 更新阅读历史（兼容新旧格式）
+            if date in history:
+                if isinstance(history[date], dict):
+                    # 新格式
+                    history[date]["total"] = history[date].get("total", 0) + minutes
+                    if paper_id and paper_id not in history[date].get("papers", []):
+                        if "papers" not in history[date]:
+                            history[date]["papers"] = []
+                        history[date]["papers"].append(paper_id)
+                else:
+                    # 旧格式，转换为新格式
+                    old_minutes = history[date]
+                    history[date] = {
+                        "total": old_minutes + minutes,
+                        "papers": [paper_id] if paper_id else [],
+                    }
+            else:
+                history[date] = {
+                    "total": minutes,
+                    "papers": [paper_id] if paper_id else [],
+                }
 
             with open(reading_history_file, "w", encoding="utf-8") as fp:
                 json.dump(history, fp, ensure_ascii=False, indent=2)
 
-            return jsonify({"success": True, "total": history[date]})
+            total = (
+                history[date]["total"]
+                if isinstance(history[date], dict)
+                else history[date]
+            )
+            return jsonify({"success": True, "total": total})
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -196,6 +221,49 @@ def register_settings_routes(
             with open(reading_history_file, "w", encoding="utf-8") as fp:
                 json.dump({}, fp, ensure_ascii=False, indent=2)
             return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/settings/reading-history/week-papers", methods=["GET"])
+    def api_week_papers():
+        """获取本周阅读的论文列表"""
+        try:
+            from datetime import datetime, timedelta
+
+            # 读取阅读历史
+            try:
+                with open(reading_history_file, "r", encoding="utf-8") as fp:
+                    history = json.load(fp)
+            except:
+                history = {}
+
+            # 计算本周的日期范围（周一到今天）
+            today = datetime.now().date()
+            day_of_week = today.weekday()  # 0 = Monday, 6 = Sunday
+            monday = today - timedelta(days=day_of_week)
+
+            # 收集本周阅读的论文ID
+            week_paper_ids = set()
+            current_date = monday
+            while current_date <= today:
+                date_str = current_date.strftime("%Y-%m-%d")
+                if date_str in history:
+                    entry = history[date_str]
+                    if isinstance(entry, dict):
+                        # 新格式
+                        papers = entry.get("papers", [])
+                        week_paper_ids.update(papers)
+                    # 旧格式没有论文ID信息，跳过
+
+                current_date += timedelta(days=1)
+
+            return jsonify(
+                {
+                    "success": True,
+                    "papers": list(week_paper_ids),
+                    "count": len(week_paper_ids),
+                }
+            )
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -228,14 +296,28 @@ def register_settings_routes(
             return jsonify({"success": True})
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
-    
+
     # 保留旧的API端点以兼容性（返回重定向提示）
     @app.route("/api/settings/translation", methods=["GET", "POST"])
     def api_translation_settings_deprecated():
         """已废弃，请使用 /api/settings/agentic"""
-        return jsonify({"error": "This endpoint is deprecated. Use /api/settings/agentic instead"}), 410
-    
+        return (
+            jsonify(
+                {
+                    "error": "This endpoint is deprecated. Use /api/settings/agentic instead"
+                }
+            ),
+            410,
+        )
+
     @app.route("/api/settings/analysis", methods=["GET", "POST"])
     def api_analysis_settings_deprecated():
         """已废弃，请使用 /api/settings/agentic"""
-        return jsonify({"error": "This endpoint is deprecated. Use /api/settings/agentic instead"}), 410
+        return (
+            jsonify(
+                {
+                    "error": "This endpoint is deprecated. Use /api/settings/agentic instead"
+                }
+            ),
+            410,
+        )
