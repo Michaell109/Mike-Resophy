@@ -2431,27 +2431,151 @@ async function togglePinCategory(categoryId) {
     if (!category) return;
     
     const newPinned = !category.pinned;
+    const originalPinned = category.pinned;
     
-    try {
-        const response = await fetch(`/api/categories/${categoryId}/pin`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pinned: newPinned })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            category.pinned = newPinned;
-            await updateCategoriesData();
-            await renderCategoryTreeWithState();
-            showMessage(newPinned ? '已置顶' : '已取消置顶', 'success');
+    // 立即更新UI（乐观更新）
+    const categoryElement = document.querySelector(`[data-category-id="${categoryId}"]`);
+    if (categoryElement) {
+        // 更新pinned类
+        if (newPinned) {
+            categoryElement.classList.add('pinned');
         } else {
+            categoryElement.classList.remove('pinned');
+        }
+        
+        // 更新置顶图标
+        let pinIcon = categoryElement.querySelector('.pin-icon');
+        if (newPinned) {
+            if (!pinIcon) {
+                // 如果还没有图标，添加一个
+                const categoryName = categoryElement.querySelector('.category-name');
+                if (categoryName) {
+                    pinIcon = document.createElement('i');
+                    pinIcon.className = 'fas fa-thumbtack pin-icon';
+                    categoryName.insertAdjacentElement('afterend', pinIcon);
+                }
+            } else {
+                pinIcon.className = 'fas fa-thumbtack pin-icon';
+            }
+        } else {
+            if (pinIcon) {
+                pinIcon.remove();
+            }
+        }
+        
+        // 重新排序（将置顶的移到前面）
+        const container = categoryElement.closest('.category-container');
+        if (container) {
+            const parent = container.parentElement;
+            if (parent && (parent.classList.contains('category-children') || parent.id === 'category-tree')) {
+                // 获取所有兄弟容器（排除当前容器）
+                const siblings = Array.from(parent.children).filter(child => 
+                    child.classList.contains('category-container') && child !== container
+                );
+                
+                if (newPinned) {
+                    // 置顶：找到第一个非置顶的容器，插入到它前面
+                    let insertBefore = null;
+                    for (const sibling of siblings) {
+                        const siblingItem = sibling.querySelector('.category-item');
+                        if (siblingItem && !siblingItem.classList.contains('pinned')) {
+                            insertBefore = sibling;
+                            break;
+                        }
+                    }
+                    // 插入到正确位置
+                    if (insertBefore) {
+                        parent.insertBefore(container, insertBefore);
+                    } else {
+                        // 如果没有非置顶的，插入到最前面
+                        const firstContainer = siblings.find(s => {
+                            const item = s.querySelector('.category-item');
+                            return item && item.classList.contains('pinned');
+                        });
+                        if (firstContainer) {
+                            parent.insertBefore(container, firstContainer);
+                        } else {
+                            parent.insertBefore(container, parent.firstChild);
+                        }
+                    }
+                } else {
+                    // 取消置顶：找到最后一个置顶的容器，插入到它后面
+                    let insertAfter = null;
+                    for (let i = siblings.length - 1; i >= 0; i--) {
+                        const siblingItem = siblings[i].querySelector('.category-item');
+                        if (siblingItem && siblingItem.classList.contains('pinned')) {
+                            insertAfter = siblings[i];
+                            break;
+                        }
+                    }
+                    // 插入到正确位置
+                    if (insertAfter) {
+                        parent.insertBefore(container, insertAfter.nextSibling);
+                    } else {
+                        // 如果没有置顶的，插入到非置顶的第一个位置
+                        let insertBefore = null;
+                        for (const sibling of siblings) {
+                            const siblingItem = sibling.querySelector('.category-item');
+                            if (siblingItem && !siblingItem.classList.contains('pinned')) {
+                                insertBefore = sibling;
+                                break;
+                            }
+                        }
+                        if (insertBefore) {
+                            parent.insertBefore(container, insertBefore);
+                        } else {
+                            parent.appendChild(container);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 更新本地数据
+    category.pinned = newPinned;
+    
+    // 更新右键菜单中的按钮状态（如果菜单正在显示）
+    const contextMenu = document.getElementById('context-menu');
+    if (contextMenu && contextMenu.dataset.categoryId === categoryId) {
+        const pinText = document.getElementById('pin-text');
+        if (pinText) {
+            pinText.textContent = newPinned ? '取消置顶' : '置顶';
+        }
+        const pinIcon = document.querySelector('#toggle-pin-category i');
+        if (pinIcon) {
+            pinIcon.className = newPinned ? 'fas fa-thumbtack' : 'far fa-thumbtack';
+            pinIcon.style.color = newPinned ? '#ffc107' : '#666';
+        }
+    }
+    
+    // 显示成功消息
+    showMessage(newPinned ? '已置顶' : '已取消置顶', 'success');
+    
+    // 异步保存到服务器（不阻塞UI）
+    fetch(`/api/categories/${categoryId}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: newPinned })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (!result.success) {
+            // 如果失败，恢复原状态
+            category.pinned = originalPinned;
+            // 重新渲染以恢复状态
+            renderCategoryTreeWithState();
             showMessage('操作失败', 'error');
         }
-    } catch (e) {
+    })
+    .catch(e => {
         console.error('置顶操作失败:', e);
+        // 如果失败，恢复原状态
+        category.pinned = originalPinned;
+        // 重新渲染以恢复状态
+        renderCategoryTreeWithState();
         showMessage('操作失败', 'error');
-    }
+    });
 }
 
 // 更换目录图标颜色
