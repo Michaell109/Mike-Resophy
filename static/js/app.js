@@ -398,12 +398,10 @@ fileInput.addEventListener('change', handleFileSelect);
     // 批量工具栏动作
     const batchAnalyze = document.getElementById('batch-analyze');
     const batchTranslate = document.getElementById('batch-translate');
-    const batchMove = document.getElementById('batch-move');
     const batchDelete = document.getElementById('batch-delete');
     const batchCancel = document.getElementById('batch-cancel');
     if (batchAnalyze) batchAnalyze.addEventListener('click', onBatchAnalyze);
     if (batchTranslate) batchTranslate.addEventListener('click', onBatchTranslate);
-    if (batchMove) batchMove.addEventListener('click', onBatchMove);
     if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
 
@@ -4191,52 +4189,6 @@ async function onBatchTranslate() {
     updateTaskIndicator();
 }
 
-async function onBatchMove() {
-    if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
-    // 复用单个移动的目录选择器，但不传 paperId，在确认时对所有选中执行
-    try {
-        await updateCategoriesData();
-        const modalTitle = document.querySelector('#modal-title');
-        const modalBody = document.querySelector('#modal-body');
-        const confirmBtn = document.querySelector('#modal-confirm');
-        const cancelBtn = document.querySelector('#modal-cancel');
-
-        modalTitle.textContent = `移动所选 (${selectedPaperIds.size}) 篇 到目录`;
-        modalBody.innerHTML = `
-            <div class="form-group">
-                <div id="move-category-tree" style="max-height:50vh; overflow:auto; padding:8px; border:1px solid #eee; border-radius:6px;"></div>
-            </div>
-        `;
-        const treeContainer = modalBody.querySelector('#move-category-tree');
-        renderCategorySelectTree(categories, treeContainer);
-
-        // 解绑旧事件
-        const confirmClone = confirmBtn.cloneNode(true);
-        const cancelClone = cancelBtn.cloneNode(true);
-        confirmBtn.parentNode.replaceChild(confirmClone, confirmBtn);
-        cancelBtn.parentNode.replaceChild(cancelClone, cancelBtn);
-        const newConfirm = document.getElementById('modal-confirm');
-        const newCancel = document.getElementById('modal-cancel');
-
-        newConfirm.onclick = async () => {
-            const selected = treeContainer.querySelector('input[name="target-category"]:checked');
-            if (!selected) { showMessage('请选择目标目录', 'warning'); return; }
-            const targetId = selected.value;
-            const ids = Array.from(selectedPaperIds);
-            for (const id of ids) {
-                await movePaper(id, targetId);
-            }
-            hideModal();
-            exitMultiSelectMode();
-        };
-        newCancel.onclick = () => hideModal();
-        showModal();
-    } catch (e) {
-        console.error(e);
-        showMessage('打开移动选择器失败', 'error');
-    }
-}
-
 async function onBatchDelete() {
     if (selectedPaperIds.size === 0) { showMessage('请先选择论文', 'warning'); return; }
     const ids = Array.from(selectedPaperIds);
@@ -4438,7 +4390,7 @@ function switchTab(tabName) {
 
 // 保存翻译设置
 // ========== Agentic 设置（统一的AI功能配置）==========
-async function saveAgenticSettings() {
+async function saveAgenticSettings(silent = false) {
     const settings = {
         llmModel: document.getElementById('llm-model').value.trim(),
         llmBaseUrl: document.getElementById('llm-base-url').value.trim(),
@@ -4454,7 +4406,9 @@ async function saveAgenticSettings() {
             body: JSON.stringify(settings)
         });
         if (response.ok) {
-            showMessage('AI功能设置已保存', 'success');
+            if (!silent) {
+                showMessage('AI功能设置已保存', 'success');
+            }
         } else {
             showMessage('保存失败', 'error');
         }
@@ -4463,6 +4417,24 @@ async function saveAgenticSettings() {
         showMessage('保存失败', 'error');
     }
 }
+
+// 防抖函数
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// 自动保存 Agentic 设置（防抖）
+const autoSaveAgenticSettings = debounce(() => {
+    saveAgenticSettings(true); // silent mode
+}, 500);
 
 // 加载 Agentic 设置
 async function loadAgenticSettings() {
@@ -4476,11 +4448,26 @@ async function loadAgenticSettings() {
             const mineruEl = document.getElementById('mineru-server-url');
             const promptEl = document.getElementById('analysis-system-prompt');
             
-            if (modelEl) modelEl.value = settings.llmModel || '';
-            if (baseUrlEl) baseUrlEl.value = settings.llmBaseUrl || '';
-            if (apiKeyEl) apiKeyEl.value = settings.llmApiKey || '';
-            if (mineruEl) mineruEl.value = settings.mineruServerUrl || '';
-            if (promptEl) promptEl.value = settings.analysisSystemPrompt || '';
+            if (modelEl) {
+                modelEl.value = settings.llmModel || '';
+                modelEl.addEventListener('input', autoSaveAgenticSettings);
+            }
+            if (baseUrlEl) {
+                baseUrlEl.value = settings.llmBaseUrl || '';
+                baseUrlEl.addEventListener('input', autoSaveAgenticSettings);
+            }
+            if (apiKeyEl) {
+                apiKeyEl.value = settings.llmApiKey || '';
+                apiKeyEl.addEventListener('input', autoSaveAgenticSettings);
+            }
+            if (mineruEl) {
+                mineruEl.value = settings.mineruServerUrl || '';
+                mineruEl.addEventListener('input', autoSaveAgenticSettings);
+            }
+            if (promptEl) {
+                promptEl.value = settings.analysisSystemPrompt || '';
+                promptEl.addEventListener('input', autoSaveAgenticSettings);
+            }
         }
     } catch (e) {
         console.error('加载AI功能设置失败:', e);
@@ -6363,10 +6350,11 @@ async function handleExportZipFile(file) {
     }
     
     const dropZone = document.getElementById('export-import-drop-zone');
+    const dropZoneContent = document.getElementById('export-drop-zone-content');
     const progressContainer = document.getElementById('export-import-progress-container');
     
-    // 隐藏拖拽区域，显示进度
-    dropZone.style.display = 'none';
+    // 隐藏拖拽区域内容，显示进度
+    if (dropZoneContent) dropZoneContent.style.display = 'none';
     progressContainer.style.display = 'block';
     
     // 重置进度
@@ -6414,7 +6402,7 @@ async function handleExportZipFile(file) {
                 
                 if (!data.success) {
                     showMessage(data.error || '导入失败', 'error');
-                    dropZone.style.display = 'block';
+                    if (dropZoneContent) dropZoneContent.style.display = 'flex';
                     progressContainer.style.display = 'none';
                     return;
                 }
@@ -6441,12 +6429,12 @@ async function handleExportZipFile(file) {
             } catch (error) {
                 console.error('解析响应失败:', error);
                 showMessage('导入失败: ' + error.message, 'error');
-                dropZone.style.display = 'block';
+                if (dropZoneContent) dropZoneContent.style.display = 'flex';
                 progressContainer.style.display = 'none';
             }
         } else {
             showMessage(`上传失败: HTTP ${xhr.status}`, 'error');
-            dropZone.style.display = 'block';
+            if (dropZoneContent) dropZoneContent.style.display = 'flex';
             progressContainer.style.display = 'none';
         }
     });
@@ -6454,14 +6442,14 @@ async function handleExportZipFile(file) {
     // 监听上传错误
     xhr.addEventListener('error', () => {
         showMessage('上传失败: 网络错误', 'error');
-        dropZone.style.display = 'block';
+        if (dropZoneContent) dropZoneContent.style.display = 'flex';
         progressContainer.style.display = 'none';
     });
     
     // 监听上传取消
     xhr.addEventListener('abort', () => {
         showMessage('上传已取消', 'error');
-        dropZone.style.display = 'block';
+        if (dropZoneContent) dropZoneContent.style.display = 'flex';
         progressContainer.style.display = 'none';
     });
     
@@ -6488,9 +6476,9 @@ function startExportImportProgressStream(taskId) {
                 
                 // 3秒后重置 UI
                 setTimeout(() => {
-                    const dropZone = document.getElementById('export-import-drop-zone');
+                    const dropZoneContent = document.getElementById('export-drop-zone-content');
                     const progressContainer = document.getElementById('export-import-progress-container');
-                    dropZone.style.display = 'block';
+                    if (dropZoneContent) dropZoneContent.style.display = 'flex';
                     progressContainer.style.display = 'none';
                 }, 3000);
             }
@@ -8653,6 +8641,11 @@ async function loadPapersForCurrentDate() {
     renderDailyArxivCategoryTags();
 }
 
+// 自动保存 Daily arXiv 设置（防抖）
+const autoSaveDailyArxivSettings = debounce(() => {
+    saveDailyArxivSettings(true); // silent mode
+}, 500);
+
 // 加载 Daily arXiv 设置
 async function loadDailyArxivSettings() {
     try {
@@ -8666,9 +8659,18 @@ async function loadDailyArxivSettings() {
             const checkIntervalEl = document.getElementById('daily-arxiv-check-interval');
             const maxKeywordsEl = document.getElementById('daily-arxiv-max-keywords');
             
-            if (retentionDaysEl) retentionDaysEl.value = dailyArxivSettings.retentionDays || 7;
-            if (checkIntervalEl) checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
-            if (maxKeywordsEl) maxKeywordsEl.value = dailyArxivSettings.maxKeywords || 1;
+            if (retentionDaysEl) {
+                retentionDaysEl.value = dailyArxivSettings.retentionDays || 7;
+                retentionDaysEl.addEventListener('change', autoSaveDailyArxivSettings);
+            }
+            if (checkIntervalEl) {
+                checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
+                checkIntervalEl.addEventListener('change', autoSaveDailyArxivSettings);
+            }
+            if (maxKeywordsEl) {
+                maxKeywordsEl.value = dailyArxivSettings.maxKeywords || 1;
+                maxKeywordsEl.addEventListener('change', autoSaveDailyArxivSettings);
+            }
             
             renderDailyArxivCategoryTags();
             renderDailyArxivSettingsCategoryList();
@@ -8699,7 +8701,7 @@ async function loadKnownInstitutions() {
 }
 
 // 保存 Daily arXiv 设置
-async function saveDailyArxivSettings() {
+async function saveDailyArxivSettings(silent = false) {
     try {
         const retentionDays = parseInt(document.getElementById('daily-arxiv-retention-days')?.value) || 7;
         const checkInterval = parseInt(document.getElementById('daily-arxiv-check-interval')?.value) || 10;
@@ -8731,7 +8733,9 @@ async function saveDailyArxivSettings() {
         });
         
         if (res.ok) {
-            showMessage('Daily arXiv 设置已保存', 'success');
+            if (!silent) {
+                showMessage('Daily arXiv 设置已保存', 'success');
+            }
             renderDailyArxivCategoryTags();
         } else {
             showMessage('保存设置失败', 'error');
@@ -8762,6 +8766,8 @@ function addDailyArxivCategory() {
     input.value = '';
     renderDailyArxivSettingsCategoryList();
     renderDailyArxivCategoryTags();
+    // 自动保存
+    autoSaveDailyArxivSettings();
 }
 
 // 快速添加分区
@@ -8774,6 +8780,8 @@ function addDailyArxivCategoryQuick(category) {
     dailyArxivCategories.push(category);
     renderDailyArxivSettingsCategoryList();
     renderDailyArxivCategoryTags();
+    // 自动保存
+    autoSaveDailyArxivSettings();
 }
 
 // 移除 arXiv 分区
@@ -8783,6 +8791,8 @@ function removeDailyArxivCategory(category) {
         dailyArxivCategories.splice(index, 1);
         renderDailyArxivSettingsCategoryList();
         renderDailyArxivCategoryTags();
+        // 自动保存
+        autoSaveDailyArxivSettings();
     }
 }
 
@@ -8858,6 +8868,8 @@ function addDailyArxivKeyword() {
     dailyArxivSettings.keywordList.push(keyword);
     input.value = '';
     renderDailyArxivKeywordList();
+    // 自动保存
+    autoSaveDailyArxivSettings();
 }
 
 // 删除关键词
@@ -8870,6 +8882,8 @@ function removeDailyArxivKeyword(keyword) {
     if (index > -1) {
         dailyArxivSettings.keywordList.splice(index, 1);
         renderDailyArxivKeywordList();
+        // 自动保存
+        autoSaveDailyArxivSettings();
     }
 }
 
@@ -10575,8 +10589,11 @@ async function onDailyArxivRemoveFromReadingList(paperIndex, event) {
     if (!paperId) return;
 
     try {
+        // 先尝试移除，看是否需要确认
         const res = await fetch(`/api/reading-list/${paperId}/remove`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delete_files: false })
         });
 
         if (!res.ok) {
@@ -10584,14 +10601,45 @@ async function onDailyArxivRemoveFromReadingList(paperIndex, event) {
             return;
         }
 
-        await updateReadingListCount();
-
-        // 恢复为“添加到待读列表”的紫色书本按钮
-        btn.removeAttribute('data-paper-id');
-        btn.title = '添加到待读列表';
-        btn.innerHTML = '<i class="fas fa-book-open"></i>';
-        btn.classList.remove('in-list');
-        btn.onclick = (e) => onDailyArxivAddToReadingList(paperIndex, e);
+        const data = await res.json();
+        
+        if (data.requires_confirmation) {
+            // 需要确认删除，显示弹窗
+            const confirmed = confirm(data.message || '该论文还未移动到某个目录，是否要删除论文文件、AI解读和AI翻译？');
+            if (confirmed) {
+                // 用户确认，删除文件
+                const deleteResponse = await fetch(`/api/reading-list/${paperId}/remove`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_files: true })
+                });
+                const deleteData = await deleteResponse.json();
+                if (deleteData.success) {
+                    await updateReadingListCount();
+                    // 恢复为“添加到待读列表”的紫色书本按钮
+                    btn.removeAttribute('data-paper-id');
+                    btn.title = '添加到待读列表';
+                    btn.innerHTML = '<i class="fas fa-book-open"></i>';
+                    btn.classList.remove('in-list');
+                    btn.onclick = (e) => onDailyArxivAddToReadingList(paperIndex, e);
+                    showMessage('已从待读列表移除', 'success');
+                } else {
+                    showMessage('移除失败', 'error');
+                }
+            }
+        } else if (data.success) {
+            // 成功移除
+            await updateReadingListCount();
+            // 恢复为“添加到待读列表”的紫色书本按钮
+            btn.removeAttribute('data-paper-id');
+            btn.title = '添加到待读列表';
+            btn.innerHTML = '<i class="fas fa-book-open"></i>';
+            btn.classList.remove('in-list');
+            btn.onclick = (e) => onDailyArxivAddToReadingList(paperIndex, e);
+            showMessage('已从待读列表移除', 'success');
+        } else {
+            showMessage('移除失败', 'error');
+        }
     } catch (error) {
         console.error('从待读列表移除失败:', error);
         showMessage('移除失败', 'error');
