@@ -311,6 +311,7 @@ INPUT: <MARKDOWN>"""
 
             # 读取之前的配置，检查是否之前未配置完整
             was_llm_configured = False
+            old_settings = {}
             try:
                 with open(agentic_settings_file, "r", encoding="utf-8") as fp:
                     old_settings = json.load(fp)
@@ -318,12 +319,23 @@ INPUT: <MARKDOWN>"""
                     old_base_url = old_settings.get("llmBaseUrl", "").strip()
                     old_api_key = old_settings.get("llmApiKey", "").strip()
                     was_llm_configured = bool(old_model and old_base_url and old_api_key)
-            except:
-                pass
+            except FileNotFoundError:
+                old_settings = {}
+            except Exception as exc:
+                print(f"读取旧设置失败: {exc}")
+                old_settings = {}
 
-            # 保存新配置
+            # 合并新旧配置（新配置优先，但保留旧配置中未提供的字段）
+            merged_settings = default_agentic_settings.copy()
+            merged_settings.update(old_settings)  # 先应用旧设置
+            merged_settings.update(data)  # 再应用新设置（覆盖）
+
+            # 保存合并后的配置
+            print(f"[Settings] 保存 Agentic 设置到: {agentic_settings_file}")
+            print(f"[Settings] 配置内容: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}...")
             with open(agentic_settings_file, "w", encoding="utf-8") as fp:
-                json.dump(data, fp, ensure_ascii=False, indent=2)
+                json.dump(merged_settings, fp, ensure_ascii=False, indent=2)
+            print(f"[Settings] ✅ 设置已保存")
 
             # 如果之前未配置完整，现在配置完整了，尝试启动 Daily arXiv
             if not was_llm_configured and is_llm_configured and start_daily_arxiv_callback:

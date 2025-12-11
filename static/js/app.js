@@ -4607,15 +4607,38 @@ function switchTab(tabName) {
 // 保存翻译设置
 // ========== Agentic 设置（统一的AI功能配置）==========
 async function saveAgenticSettings(silent = false) {
-    const promptValue = document.getElementById('analysis-system-prompt').value.trim();
+    const promptEl = document.getElementById('analysis-system-prompt');
+    const modelEl = document.getElementById('llm-model');
+    const baseUrlEl = document.getElementById('llm-base-url');
+    const apiKeyEl = document.getElementById('llm-api-key');
+    const mineruEl = document.getElementById('mineru-server-url');
+    
+    // 检查元素是否存在
+    if (!promptEl || !modelEl || !baseUrlEl || !apiKeyEl || !mineruEl) {
+        console.error('保存设置失败: 找不到设置输入元素');
+        if (!silent) {
+            showMessage('保存失败: 找不到设置输入元素', 'error');
+        }
+        return;
+    }
+    
+    const promptValue = promptEl.value.trim();
     const settings = {
-        llmModel: document.getElementById('llm-model').value.trim(),
-        llmBaseUrl: document.getElementById('llm-base-url').value.trim(),
-        llmApiKey: document.getElementById('llm-api-key').value.trim(),
-        mineruServerUrl: document.getElementById('mineru-server-url').value.trim(),
+        llmModel: modelEl.value.trim(),
+        llmBaseUrl: baseUrlEl.value.trim(),
+        llmApiKey: apiKeyEl.value.trim(),
+        mineruServerUrl: mineruEl.value.trim(),
         // 如果用户清空了提示词，保存为空字符串（后端会使用默认值）
         analysisSystemPrompt: promptValue
     };
+    
+    console.log('[保存设置] 准备保存:', {
+        llmModel: settings.llmModel ? '***' : '(空)',
+        llmBaseUrl: settings.llmBaseUrl ? '***' : '(空)',
+        llmApiKey: settings.llmApiKey ? '***' : '(空)',
+        mineruServerUrl: settings.mineruServerUrl ? '***' : '(空)',
+        hasPrompt: !!settings.analysisSystemPrompt
+    });
     
     try {
         const response = await fetch('/api/settings/agentic', {
@@ -4623,7 +4646,11 @@ async function saveAgenticSettings(silent = false) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
-        if (response.ok) {
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            console.log('[保存设置] ✅ 保存成功');
             // 更新 Daily arXiv 的 LLM 配置状态
             if (typeof checkDailyArxivLLMConfig === 'function') {
                 await checkDailyArxivLLMConfig();
@@ -4637,11 +4664,17 @@ async function saveAgenticSettings(silent = false) {
                 showMessage('AI功能设置已保存', 'success');
             }
         } else {
-            showMessage('保存失败', 'error');
+            const errorMsg = result.error || '保存失败';
+            console.error('[保存设置] ❌ 保存失败:', errorMsg);
+            if (!silent) {
+                showMessage(`保存失败: ${errorMsg}`, 'error');
+            }
         }
     } catch (e) {
-        console.error('保存AI功能设置失败:', e);
-        showMessage('保存失败', 'error');
+        console.error('[保存设置] ❌ 保存异常:', e);
+        if (!silent) {
+            showMessage(`保存失败: ${e.message}`, 'error');
+        }
     }
 }
 
