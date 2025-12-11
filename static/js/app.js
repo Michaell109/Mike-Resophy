@@ -1420,6 +1420,20 @@ function renderPaperInfo(paper) {
             <!-- 基本信息 -->
             ${createExpandableTextBlock('标题', paper.title, 'title', false, false, true)}
             ${createExpandableTextBlock('作者', paper.authors, 'authors', false, false, true)}
+            ${paper.arxiv_url ? `
+            <div class="info-section compact">
+                <div class="info-header">
+                    <span class="info-label">URL</span>
+                </div>
+                <div class="info-content">
+                    <div class="info-value">
+                        <a href="${paper.arxiv_url}" target="_blank" rel="noopener noreferrer" class="paper-url-link">
+                            <i class="fas fa-external-link-alt"></i> ${paper.arxiv_url}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
             ${createExpandableTextBlock('单位', paper.affiliation, 'affiliation', true, false, true)}
             
             <!-- 时间信息 -->

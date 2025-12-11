@@ -860,6 +860,9 @@ def register_paper_operation_routes(
                         paper_obj.title = metadata.get("title") or paper_obj.title
                         paper_obj.authors = metadata.get("authors", "")
                         paper_obj.arxiv_id = arxiv_id
+                        # 如果有 arxiv_id，设置 arxiv_url
+                        if arxiv_id:
+                            paper_obj.arxiv_url = metadata.get("arxiv_url") or f"https://arxiv.org/abs/{arxiv_id}"
                         paper_obj.arxiv_published_date = arxiv_published_date
                         paper_obj.affiliation = metadata.get("affiliation", "")
                         paper_obj.year = metadata.get("year", "")

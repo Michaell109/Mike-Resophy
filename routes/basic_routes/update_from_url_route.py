@@ -240,6 +240,12 @@ def register_update_from_url_routes(
                         print(f"重命名文件失败: {exc}")
 
             paper_id = str(uuid.uuid4())
+            # 构建 arXiv URL（优先使用用户提供的 URL，否则根据 arxiv_id 构建）
+            if arxiv_url.startswith("http"):
+                final_arxiv_url = arxiv_url
+            else:
+                final_arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
+            
             paper_info = {
                 "id": paper_id,
                 "filename": filename,
@@ -249,6 +255,7 @@ def register_update_from_url_routes(
                 "title": metadata.get("title", arxiv_id),
                 "authors": metadata.get("authors", ""),
                 "arxiv_id": arxiv_id,
+                "arxiv_url": metadata.get("arxiv_url") or final_arxiv_url,  # 优先使用 metadata 中的 URL，否则使用构建的 URL
                 "arxiv_published_date": metadata.get("published_date"),
                 "affiliation": metadata.get("affiliation", ""),
                 "year": metadata.get("year", ""),

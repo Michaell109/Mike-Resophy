@@ -2432,6 +2432,26 @@ mark { background: #fff59d; }
     box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
 }
 
+.paper-url-link {
+    color: #007bff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    word-break: break-all;
+    transition: color 0.2s;
+}
+
+.paper-url-link:hover {
+    color: #0056b3;
+    text-decoration: underline;
+}
+
+.paper-url-link i {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
 .info-value textarea {
     width: 100%;
     border: none;

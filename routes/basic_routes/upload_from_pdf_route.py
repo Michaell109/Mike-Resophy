@@ -137,6 +137,9 @@ def register_upload_from_pdf_routes(
                 paper.title = paper_info.get("title") or paper.title
                 paper.authors = paper_info.get("authors", "")
                 paper.arxiv_id = paper_info.get("arxiv_id")
+                # 如果有 arxiv_id，设置 arxiv_url
+                if paper_info.get("arxiv_id"):
+                    paper.arxiv_url = paper_info.get("arxiv_url") or f"https://arxiv.org/abs/{paper_info.get('arxiv_id')}"
                 paper.arxiv_published_date = paper_info.get("published_date")
                 paper.affiliation = paper_info.get("affiliation", "")
                 paper.year = paper_info.get("year", "")

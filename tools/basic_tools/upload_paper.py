@@ -155,6 +155,7 @@ def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
             "summary": paper.summary,  # 保留原始格式
             "year": str(paper.published.year) if paper.published else None,
             "arxiv_id": arxiv_id,
+            "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}",  # arXiv 链接
             "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
             "published_date": paper.published.isoformat() if paper.published else None,
             "pdf_url": paper.pdf_url,
