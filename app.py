@@ -455,6 +455,7 @@ def register_routes():
         get_category_path=get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
     )
 
     register_agent_translate_routes(
@@ -465,6 +466,7 @@ def register_routes():
         get_category_path=get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
     )
 
     register_import_routes(

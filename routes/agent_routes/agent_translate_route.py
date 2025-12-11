@@ -15,6 +15,7 @@ from tools.agent_tools.translate_pdf import (
     TranslationDependencies,
     translate_paper_task,
 )
+from tools.api_test_utils import test_llm_api
 
 CategoryPath = List[str]
 
@@ -28,6 +29,7 @@ def register_agent_translate_routes(
     get_category_path: Callable[[dict, str], CategoryPath | None],
     get_papers_in_category: Callable[[str, CategoryPath], List[Paper]],
     save_paper_metadata: Callable[[str, Any], None],
+    agentic_settings_file: str,
 ) -> None:
     @app.route("/api/paper/translate", methods=["POST"])
     def api_translate_paper():
@@ -46,6 +48,18 @@ def register_agent_translate_routes(
                 or not openai_api_key
             ):
                 return jsonify({"success": False, "error": "缺少必要参数"}), 400
+
+            # 在启动任务前测试 LLM API 连接
+            llm_success, llm_error = test_llm_api(
+                openai_model, openai_base_url, openai_api_key
+            )
+            if not llm_success:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": f"LLM API 测试失败: {llm_error}",
+                    }
+                ), 400
 
             with translation_tasks_lock:
                 for task_id, task_info in translation_tasks.items():

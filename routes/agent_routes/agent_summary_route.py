@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 from flask import jsonify, request, send_file
 
 from tools.agent_tools.summary_pdf import AnalysisDependencies, analyze_paper_task
+from tools.api_test_utils import test_llm_api, test_mineru_api
 from core.base_paper import Paper
 from core.paper_store import paper_store
 
@@ -25,6 +26,7 @@ def register_agent_summary_routes(
     get_category_path: Callable[[dict, str], CategoryPath | None],
     get_papers_in_category: Callable[[str, CategoryPath], List[Paper]],
     save_paper_metadata: Callable[[str, Any], None],
+    agentic_settings_file: str,
 ) -> None:
     @app.route("/api/paper/analyze", methods=["POST"])
     def api_analyze_paper():
@@ -44,6 +46,42 @@ def register_agent_summary_routes(
                 or not openai_api_key
             ):
                 return jsonify({"success": False, "error": "缺少必要参数"}), 400
+
+            # 在启动任务前测试 API 连接
+            # 测试 LLM API - 如果请求中没有提供模型名称，从配置文件中读取
+            llm_model = data.get("openai_model", "").strip()
+            if not llm_model and agentic_settings_file:
+                try:
+                    import json
+                    with open(agentic_settings_file, "r", encoding="utf-8") as f:
+                        agentic_settings = json.load(f)
+                        llm_model = agentic_settings.get("llmModel", "").strip()
+                except Exception:
+                    pass
+
+            if not llm_model:
+                return jsonify({"success": False, "error": "缺少 LLM 模型名称，请在请求中提供 openai_model 或在设置中配置 llmModel"}), 400
+
+            llm_success, llm_error = test_llm_api(
+                llm_model, openai_base_url, openai_api_key
+            )
+            if not llm_success:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": f"LLM API 测试失败: {llm_error}",
+                    }
+                ), 400
+
+            # 测试 MinerU API
+            mineru_success, mineru_error = test_mineru_api(mineru_server_url)
+            if not mineru_success:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": f"MinerU API 测试失败: {mineru_error}",
+                    }
+                ), 400
 
             with analysis_tasks_lock:
                 for task_id, task_info in analysis_tasks.items():
