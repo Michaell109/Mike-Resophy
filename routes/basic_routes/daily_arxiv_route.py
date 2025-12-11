@@ -449,6 +449,8 @@ def register_daily_arxiv_routes(
                 arxiv_id=arxiv_id,
                 arxiv_url=f"https://arxiv.org/abs/{arxiv_id}",
                 arxiv_published_date=paper_info.get("published"),
+                github=paper_info.get("github"),
+                homepage=paper_info.get("homepage"),
                 upload_source="daily_arxiv",
             )
 

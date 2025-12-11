@@ -1434,6 +1434,34 @@ function renderPaperInfo(paper) {
                 </div>
             </div>
             ` : ''}
+            <div class="info-section compact">
+                <div class="info-header">
+                    <span class="info-label">Github</span>
+                </div>
+                <div class="info-content">
+                    <div class="info-value editable" contenteditable="true" data-field="github" data-url-field="true" data-full-text="${escapeHtml(paper.github || '')}">
+                        ${paper.github ? `
+                            <a href="${paper.github.startsWith('http') ? paper.github : 'https://' + paper.github}" target="_blank" rel="noopener noreferrer" class="paper-url-link" onclick="event.stopPropagation();">
+                                <i class="fab fa-github"></i> ${paper.github}
+                            </a>
+                        ` : '<span style="color: #999; font-style: italic;">点击添加 GitHub 仓库 URL</span>'}
+                    </div>
+                </div>
+            </div>
+            <div class="info-section compact">
+                <div class="info-header">
+                    <span class="info-label">Homepage</span>
+                </div>
+                <div class="info-content">
+                    <div class="info-value editable" contenteditable="true" data-field="homepage" data-url-field="true" data-full-text="${escapeHtml(paper.homepage || '')}">
+                        ${paper.homepage ? `
+                            <a href="${paper.homepage.startsWith('http') ? paper.homepage : 'https://' + paper.homepage}" target="_blank" rel="noopener noreferrer" class="paper-url-link" onclick="event.stopPropagation();">
+                                <i class="fas fa-home"></i> ${paper.homepage}
+                            </a>
+                        ` : '<span style="color: #999; font-style: italic;">点击添加项目主页 URL</span>'}
+                    </div>
+                </div>
+            </div>
             ${createExpandableTextBlock('单位', paper.affiliation, 'affiliation', true, false, true)}
             
             <!-- 时间信息 -->
@@ -1499,16 +1527,60 @@ function renderPaperInfo(paper) {
 
     // 添加编辑事件监听器（只针对可编辑字段）
     paperInfo.querySelectorAll('.editable').forEach(element => {
-        element.addEventListener('blur', () => {
-            // 获取内容并保存
-            const content = element.textContent.trim();
-            savePaperField(paper.id, element.dataset.field, content);
+        // URL 字段特殊处理（github, homepage）
+        if (element.dataset.urlField === 'true') {
+            // 聚焦时：提取纯文本 URL（如果有链接）
+            element.addEventListener('focus', () => {
+                const link = element.querySelector('a');
+                if (link) {
+                    // 提取链接的 href 或文本内容
+                    let url = link.href || link.textContent.trim();
+                    // 移除协议前缀（如果有）
+                    url = url.replace(/^https?:\/\//, '').replace(/^\/\//, '');
+                    // 移除图标和多余空格
+                    url = url.replace(/^\s*[^\s]+\s+/, '').trim();
+                    element.textContent = url;
+                } else {
+                    // 如果没有链接，检查是否有 placeholder 文本
+                    const text = element.textContent.trim();
+                    if (text && !text.includes('点击添加')) {
+                        element.textContent = text;
+                    } else {
+                        element.textContent = '';
+                    }
+                }
+            });
             
-            // 备注栏 placeholder 处理：如果为空，清空内容以显示 placeholder
-            if (element.dataset.field === 'notes' && !content) {
-                element.textContent = '';
-            }
-        });
+            // 失去焦点时：保存并重新渲染为链接
+            element.addEventListener('blur', () => {
+                let content = element.textContent.trim();
+                
+                // 如果为空或包含 placeholder 文本，保存空字符串
+                if (!content || content.includes('点击添加')) {
+                    content = '';
+                }
+                
+                // 保存
+                savePaperField(paper.id, element.dataset.field, content);
+                
+                // 重新渲染论文信息以显示链接
+                if (currentPaperId) {
+                    loadPaperInfo(currentPaperId);
+                }
+            });
+        } else {
+            // 普通字段处理
+            element.addEventListener('blur', () => {
+                // 获取内容并保存
+                const content = element.textContent.trim();
+                savePaperField(paper.id, element.dataset.field, content);
+                
+                // 备注栏 placeholder 处理：如果为空，清空内容以显示 placeholder
+                if (element.dataset.field === 'notes' && !content) {
+                    element.textContent = '';
+                }
+            });
+        }
         
         element.addEventListener('keydown', (e) => {
             const isMultiline = ['abstract', 'notes'].includes(element.dataset.field);
@@ -8672,10 +8744,12 @@ function normalizeCountryName(countryName) {
 function getCountryFlag(countryName) {
     if (!countryName) return '';
     
+    // 扩展的国家映射表，包含更多国家和变体
     const countryMap = {
-        'United States': '🇺🇸', 'USA': '🇺🇸', 'US': '🇺🇸',
-        'China': '🇨🇳', 'PRC': '🇨🇳',
-        'United Kingdom': '🇬🇧', 'UK': '🇬🇧',
+        // 主要国家
+        'United States': '🇺🇸', 'USA': '🇺🇸', 'US': '🇺🇸', 'U.S.': '🇺🇸', 'U.S.A.': '🇺🇸', 'United States of America': '🇺🇸',
+        'China': '🇨🇳', 'PRC': '🇨🇳', 'P.R.C.': '🇨🇳', "People's Republic of China": '🇨🇳',
+        'United Kingdom': '🇬🇧', 'UK': '🇬🇧', 'U.K.': '🇬🇧', 'Great Britain': '🇬🇧', 'Britain': '🇬🇧',
         'Germany': '🇩🇪',
         'France': '🇫🇷',
         'Japan': '🇯🇵',
@@ -8687,7 +8761,7 @@ function getCountryFlag(countryName) {
         'Switzerland': '🇨🇭',
         'Sweden': '🇸🇪',
         'Singapore': '🇸🇬',
-        'South Korea': '🇰🇷', 'Korea': '🇰🇷',
+        'South Korea': '🇰🇷', 'Korea': '🇰🇷', 'Republic of Korea': '🇰🇷', 'ROK': '🇰🇷',
         'India': '🇮🇳',
         'Israel': '🇮🇱',
         'Belgium': '🇧🇪',
@@ -8696,48 +8770,117 @@ function getCountryFlag(countryName) {
         'Finland': '🇫🇮',
         'Norway': '🇳🇴',
         'Poland': '🇵🇱',
-        'Russia': '🇷🇺',
+        'Russia': '🇷🇺', 'Russian Federation': '🇷🇺',
         'Brazil': '🇧🇷',
         'Mexico': '🇲🇽',
         'Taiwan': '🇹🇼',
-        'Hong Kong': '🇭🇰',
-        'Hong Kong SAR': '🇭🇰',
-        'Hong Kong SAR China': '🇭🇰',
-        'Hong Kong, SAR China': '🇭🇰',
-        'Hong Kong SAR, China': '🇭🇰',
-        'Hong Kong, China': '🇭🇰',
-        'HK': '🇭🇰',
-        'Macao': '🇲🇴',
-        'Macao SAR': '🇲🇴',
-        'Macao SAR China': '🇲🇴',
-        'Macao, SAR China': '🇲🇴',
-        'Macao SAR, China': '🇲🇴',
-        'Macao, China': '🇲🇴',
-        'Macau': '🇲🇴',
-        'Macau SAR': '🇲🇴',
-        'Macau SAR China': '🇲🇴',
-        'Macau, SAR China': '🇲🇴',
-        'Macau SAR, China': '🇲🇴',
-        'Macau, China': '🇲🇴',
+        'Hong Kong': '🇭🇰', 'Hong Kong SAR': '🇭🇰', 'Hong Kong SAR China': '🇭🇰', 'Hong Kong, SAR China': '🇭🇰', 'Hong Kong SAR, China': '🇭🇰', 'Hong Kong, China': '🇭🇰', 'HK': '🇭🇰',
+        'Macao': '🇲🇴', 'Macao SAR': '🇲🇴', 'Macao SAR China': '🇲🇴', 'Macao, SAR China': '🇲🇴', 'Macao SAR, China': '🇲🇴', 'Macao, China': '🇲🇴',
+        'Macau': '🇲🇴', 'Macau SAR': '🇲🇴', 'Macau SAR China': '🇲🇴', 'Macau, SAR China': '🇲🇴', 'Macau SAR, China': '🇲🇴', 'Macau, China': '🇲🇴',
         'New Zealand': '🇳🇿',
         'Ireland': '🇮🇪',
         'Portugal': '🇵🇹',
         'Greece': '🇬🇷',
-        'Czech Republic': '🇨🇿',
+        'Czech Republic': '🇨🇿', 'Czechia': '🇨🇿',
         'Hungary': '🇭🇺',
         'Romania': '🇷🇴',
-        'Turkey': '🇹🇷',
+        'Turkey': '🇹🇷', 'Türkiye': '🇹🇷',
         'Saudi Arabia': '🇸🇦',
         'United Arab Emirates': '🇦🇪', 'UAE': '🇦🇪',
         'Thailand': '🇹🇭',
         'Malaysia': '🇲🇾',
         'Indonesia': '🇮🇩',
         'Philippines': '🇵🇭',
-        'Vietnam': '🇻🇳',
+        'Vietnam': '🇻🇳', 'Viet Nam': '🇻🇳',
         'Chile': '🇨🇱',
         'Argentina': '🇦🇷',
         'South Africa': '🇿🇦',
         'Egypt': '🇪🇬',
+        // 添加更多国家
+        'Luxembourg': '🇱🇺',
+        'Iceland': '🇮🇸',
+        'Estonia': '🇪🇪',
+        'Latvia': '🇱🇻',
+        'Lithuania': '🇱🇹',
+        'Slovenia': '🇸🇮',
+        'Slovakia': '🇸🇰',
+        'Croatia': '🇭🇷',
+        'Serbia': '🇷🇸',
+        'Bulgaria': '🇧🇬',
+        'Ukraine': '🇺🇦',
+        'Belarus': '🇧🇾',
+        'Moldova': '🇲🇩',
+        'Georgia': '🇬🇪',
+        'Armenia': '🇦🇲',
+        'Azerbaijan': '🇦🇿',
+        'Kazakhstan': '🇰🇿',
+        'Uzbekistan': '🇺🇿',
+        'Bangladesh': '🇧🇩',
+        'Pakistan': '🇵🇰',
+        'Sri Lanka': '🇱🇰',
+        'Nepal': '🇳🇵',
+        'Myanmar': '🇲🇲', 'Burma': '🇲🇲',
+        'Cambodia': '🇰🇭',
+        'Laos': '🇱🇦',
+        'Mongolia': '🇲🇳',
+        'North Korea': '🇰🇵', 'DPRK': '🇰🇵', "Democratic People's Republic of Korea": '🇰🇵',
+        'Iran': '🇮🇷',
+        'Iraq': '🇮🇶',
+        'Jordan': '🇯🇴',
+        'Lebanon': '🇱🇧',
+        'Qatar': '🇶🇦',
+        'Kuwait': '🇰🇼',
+        'Oman': '🇴🇲',
+        'Bahrain': '🇧🇭',
+        'Yemen': '🇾🇪',
+        'Cyprus': '🇨🇾',
+        'Malta': '🇲🇹',
+        'Colombia': '🇨🇴',
+        'Peru': '🇵🇪',
+        'Venezuela': '🇻🇪',
+        'Ecuador': '🇪🇨',
+        'Bolivia': '🇧🇴',
+        'Paraguay': '🇵🇾',
+        'Uruguay': '🇺🇾',
+        'Costa Rica': '🇨🇷',
+        'Panama': '🇵🇦',
+        'Guatemala': '🇬🇹',
+        'Honduras': '🇭🇳',
+        'El Salvador': '🇸🇻',
+        'Nicaragua': '🇳🇮',
+        'Cuba': '🇨🇺',
+        'Jamaica': '🇯🇲',
+        'Trinidad and Tobago': '🇹🇹',
+        'Dominican Republic': '🇩🇴',
+        'Puerto Rico': '🇵🇷',
+        'Morocco': '🇲🇦',
+        'Algeria': '🇩🇿',
+        'Tunisia': '🇹🇳',
+        'Libya': '🇱🇾',
+        'Sudan': '🇸🇩',
+        'Ethiopia': '🇪🇹',
+        'Kenya': '🇰🇪',
+        'Tanzania': '🇹🇿',
+        'Uganda': '🇺🇬',
+        'Ghana': '🇬🇭',
+        'Nigeria': '🇳🇬',
+        'Senegal': '🇸🇳',
+        'Ivory Coast': '🇨🇮', "Côte d'Ivoire": '🇨🇮',
+        'Cameroon': '🇨🇲',
+        'Angola': '🇦🇴',
+        'Mozambique': '🇲🇿',
+        'Madagascar': '🇲🇬',
+        'Mauritius': '🇲🇺',
+        'Botswana': '🇧🇼',
+        'Namibia': '🇳🇦',
+        'Zimbabwe': '🇿🇼',
+        'Zambia': '🇿🇲',
+        'Malawi': '🇲🇼',
+        'Rwanda': '🇷🇼',
+        'Burundi': '🇧🇮',
+        'New Caledonia': '🇳🇨',
+        'Fiji': '🇫🇯',
+        'Papua New Guinea': '🇵🇬',
     };
     
     // 精确匹配
@@ -8746,7 +8889,7 @@ function getCountryFlag(countryName) {
     }
     
     // 模糊匹配（不区分大小写）
-    const countryLower = countryName.toLowerCase();
+    const countryLower = countryName.toLowerCase().trim();
     for (const [key, flag] of Object.entries(countryMap)) {
         if (key.toLowerCase() === countryLower) {
             return flag;
@@ -8759,6 +8902,14 @@ function getCountryFlag(countryName) {
         const keyLower = key.toLowerCase();
         // 如果输入包含关键词，且关键词长度大于3（避免误匹配）
         if (keyLower.length > 3 && countryLower.includes(keyLower)) {
+            return flag;
+        }
+    }
+    
+    // 反向匹配：如果映射表中的键包含输入的国家名称（用于处理缩写等情况）
+    for (const [key, flag] of Object.entries(countryMap)) {
+        const keyLower = key.toLowerCase();
+        if (keyLower.length > 3 && keyLower.includes(countryLower)) {
             return flag;
         }
     }
@@ -8919,6 +9070,20 @@ async function initDailyArxiv() {
     
     // 设置过滤器面板的拖动调整宽度功能
     setupDailyArxivFilterResizing();
+    
+    // 初始化过滤器分区折叠状态（默认展开）
+    const filterSections = document.querySelectorAll('.filter-section-box');
+    filterSections.forEach(section => {
+        // 默认展开，不添加collapsed类
+    });
+}
+
+// 切换过滤器分区折叠/展开
+function toggleFilterSection(header) {
+    const sectionBox = header.closest('.filter-section-box');
+    if (sectionBox) {
+        sectionBox.classList.toggle('collapsed');
+    }
 }
 
 // 设置 Daily arXiv 过滤器面板的拖动调整宽度功能
@@ -10565,7 +10730,23 @@ function renderDailyArxivFilterCountries() {
     container.innerHTML = entries.map(([country, count]) => {
         const isSelected = dailyArxivSelectedCountries.has(country);
         const isExcluded = dailyArxivExcludedCountries.has(country);
-        const flag = getCountryFlag(country);
+        // 尝试获取国旗，如果找不到，尝试使用原始国家名称（标准化前的）
+        let flag = getCountryFlag(country);
+        // 如果还是找不到，尝试一些常见的变体
+        if (!flag) {
+            // 尝试添加常见后缀/前缀的变体
+            const variants = [
+                country,
+                country.replace(/\s+Republic\s*$/i, ''),
+                country.replace(/\s+Kingdom\s*$/i, ''),
+                country.replace(/^The\s+/i, ''),
+                country.replace(/\s+of\s+.*$/i, ''),
+            ];
+            for (const variant of variants) {
+                flag = getCountryFlag(variant);
+                if (flag) break;
+            }
+        }
         const countLabel = count > 1 ? ` (${count})` : '';
         const activeClass = isSelected ? 'active' : '';
         const excludedClass = isExcluded ? 'excluded' : '';

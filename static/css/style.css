@@ -3638,7 +3638,7 @@ mark { background: #fff59d; }
     background: #ffffff;
     border-radius: 16px;
     border: 1px solid #e5e7eb;
-    padding: 14px 16px;
+    padding: 16px;
     padding-right: 20px; /* 为 resizer 留出空间 */
     box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
     position: sticky; /* 粘性定位，跟随滚动 */
@@ -3711,24 +3711,100 @@ mark { background: #fff59d; }
     box-shadow: 0 0 12px rgba(37, 99, 235, 0.8);
 }
 
+/* 过滤器面板头部 */
+.filter-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.filter-panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+/* 清除按钮 - 右上角风格 */
+.filter-clear-btn {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    background: #f5f5f5;
+    color: #999;
+    border: 1px solid #ddd;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.filter-clear-btn i {
+    font-size: 10px;
+}
+
+.filter-clear-btn:hover {
+    background: #e8e8e8;
+    border-color: #ccc;
+    color: #666;
+}
+
+/* 过滤器分区框 - 圆角设计 */
+.filter-section-box {
+    background: #fff8f8;
+    border: 1px solid #ffe0e0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    transition: all 0.2s;
+}
+
+.filter-section-box:hover {
+    border-color: #ffcccc;
+    box-shadow: 0 2px 8px rgba(255, 0, 0, 0.08);
+    background: #fff5f5;
+}
+
+.filter-section-box.collapsed .filter-section-body {
+    display: none;
+}
+
+.filter-section-box.collapsed .filter-toggle-icon {
+    transform: rotate(-90deg);
+}
+
 .daily-arxiv-filter-panel .filter-section-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 8px;
+    margin-bottom: 0;
+    cursor: pointer;
+    padding: 4px 0;
+    user-select: none;
 }
 
-.daily-arxiv-filter-panel .filter-section-header h4 {
-    margin: 0;
+.filter-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 13px;
     font-weight: 600;
     color: #0f172a;
-    display: flex;
-    align-items: center;
-    gap: 6px;
 }
 
-.daily-arxiv-filter-panel .filter-section-header h4 i {
+.filter-toggle-icon {
+    font-size: 10px;
+    color: #6b7280;
+    transition: transform 0.2s;
+}
+
+.filter-section-title i:not(.filter-toggle-icon) {
     color: #6b7280;
     font-size: 13px;
 }
@@ -3737,6 +3813,7 @@ mark { background: #fff59d; }
     max-height: 360px;
     overflow-y: auto;
     padding-right: 4px;
+    margin-top: 12px;
 }
 
 .daily-arxiv-filter-panel .filter-empty {

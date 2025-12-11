@@ -213,26 +213,44 @@
             <!-- 过滤器面板 -->
             <div class="daily-arxiv-filter-panel" id="daily-arxiv-filter-panel" style="display: none;">
                 <div class="daily-arxiv-filter-resizer" id="daily-arxiv-filter-resizer"></div>
-                <div class="filter-section">
-                    <div class="filter-section-header">
-                        <h4><i class="fas fa-building"></i> 单位过滤</h4>
-                        <button class="btn-link" id="daily-arxiv-filter-clear" type="button">清除</button>
+                <div class="filter-panel-header">
+                    <h3>过滤器</h3>
+                    <button class="filter-clear-btn" id="daily-arxiv-filter-clear" type="button" title="清除所有过滤条件">
+                        <i class="fas fa-times"></i>
+                        <span>清除过滤条件</span>
+                    </button>
+                </div>
+                <div class="filter-section-box">
+                    <div class="filter-section-header" onclick="toggleFilterSection(this)">
+                        <div class="filter-section-title">
+                            <i class="fas fa-chevron-down filter-toggle-icon"></i>
+                            <i class="fas fa-building"></i>
+                            <span>单位过滤</span>
+                        </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-affiliations">
                         <!-- 单位标签将在这里动态生成 -->
                     </div>
                 </div>
-                <div class="filter-section">
-                    <div class="filter-section-header">
-                        <h4><i class="fas fa-globe"></i> 地区过滤</h4>
+                <div class="filter-section-box">
+                    <div class="filter-section-header" onclick="toggleFilterSection(this)">
+                        <div class="filter-section-title">
+                            <i class="fas fa-chevron-down filter-toggle-icon"></i>
+                            <i class="fas fa-globe"></i>
+                            <span>地区过滤</span>
+                        </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-countries">
                         <!-- 国家标签将在这里动态生成 -->
                     </div>
                 </div>
-                <div class="filter-section">
-                    <div class="filter-section-header">
-                        <h4><i class="fas fa-key"></i> 关键词过滤</h4>
+                <div class="filter-section-box">
+                    <div class="filter-section-header" onclick="toggleFilterSection(this)">
+                        <div class="filter-section-title">
+                            <i class="fas fa-chevron-down filter-toggle-icon"></i>
+                            <i class="fas fa-key"></i>
+                            <span>关键词过滤</span>
+                        </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-keywords">
                         <!-- 关键词标签将在这里动态生成 -->

@@ -65,6 +65,8 @@ class Paper:
     arxiv_id: Optional[str] = None
     arxiv_published_date: Optional[str] = None
     arxiv_url: Optional[str] = None
+    github: Optional[str] = None  # GitHub 仓库 URL
+    homepage: Optional[str] = None  # 项目主页 URL
     upload_source: Optional[str] = None
     translation_status: str = "idle"
     translation_task_id: Optional[str] = None
