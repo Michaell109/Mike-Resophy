@@ -139,7 +139,10 @@ def register_upload_from_pdf_routes(
                 paper.arxiv_id = paper_info.get("arxiv_id")
                 # 如果有 arxiv_id，设置 arxiv_url
                 if paper_info.get("arxiv_id"):
-                    paper.arxiv_url = paper_info.get("arxiv_url") or f"https://arxiv.org/abs/{paper_info.get('arxiv_id')}"
+                    paper.arxiv_url = (
+                        paper_info.get("arxiv_url")
+                        or f"https://arxiv.org/abs/{paper_info.get('arxiv_id')}"
+                    )
                 paper.arxiv_published_date = paper_info.get("published_date")
                 paper.affiliation = paper_info.get("affiliation", "")
                 paper.year = paper_info.get("year", "")
@@ -203,10 +206,14 @@ def register_upload_from_pdf_routes(
             return jsonify({"success": False, "error": "Only PDF files are allowed"})
 
         categories = get_categories()
-        category_path = get_category_path(categories, category_id)
 
-        if not category_path:
-            return jsonify({"success": False, "error": "Category not found"})
+        # 特殊处理：待读列表的category_id
+        if category_id == "reading_list_temp":
+            category_path = ["Root", "_ReadingListTemp"]
+        else:
+            category_path = get_category_path(categories, category_id)
+            if not category_path:
+                return jsonify({"success": False, "error": "Category not found"})
 
         category_folder = create_category_folder(category_path[1:])  # 跳过 Root
         filename = secure_filename(file.filename)

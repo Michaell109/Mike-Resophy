@@ -1804,7 +1804,8 @@ function setupDragAndDrop() {
     papersList.addEventListener('dragover', (e) => {
         preventDefaults(e);
         e.dataTransfer.dropEffect = 'copy';
-        if (currentCategoryId) {
+        // 支持待读列表的拖拽上传
+        if (currentViewMode === 'reading-list' || currentCategoryId) {
             papersList.classList.add('drag-over');
         }
     });
@@ -1816,7 +1817,10 @@ function setupDragAndDrop() {
     papersList.addEventListener('drop', (e) => {
         preventDefaults(e);
         papersList.classList.remove('drag-over');
-        if (currentCategoryId) {
+        // 支持待读列表的拖拽上传
+        if (currentViewMode === 'reading-list') {
+            handleFilesWithCategory(e.dataTransfer.files, 'reading_list_temp');
+        } else if (currentCategoryId) {
             handleFilesWithCategory(e.dataTransfer.files, currentCategoryId);
         } else {
             showMessage('请先选择一个分类', 'warning');
@@ -1839,14 +1843,20 @@ function setupDragAndDrop() {
             }, false);
         });
         uploadZone.addEventListener('drop', (e) => {
-            if (currentCategoryId) {
+            // 支持待读列表的拖拽上传
+            if (currentViewMode === 'reading-list') {
+                handleFilesWithCategory(e.dataTransfer.files, 'reading_list_temp');
+            } else if (currentCategoryId) {
                 handleFilesWithCategory(e.dataTransfer.files, currentCategoryId);
             } else {
                 showMessage('请先选择一个分类', 'warning');
             }
         }, false);
         uploadZone.addEventListener('click', () => {
-            if (currentCategoryId) {
+            // 支持待读列表的点击上传
+            if (currentViewMode === 'reading-list') {
+                fileInput.click();
+            } else if (currentCategoryId) {
                 fileInput.click();
             } else {
                 showMessage('请先选择一个分类', 'warning');
@@ -1858,7 +1868,10 @@ function setupDragAndDrop() {
 // 处理文件选择
 function handleFileSelect(e) {
     const files = e.target.files;
-    if (currentCategoryId) {
+    // 支持待读列表的文件选择上传
+    if (currentViewMode === 'reading-list') {
+        handleFilesWithCategory(files, 'reading_list_temp');
+    } else if (currentCategoryId) {
         handleFilesWithCategory(files, currentCategoryId);
     } else {
         showMessage('请先选择一个分类', 'warning');
@@ -1897,6 +1910,10 @@ async function uploadFile(file, categoryId) {
                 // 如果上传到当前选中的分类，立即刷新列表（显示占位符）
                 if (currentCategoryId === categoryId) {
                     loadPapers(currentCategoryId);
+                }
+                // 如果上传到待读列表，刷新待读列表
+                if (categoryId === 'reading_list_temp' && currentViewMode === 'reading-list') {
+                    showReadingList();
                 }
                 // 同步更新分类计数和待读列表计数
                 updateCategoriesData();
