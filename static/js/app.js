@@ -9258,6 +9258,9 @@ function setupDailyArxivFilterResizing() {
 
 // 检查是否有分区正在抓取，如果有则开始轮询
 async function checkAndStartProgressPolling() {
+    let hasActiveTask = false;
+    
+    // 检查所有分区，为所有正在进行的任务启动轮询
     for (const cat of dailyArxivCategories) {
         try {
             const res = await fetch(`/api/daily-arxiv/progress/${cat}`);
@@ -9265,13 +9268,58 @@ async function checkAndStartProgressPolling() {
                 const data = await res.json();
                 const progress = data.progress;
                 if (progress.status === 'fetching' || progress.status === 'processing') {
+                    hasActiveTask = true;
+                    // 启动该分区的轮询
                     startProgressPolling(cat);
-                    return;
+                    
+                    // 如果该分区是当前查看的分区（或"全部"），立即更新进度显示
+                    if (dailyArxivCurrentCategory === 'all' || cat === dailyArxivCurrentCategory) {
+                        updateProgressUI(cat, progress);
+                        
+                        // 如果有已抓取的论文，立即更新显示
+                        if (progress.papers && progress.papers.length > 0) {
+                            // 应用前端标准化
+                            const normalizedPapers = applyFrontendNormalizationToPapers(progress.papers);
+                            
+                            // 更新论文缓存
+                            normalizedPapers.forEach(paper => {
+                                const paperDate = paper.announced 
+                                    ? paper.announced.split('T')[0] 
+                                    : dailyArxivCurrentDate;
+                                const cacheKey = `${paperDate}_${cat}`;
+                                
+                                if (!dailyArxivPapers[cacheKey]) {
+                                    dailyArxivPapers[cacheKey] = [];
+                                }
+                                
+                                // 检查是否已存在
+                                const existingIndex = dailyArxivPapers[cacheKey].findIndex(
+                                    p => p.arxiv_id === paper.arxiv_id
+                                );
+                                
+                                if (existingIndex >= 0) {
+                                    // 更新现有论文
+                                    dailyArxivPapers[cacheKey][existingIndex] = paper;
+                                } else {
+                                    // 添加新论文
+                                    dailyArxivPapers[cacheKey].push(paper);
+                                }
+                            });
+                            
+                            // 刷新网格显示
+                            renderDailyArxivGrid();
+                        }
+                    }
                 }
             }
         } catch (err) {
             console.error(`检查 ${cat} 进度失败:`, err);
         }
+    }
+    
+    // 如果有活动任务，刷新可用日期列表（可能新增了日期）
+    if (hasActiveTask) {
+        await loadAvailableDates();
     }
 }
 
@@ -11654,6 +11702,18 @@ async function showDailyArxivView() {
     } else if (hasCachedData) {
         // 如果有缓存数据，直接渲染
         renderDailyArxivGrid();
+    }
+    
+    // 检查是否有正在进行的抓取任务，如果有则自动启动进度轮询
+    // 这样可以确保用户进入界面时能看到实时进度
+    if (dailyArxivCategories.length > 0) {
+        // 检查所有分区是否有正在进行的任务
+        await checkAndStartProgressPolling();
+        
+        // 如果当前选中了特定分区，也检查该分区的进度
+        if (dailyArxivCurrentCategory && dailyArxivCurrentCategory !== 'all') {
+            await checkCategoryProgress(dailyArxivCurrentCategory);
+        }
     }
     
     saveCurrentViewState();

@@ -87,7 +87,7 @@ DEFAULT_DAILY_ARXIV_SETTINGS = {
     "categories": ["cs.CV"],  # arXiv 分区列表
     "checkIntervalMinutes": 30,  # 检查间隔（分钟）
     "retentionDays": 2,  # 保留论文天数
-    "maxKeywords": 1,  # 最多关键词数量（1-3）
+    "maxKeywords": 2,  # 最多关键词数量（1-3）
     "keywordList": [
         "LLM",
         "MLLM",
