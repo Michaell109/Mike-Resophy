@@ -1420,16 +1420,22 @@ function renderPaperInfo(paper) {
             <!-- 基本信息 -->
             ${createExpandableTextBlock('标题', paper.title, 'title', false, false, true)}
             ${createExpandableTextBlock('作者', paper.authors, 'authors', false, false, true)}
-            ${paper.arxiv_url ? `
+            ${paper.arxiv_id || paper.arxiv_url ? `
             <div class="info-section compact">
                 <div class="info-header">
                     <span class="info-label">URL</span>
                 </div>
                 <div class="info-content">
                     <div class="info-value">
+                        ${paper.arxiv_url ? `
                         <a href="${paper.arxiv_url}" target="_blank" rel="noopener noreferrer" class="paper-url-link">
                             <i class="fas fa-external-link-alt"></i> ${paper.arxiv_url}
                         </a>
+                        ` : paper.arxiv_id ? `
+                        <a href="https://arxiv.org/abs/${paper.arxiv_id}" target="_blank" rel="noopener noreferrer" class="paper-url-link">
+                            <i class="fas fa-external-link-alt"></i> https://arxiv.org/abs/${paper.arxiv_id}
+                        </a>
+                        ` : '<span style="color: #999; font-style: italic;">无 URL</span>'}
                     </div>
                 </div>
             </div>
@@ -2411,8 +2417,6 @@ async function deleteCategory(categoryId) {
         const result = await response.json();
         
         if (result.success) {
-            showMessage('分类删除成功', 'success');
-            
             // 如果删除的是当前选中的分类，显示待读列表
             if (currentCategoryId === categoryId) {
                 currentCategoryId = null;
@@ -4852,7 +4856,37 @@ async function loadAgenticSettings() {
     }
 }
 
-// 测试 LLM API
+// 测试 LLM API（核心逻辑，可复用）
+async function testLLMAPICore(llmModel, llmBaseUrl, llmApiKey) {
+    if (!llmModel || !llmBaseUrl || !llmApiKey) {
+        return {
+            success: false,
+            error: '请先填写完整的 LLM API 配置（Model、Base URL、API Key）'
+        };
+    }
+    
+    try {
+        const response = await fetch('/api/settings/test/llm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                llmModel: llmModel,
+                llmBaseUrl: llmBaseUrl,
+                llmApiKey: llmApiKey
+            })
+        });
+        
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        return {
+            success: false,
+            error: `网络错误: ${error.message}`
+        };
+    }
+}
+
+// 测试 LLM API（Settings 界面使用）
 async function testLLMAPI() {
     const btn = document.getElementById('test-llm-api');
     const resultDiv = document.getElementById('llm-test-result');
@@ -4885,45 +4919,27 @@ async function testLLMAPI() {
         </div>
     `;
     
-    try {
-        const response = await fetch('/api/settings/test/llm', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                llmModel: llmModel,
-                llmBaseUrl: llmBaseUrl,
-                llmApiKey: llmApiKey
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            resultDiv.innerHTML = `
-                <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
-                    <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
-                    ${data.reply ? `<div style="margin-top: 8px; font-size: 13px;">回复: "${data.reply}"</div>` : ''}
-                </div>
-            `;
-        } else {
-            resultDiv.innerHTML = `
-                <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
-                    <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
-                    <div style="margin-top: 8px; font-size: 13px;">${data.error || '未知错误'}</div>
-                </div>
-            `;
-        }
-    } catch (error) {
+    // 调用核心测试函数
+    const data = await testLLMAPICore(llmModel, llmBaseUrl, llmApiKey);
+    
+    if (data.success) {
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
+                <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
+                ${data.reply ? `<div style="margin-top: 8px; font-size: 13px;">回复: "${data.reply}"</div>` : ''}
+            </div>
+        `;
+    } else {
         resultDiv.innerHTML = `
             <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
                 <i class="fas fa-times-circle"></i> <strong>测试失败</strong>
-                <div style="margin-top: 8px; font-size: 13px;">网络错误: ${error.message}</div>
+                <div style="margin-top: 8px; font-size: 13px;">${data.error || '未知错误'}</div>
             </div>
         `;
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalHTML;
     }
+    
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
 }
 
 // 测试 MinerU API
@@ -7265,16 +7281,12 @@ async function handleRdfFile(file) {
     
     updateImportStatus('正在上传 RDF 文件...', 0, '准备中...');
     
-    // 获取测试模式选项
-    const testMode = document.getElementById('import-test-mode')?.checked || false;
-    
     // 获取目标目录
     const targetCategoryId = document.getElementById('import-target-category')?.value || '';
     
     // 上传文件
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('test_mode', testMode ? 'true' : 'false');
     formData.append('target_category_id', targetCategoryId);
     
     try {
@@ -7330,6 +7342,9 @@ function startImportProgressStream(taskId) {
 }
 
 // 处理导入进度更新
+let lastRefreshTime = 0;
+const REFRESH_INTERVAL = 3000; // 每3秒刷新一次论文列表
+
 function handleImportProgress(data) {
     const { status, progress, current, total, message, success_count, failed_count, skipped_count, duplicate_count, others_count } = data;
     
@@ -7342,22 +7357,58 @@ function handleImportProgress(data) {
             percent,
             message || `处理中...`
         );
+        
+        // 定期刷新论文列表（如果当前在主页）
+        const now = Date.now();
+        if (now - lastRefreshTime > REFRESH_INTERVAL) {
+            lastRefreshTime = now;
+            // 如果当前在分类视图，刷新论文列表
+            if (currentCategoryId) {
+                loadPapers(currentCategoryId).catch(err => {
+                    console.error('刷新论文列表失败:', err);
+                });
+            }
+        }
     } else if (status === 'completed') {
         // 导入完成
         if (importEventSource) {
             importEventSource.close();
             importEventSource = null;
         }
-        showImportResult(success_count || 0, failed_count || 0, skipped_count || 0, duplicate_count || 0, others_count || 0);
         importInProgress = false;
+        
+        // 移除所有加载状态
+        showLoading(false);
+        
+        // 直接隐藏所有导入相关的UI，恢复到正常状态
+        const dropZoneContent = document.getElementById('drop-zone-content');
+        const progressContainer = document.getElementById('import-progress-container');
+        const importResult = document.getElementById('import-result');
+        
+        if (dropZoneContent) dropZoneContent.style.display = 'flex';
+        if (progressContainer) progressContainer.style.display = 'none';
+        if (importResult) importResult.style.display = 'none';
+        
+        // 重置文件输入
+        const fileInput = document.getElementById('rdf-file-input');
+        if (fileInput) fileInput.value = '';
         
         // 刷新分类树
         loadCategories();
+        
+        // 如果当前在分类视图，刷新论文列表
+        if (currentCategoryId) {
+            loadPapers(currentCategoryId).catch(err => {
+                console.error('刷新论文列表失败:', err);
+            });
+        }
     } else if (status === 'error') {
         if (importEventSource) {
             importEventSource.close();
             importEventSource = null;
         }
+        // 移除加载状态
+        showLoading(false);
         showMessage('导入失败: ' + (message || '未知错误'), 'error');
         resetImport();
     }
@@ -7399,6 +7450,9 @@ function showImportResult(successCount, failedCount, skippedCount, duplicateCoun
     if (skippedCount > 0) msg += `，跳过 ${skippedCount} 篇`;
     if (duplicateCount > 0) msg += `，重复 ${duplicateCount} 篇`;
     showMessage(msg, 'success');
+    
+    // 确保移除加载状态
+    showLoading(false);
 }
 
 // 重置导入界面
@@ -8952,6 +9006,18 @@ async function checkDailyArxivLLMConfig() {
             const data = await res.json();
             if (data.success) {
                 dailyArxivLLMConfigured = data.is_configured;
+                
+                // 检查 LLM API 是否失败
+                if (data.llm_api_failed) {
+                    // 显示常驻弹窗
+                    showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
+                } else {
+                    // 如果 API 正常，移除弹窗（如果存在）
+                    const notification = document.getElementById('daily-arxiv-api-notification');
+                    if (notification) {
+                        notification.remove();
+                    }
+                }
             }
         }
     } catch (err) {
@@ -9657,11 +9723,132 @@ function renderDailyArxivCategoryTags() {
     container.innerHTML = allTag + categoryTags;
 }
 
+// 测试 LLM API（用于 Daily arXiv 抓取前，复用 settings 界面的测试逻辑）
+async function testLLMAPIForDailyArxiv() {
+    try {
+        // 获取当前 LLM 配置
+        const response = await fetch('/api/settings/agentic');
+        const settings = await response.json();
+        
+        const llmModel = settings.llmModel?.trim() || '';
+        const llmBaseUrl = settings.llmBaseUrl?.trim() || '';
+        const llmApiKey = settings.llmApiKey?.trim() || '';
+        
+        // 直接复用 testLLMAPICore 函数
+        return await testLLMAPICore(llmModel, llmBaseUrl, llmApiKey);
+    } catch (error) {
+        return {
+            success: false,
+            error: `测试失败: ${error.message}`
+        };
+    }
+}
+
+// 显示圆角弹窗提示（参考 ti-item 设计，常驻显示）
+function showRoundedNotification(message, type = 'error', persistent = true) {
+    // 如果已存在通知，只更新内容
+    let notification = document.getElementById('daily-arxiv-api-notification');
+    
+    if (notification) {
+        // 更新现有通知的内容
+        const messageSpan = notification.querySelector('span');
+        if (messageSpan) {
+            messageSpan.textContent = message;
+        }
+        return;
+    }
+    
+    // 创建通知元素
+    notification = document.createElement('div');
+    notification.id = 'daily-arxiv-api-notification';
+    notification.style.cssText = `
+        position: fixed;
+        top: 70px;
+        right: 20px;
+        z-index: 2000;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 13px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        animation: slideInRight 0.3s ease-out;
+        max-width: 400px;
+    `;
+    
+    // 根据类型设置样式（参考 ti-item 的设计）
+    if (type === 'error') {
+        notification.style.background = '#fff5f5';
+        notification.style.color = '#c62828';
+        notification.style.border = '1px solid #ffcccb';
+    } else if (type === 'warning') {
+        notification.style.background = '#fff8e1';
+        notification.style.color = '#9a7b00';
+        notification.style.border = '1px solid #ffe08a';
+    } else {
+        notification.style.background = '#e7f3ff';
+        notification.style.color = '#0b61c8';
+        notification.style.border = '1px solid #9cc7ff';
+    }
+    
+    notification.innerHTML = `
+        <i class="fas fa-exclamation-triangle" style="font-size: 14px;"></i>
+        <span>${message}</span>
+        <button onclick="this.parentElement.remove()" style="
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            padding: 0;
+            margin-left: 8px;
+            opacity: 0.7;
+            font-size: 16px;
+            line-height: 1;
+            transition: opacity 0.2s;
+        " onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'" title="关闭">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    
+    // 添加动画样式（如果还没有）
+    if (!document.getElementById('daily-arxiv-notification-style')) {
+        const style = document.createElement('style');
+        style.id = 'daily-arxiv-notification-style';
+        style.textContent = `
+            @keyframes slideInRight {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // 如果 persistent 为 false，5秒后自动移除
+    if (!persistent) {
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.style.animation = 'slideInRight 0.3s ease-out reverse';
+                setTimeout(() => notification.remove(), 300);
+            }
+        }, 5000);
+    }
+}
+
 // 触发抓取论文（当前分区）
 async function triggerFetchPapers(force = false) {
     // 检查 LLM 配置
     if (!dailyArxivLLMConfigured) {
-        showMessage('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
+        showRoundedNotification('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
         // 切换到设置页面
         switchTab('setting');
         // 切换到 Agentic 设置面板
@@ -9679,6 +9866,13 @@ async function triggerFetchPapers(force = false) {
     
     if (!dailyArxivCurrentCategory) {
         dailyArxivCurrentCategory = dailyArxivCategories[0];
+    }
+    
+    // 在抓取前测试 LLM API
+    const testResult = await testLLMAPIForDailyArxiv();
+    if (!testResult.success) {
+        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
+        return;
     }
     
     try {
@@ -9711,7 +9905,7 @@ async function triggerFetchPapers(force = false) {
 async function triggerFetchAllCategories(force = false) {
     // 检查 LLM 配置
     if (!dailyArxivLLMConfigured) {
-        showMessage('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
+        showRoundedNotification('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
         // 切换到设置页面
         switchTab('setting');
         // 切换到 Agentic 设置面板
@@ -9724,6 +9918,13 @@ async function triggerFetchAllCategories(force = false) {
     
     if (dailyArxivCategories.length === 0) {
         showMessage('请先配置 arXiv 分区', 'warning');
+        return;
+    }
+    
+    // 在抓取前测试 LLM API
+    const testResult = await testLLMAPIForDailyArxiv();
+    if (!testResult.success) {
+        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
         return;
     }
     
@@ -11424,7 +11625,7 @@ function showDailyArxivSettingsModal() {
 }
 
 // 切换到 Daily arXiv 视图
-function showDailyArxivView() {
+async function showDailyArxivView() {
     // 隐藏其他视图
     document.getElementById('paper-view').style.display = 'none';
     document.getElementById('setting-view').style.display = 'none';
@@ -11436,23 +11637,24 @@ function showDailyArxivView() {
     if (dailyArxivTab) dailyArxivTab.classList.add('active');
     
     // 检查 LLM 配置并加载设置、日期和论文
-    checkDailyArxivLLMConfig().then(async () => {
-        await loadDailyArxivSettings();
-        // 先加载可用日期（这会设置 dailyArxivCurrentDate）
-        await loadAvailableDates();
-        
-        // 检查缓存中是否有当前日期和分区的论文数据
-        const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
-        const hasCachedData = dailyArxivPapers[cacheKey] && dailyArxivPapers[cacheKey].length > 0;
-        
-        if (!hasCachedData && dailyArxivCategories.length > 0 && dailyArxivCurrentDate) {
-            // 如果缓存中没有数据，尝试从服务器加载
-            await loadPapersForCurrentDate();
-        } else if (hasCachedData) {
-            // 如果有缓存数据，直接渲染
-            renderDailyArxivGrid();
-        }
-    });
+    // 先检查 LLM API 状态（会显示弹窗如果失败）
+    await checkDailyArxivLLMConfig();
+    
+    await loadDailyArxivSettings();
+    // 先加载可用日期（这会设置 dailyArxivCurrentDate）
+    await loadAvailableDates();
+    
+    // 检查缓存中是否有当前日期和分区的论文数据
+    const cacheKey = `${dailyArxivCurrentDate}_${dailyArxivCurrentCategory}`;
+    const hasCachedData = dailyArxivPapers[cacheKey] && dailyArxivPapers[cacheKey].length > 0;
+    
+    if (!hasCachedData && dailyArxivCategories.length > 0 && dailyArxivCurrentDate) {
+        // 如果缓存中没有数据，尝试从服务器加载
+        await loadPapersForCurrentDate();
+    } else if (hasCachedData) {
+        // 如果有缓存数据，直接渲染
+        renderDailyArxivGrid();
+    }
     
     saveCurrentViewState();
 }

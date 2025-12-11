@@ -406,6 +406,10 @@ class DailyArxivManager:
         # LLM 配置回调
         self._get_llm_config: Optional[Callable[[], Dict]] = None
 
+        # LLM API 状态追踪（用于前端显示）
+        self._llm_api_failed: bool = False
+        self._llm_api_error_message: str = ""
+
         # 加载已有元数据
         self._load_metadata()
 
@@ -829,7 +833,9 @@ class DailyArxivManager:
                 # 检查已存在的文件是否为空
                 file_size = os.path.getsize(pdf_path)
                 if file_size == 0 or file_size < 1024:
-                    print(f"[DailyArxiv] 已存在的 PDF 文件为空或太小 ({file_size} bytes)，将重新下载: {paper.arxiv_id}")
+                    print(
+                        f"[DailyArxiv] 已存在的 PDF 文件为空或太小 ({file_size} bytes)，将重新下载: {paper.arxiv_id}"
+                    )
                     try:
                         os.remove(pdf_path)
                     except:
@@ -879,18 +885,20 @@ class DailyArxivManager:
                         for chunk in response.iter_content(chunk_size=8192):
                             if chunk:
                                 out_file.write(chunk)
-                    
+
                     # 检查文件是否为空或太小（可能下载失败）
                     if os.path.exists(pdf_path):
                         file_size = os.path.getsize(pdf_path)
                         if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
-                            print(f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}")
+                            print(
+                                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}"
+                            )
                             try:
                                 os.remove(pdf_path)
                             except:
                                 pass
                             return None
-                    
+
                     print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
                     return pdf_path
                 else:
@@ -917,7 +925,9 @@ class DailyArxivManager:
                 if os.path.exists(pdf_path):
                     file_size = os.path.getsize(pdf_path)
                     if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
-                        print(f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}")
+                        print(
+                            f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}"
+                        )
                         try:
                             os.remove(pdf_path)
                         except:
@@ -948,12 +958,14 @@ class DailyArxivManager:
             if not os.path.exists(pdf_path):
                 print(f"[DailyArxiv] PDF 文件不存在: {pdf_path}")
                 return None
-            
+
             file_size = os.path.getsize(pdf_path)
             if file_size == 0 or file_size < 1024:
-                print(f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}")
+                print(
+                    f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}"
+                )
                 return None
-            
+
             safe_id = os.path.splitext(os.path.basename(pdf_path))[0]
             thumbnail_filename = f"{safe_id}_thumbnail.jpg"
             thumbnail_path = os.path.join(cat_dir, thumbnail_filename)
@@ -1008,7 +1020,7 @@ class DailyArxivManager:
     def cleanup_old_papers(self, retention_days: int = 7):
         """
         清理过期论文
-        
+
         保留最近 N 个有论文的日期（而不是 N 个自然日）
 
         Args:
@@ -1021,14 +1033,16 @@ class DailyArxivManager:
 
         # 获取所有有论文的日期
         available_dates = self.get_available_dates()
-        
+
         if len(available_dates) <= retention_days:
-            print(f"[DailyArxiv] 当前有 {len(available_dates)} 个有论文的日期，少于或等于保留数量 {retention_days}，无需清理")
+            print(
+                f"[DailyArxiv] 当前有 {len(available_dates)} 个有论文的日期，少于或等于保留数量 {retention_days}，无需清理"
+            )
             return
-        
+
         # 保留最近 retention_days 个日期，删除更早的
         dates_to_keep = set(available_dates[:retention_days])
-        
+
         for name in os.listdir(self.base_dir):
             path = os.path.join(self.base_dir, name)
             if os.path.isdir(path) and name.count("-") == 2:
@@ -1079,17 +1093,17 @@ class DailyArxivManager:
     def _get_recent_weekdays(self, days: int) -> List[str]:
         """
         获取最近 N 个工作日（周一到周五）的日期列表
-        
+
         Args:
             days: 需要的工作日数量
-            
+
         Returns:
             日期字符串列表（降序，最新在前）
         """
         dates = []
         current = datetime.now().date()
         count = 0
-        
+
         # 从今天开始往前找工作日
         while count < days:
             weekday = current.weekday()  # 0=Monday, 6=Sunday
@@ -1102,9 +1116,9 @@ class DailyArxivManager:
             # 防止无限循环（最多往前找 30 天）
             if (datetime.now().date() - current).days > 30:
                 break
-        
+
         return dates
-    
+
     def _do_scheduled_fetch(self):
         """执行计划抓取"""
         settings = self.get_settings()
@@ -1116,6 +1130,50 @@ class DailyArxivManager:
             print("[DailyArxiv] 未配置分区")
             return
 
+        # 在抓取前先测试 LLM API
+        llm_config = {}
+        if self._get_llm_config:
+            llm_config = self._get_llm_config()
+
+        llm_model = llm_config.get("llmModel", "").strip()
+        llm_base_url = llm_config.get("llmBaseUrl", "").strip()
+        llm_api_key = llm_config.get("llmApiKey", "").strip()
+
+        if not llm_model or not llm_base_url or not llm_api_key:
+            print(
+                "[DailyArxiv] LLM API 未配置，跳过本次抓取。请在设置中配置 LLM API 后再试。"
+            )
+            return
+
+        # 测试 LLM API 是否可用
+        try:
+            from tools.api_test_utils import test_llm_api
+
+            print("[DailyArxiv] 正在测试 LLM API 连接...")
+            success, error_msg = test_llm_api(llm_model, llm_base_url, llm_api_key)
+
+            if not success:
+                # 更新状态，记录失败信息
+                self._llm_api_failed = True
+                self._llm_api_error_message = error_msg
+                print(
+                    f"[DailyArxiv] LLM API 测试失败: {error_msg}，跳过本次抓取。等待下一个检查周期。"
+                )
+                return
+
+            # 测试成功，清除失败状态
+            self._llm_api_failed = False
+            self._llm_api_error_message = ""
+            print("[DailyArxiv] LLM API 测试成功，开始抓取论文...")
+        except Exception as e:
+            # 更新状态，记录异常信息
+            self._llm_api_failed = True
+            self._llm_api_error_message = str(e)
+            print(
+                f"[DailyArxiv] LLM API 测试异常: {e}，跳过本次抓取。等待下一个检查周期。"
+            )
+            return
+
         print(f"[DailyArxiv] 开始定时抓取: {categories}")
 
         # 清理过期论文
@@ -1124,60 +1182,62 @@ class DailyArxivManager:
         # 检查已有论文的日期数量
         available_dates = self.get_available_dates()
         dates_with_papers = len(available_dates)
-        
+
         print(f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期")
-        
+
         # 获取最近 N 个工作日（N = retention_days）
         recent_weekdays = self._get_recent_weekdays(retention_days)
         today = get_today_arxiv_date()
         today_date = datetime.strptime(today, "%Y-%m-%d").date()
         is_today_weekday = today_date.weekday() < 5
-        
+
         # 策略：按日期从新到旧依次抓取，确保每个日期完整后再处理下一个
         dates_to_fetch = []
-        
+
         # 1. 如果今天是工作日，总是优先抓取今天（无论是否已有论文，确保完整）
         if is_today_weekday:
             dates_to_fetch.append(today)
             print(f"[DailyArxiv] 优先抓取今天 ({today}) 的论文，确保完整")
-        
+
         # 2. 按日期从新到旧，依次处理每个工作日
         # 对于最近的日期（最近3个工作日内），即使已有论文，也继续抓取（可能不完整）
         # 对于较旧的日期，如果已有论文，则跳过（认为已完整）
         for date_str in recent_weekdays:
             if date_str == today:
                 continue  # 今天已经在上面处理了
-            
+
             date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
             days_ago = (datetime.now().date() - date_obj).days
-            
+
             # 如果该日期不在已有日期列表中，需要抓取
             if date_str not in available_dates:
                 dates_to_fetch.append(date_str)
             # 如果该日期已有论文，但它是最近3个工作日内，可能不完整，继续抓取
             elif days_ago <= 3:
                 dates_to_fetch.append(date_str)
-                print(f"[DailyArxiv] 日期 {date_str} 已有论文但可能不完整（{days_ago} 天前），继续抓取以确保完整")
+                print(
+                    f"[DailyArxiv] 日期 {date_str} 已有论文但可能不完整（{days_ago} 天前），继续抓取以确保完整"
+                )
             # 较旧的日期如果已有论文，认为已完整，跳过
-        
+
         # 去重并排序（最新的在前，确保按顺序抓取）
         dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
-        
+
         # 3. 如果已有论文的日期数量少于保留天数，补充缺失的日期
         if dates_with_papers < retention_days:
             missing_dates = []
             for date_str in recent_weekdays:
                 if date_str not in available_dates and date_str not in dates_to_fetch:
                     missing_dates.append(date_str)
-            
+
             # 补充缺失的日期，直到达到 retention_days 个
             needed_count = retention_days - dates_with_papers
             dates_to_fetch.extend(missing_dates[:needed_count])
             dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
-        
+
         if dates_to_fetch:
             print(f"[DailyArxiv] 将按顺序抓取以下日期: {dates_to_fetch}")
-            
+
             # 按顺序抓取每个日期（最新的优先）
             for date_str in dates_to_fetch:
                 for category in categories:
@@ -1186,7 +1246,7 @@ class DailyArxivManager:
                         self.fetch_papers(category, date_str=date_str, force=False)
                     except Exception as e:
                         print(f"[DailyArxiv] 抓取 {category} {date_str} 失败: {e}")
-                    
+
                     # 分区间间隔，避免请求过快
                     time.sleep(2)
         else:
@@ -1209,12 +1269,14 @@ def extract_pdf_first_page_text(pdf_path: str) -> Optional[str]:
         # 检查文件是否存在且不为空
         if not os.path.exists(pdf_path):
             return None
-        
+
         file_size = os.path.getsize(pdf_path)
         if file_size == 0 or file_size < 1024:
-            print(f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过提取文本: {pdf_path}")
+            print(
+                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过提取文本: {pdf_path}"
+            )
             return None
-        
+
         # 使用 PyMuPDF (fitz) 提取，它能更好地保留空格
         import fitz  # PyMuPDF
 
@@ -1263,12 +1325,14 @@ def generate_pdf_thumbnail(
         # 检查文件是否存在且不为空
         if not os.path.exists(pdf_path):
             return None
-        
+
         file_size = os.path.getsize(pdf_path)
         if file_size == 0 or file_size < 1024:
-            print(f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}")
+            print(
+                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}"
+            )
             return None
-        
+
         import fitz  # PyMuPDF
 
         # 如果没有指定输出路径，使用PDF同目录
@@ -1510,7 +1574,9 @@ def extract_affiliations_with_llm(
             if tools_dir not in sys.path:
                 sys.path.insert(0, tools_dir)
 
-            from tools.institution_normalizer import InstitutionNormalizer  # type: ignore
+            from tools.institution_normalizer import (
+                InstitutionNormalizer,
+            )  # type: ignore
 
             # 创建标准化器实例（包含系统映射 + 用户自定义映射）
             # settings_file 参数传入的是配置文件路径（如果有）
@@ -1689,4 +1755,3 @@ class DailyArxivFetcher:
 def get_fetcher(temp_dir: str) -> DailyArxivFetcher:
     """获取旧式 fetcher 实例"""
     return DailyArxivFetcher(temp_dir)
-

@@ -82,10 +82,20 @@ def register_daily_arxiv_routes(
         try:
             llm_config = get_llm_config()
             is_configured = is_llm_configured()
+
+            # 检查 LLM API 是否失败（从 manager 获取状态）
+            llm_api_failed = False
+            llm_api_error_message = ""
+            if hasattr(manager, "_llm_api_failed"):
+                llm_api_failed = manager._llm_api_failed
+                llm_api_error_message = manager._llm_api_error_message or ""
+
             return jsonify(
                 {
                     "success": True,
                     "is_configured": is_configured,
+                    "llm_api_failed": llm_api_failed,
+                    "llm_api_error_message": llm_api_error_message,
                 }
             )
         except Exception as exc:
@@ -184,12 +194,15 @@ def register_daily_arxiv_routes(
         try:
             # 检查 LLM 配置
             if not is_llm_configured():
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                        }
+                    ),
+                    400,
+                )
 
             data = request.json or {}
             category = data.get("category")
@@ -256,12 +269,15 @@ def register_daily_arxiv_routes(
         try:
             # 检查 LLM 配置
             if not is_llm_configured():
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                        }
+                    ),
+                    400,
+                )
 
             data = request.json or {}
             force = data.get("force", False)
@@ -724,12 +740,15 @@ def register_daily_arxiv_routes(
         """手动启动调度器"""
         try:
             if not is_llm_configured():
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "LLM 配置不完整，请先在设置中配置 LLM API（Model、Base URL、API Key）",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "LLM 配置不完整，请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                        }
+                    ),
+                    400,
+                )
 
             if manager._scheduler_running:
                 return jsonify(

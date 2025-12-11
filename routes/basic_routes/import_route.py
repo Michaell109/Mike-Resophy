@@ -650,6 +650,11 @@ def register_import_routes(
 
                 # 创建 Paper 对象
                 paper_id = str(uuid.uuid4())
+                # 构建 arxiv_url
+                arxiv_url = None
+                if arxiv_id:
+                    arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
+                
                 new_paper = Paper(
                     id=paper_id,
                     filename=pdf_filename,
@@ -659,12 +664,15 @@ def register_import_routes(
                     title=paper_info.get("title", ""),
                     authors=paper_info.get("authors", ""),
                     arxiv_id=arxiv_id,
+                    arxiv_url=arxiv_url,
                     arxiv_published_date=paper_info.get("published_date"),
                     year=paper_info.get("year", ""),
                     abstract=paper_info.get("abstract", ""),
                     summary=paper_info.get("summary", ""),
                     bibtex="",
                     notes=paper_data.get("notes", ""),
+                    github=None,  # 从 Zotero 导入时，GitHub 为空，但字段存在
+                    homepage=None,  # 从 Zotero 导入时，Homepage 为空，但字段存在
                     upload_source="zotero_import",
                 )
 
@@ -766,10 +774,6 @@ def register_import_routes(
         if not file.filename.lower().endswith(".rdf"):
             return jsonify({"success": False, "error": "请上传 .rdf 格式的文件"}), 400
 
-        # 获取测试模式参数
-        test_mode = request.form.get("test_mode", "false").lower() == "true"
-        print(f"[Import] 测试模式: {test_mode}")
-
         # 获取目标目录参数（可选）
         target_category_id = request.form.get("target_category_id", "").strip()
         print(f"[Import] 目标目录ID: {target_category_id or '（按Zotero分类）'}")
@@ -798,11 +802,6 @@ def register_import_routes(
                     papers_data.append(paper_dict)
 
                 print(f"[Import] 解析完成，找到 {len(papers_data)} 篇论文")
-
-                # 测试模式：只取前20篇
-                if test_mode and len(papers_data) > 20:
-                    papers_data = papers_data[:20]
-                    print(f"[Import] 测试模式：只导入前 20 篇论文")
 
             finally:
                 # 清理临时文件
