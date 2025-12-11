@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./papers",
+    default="./test_papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
@@ -70,6 +70,7 @@ DEFAULT_USER_SETTINGS = {
     "name": "Paper Reader",
     "avatar": None,  # 头像文件名，如 "avatar.jpg"
     "heatmapColorScheme": "green",
+    "onboardingDontShow": False,  # 是否不再显示新手教程
 }
 
 # 默认 Agentic 设置（统一的AI功能配置）
@@ -343,6 +344,60 @@ def register_routes():
         search_index=search_index,
     )
 
+    # 先注册 Daily arXiv 路由，获取 manager 实例
+    from tools.basic_tools.daily_arxiv import get_manager
+
+    daily_arxiv_manager = get_manager(TEMP_PAPERS_DIR, DAILY_ARXIV_SETTINGS_FILE)
+
+    # 设置 LLM 配置回调
+    def get_llm_config():
+        try:
+            with open(AGENTIC_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+
+    daily_arxiv_manager.set_llm_config_callback(get_llm_config)
+
+    # 检查 LLM 配置是否完整
+    def is_llm_configured() -> bool:
+        llm_config = get_llm_config()
+        return bool(
+            llm_config.get("llmBaseUrl")
+            and llm_config.get("llmApiKey")
+            and llm_config.get("llmModel")
+        )
+
+    # 启动 Daily arXiv 的回调函数
+    def start_daily_arxiv_if_configured():
+        """如果 LLM 配置完整，启动 Daily arXiv 调度器"""
+        if is_llm_configured() and not daily_arxiv_manager._scheduler_running:
+            daily_arxiv_manager.start_scheduler()
+            print("[DailyArxiv] LLM 配置已完整，调度器已启动")
+
+    # 只有在 LLM 配置完整时才启动调度器
+    if is_llm_configured():
+        daily_arxiv_manager.start_scheduler()
+        print("[DailyArxiv] LLM 配置已完整，调度器已启动")
+    else:
+        print(
+            "[DailyArxiv] LLM 配置不完整，调度器未启动。请在设置中配置 LLM API 后手动启动。"
+        )
+
+    register_daily_arxiv_routes(
+        app,
+        daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
+        default_daily_arxiv_settings=DEFAULT_DAILY_ARXIV_SETTINGS,
+        temp_papers_dir=TEMP_PAPERS_DIR,
+        get_categories=get_categories,
+        get_category_path=get_category_path,
+        create_category_folder=create_category_folder,
+        save_paper_metadata=save_paper_metadata,
+        reading_list_file=READING_LIST_FILE,
+        reading_list_temp_dir=READING_LIST_TEMP_DIR,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
+    )
+
     register_settings_routes(
         app,
         user_settings_file=USER_SETTINGS_FILE,
@@ -351,6 +406,7 @@ def register_routes():
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
         default_agentic_settings=DEFAULT_AGENTIC_SETTINGS,
         avatars_dir=AVATARS_DIR,
+        start_daily_arxiv_callback=start_daily_arxiv_if_configured,
     )
 
     register_paper_operation_routes(
@@ -426,20 +482,6 @@ def register_routes():
     register_export_routes(
         app,
         papers_dir=UPLOAD_FOLDER,
-    )
-
-    register_daily_arxiv_routes(
-        app,
-        daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
-        default_daily_arxiv_settings=DEFAULT_DAILY_ARXIV_SETTINGS,
-        temp_papers_dir=TEMP_PAPERS_DIR,
-        get_categories=get_categories,
-        get_category_path=get_category_path,
-        create_category_folder=create_category_folder,
-        save_paper_metadata=save_paper_metadata,
-        reading_list_file=READING_LIST_FILE,
-        reading_list_temp_dir=READING_LIST_TEMP_DIR,
-        agentic_settings_file=AGENTIC_SETTINGS_FILE,
     )
 
     register_institution_mapping_routes(

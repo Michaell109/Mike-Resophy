@@ -18,6 +18,7 @@ def register_settings_routes(
     agentic_settings_file: str,
     default_agentic_settings: Dict[str, Any],
     avatars_dir: str,
+    start_daily_arxiv_callback=None,
 ) -> None:
 
     # ========================================
@@ -302,8 +303,36 @@ INPUT: <MARKDOWN>"""
 
         data = request.json or {}
         try:
+            # 检查 LLM 配置是否完整
+            llm_model = data.get("llmModel", "").strip()
+            llm_base_url = data.get("llmBaseUrl", "").strip()
+            llm_api_key = data.get("llmApiKey", "").strip()
+            is_llm_configured = bool(llm_model and llm_base_url and llm_api_key)
+
+            # 读取之前的配置，检查是否之前未配置完整
+            was_llm_configured = False
+            try:
+                with open(agentic_settings_file, "r", encoding="utf-8") as fp:
+                    old_settings = json.load(fp)
+                    old_model = old_settings.get("llmModel", "").strip()
+                    old_base_url = old_settings.get("llmBaseUrl", "").strip()
+                    old_api_key = old_settings.get("llmApiKey", "").strip()
+                    was_llm_configured = bool(old_model and old_base_url and old_api_key)
+            except:
+                pass
+
+            # 保存新配置
             with open(agentic_settings_file, "w", encoding="utf-8") as fp:
                 json.dump(data, fp, ensure_ascii=False, indent=2)
+
+            # 如果之前未配置完整，现在配置完整了，尝试启动 Daily arXiv
+            if not was_llm_configured and is_llm_configured and start_daily_arxiv_callback:
+                try:
+                    start_daily_arxiv_callback()
+                    print("[Settings] LLM 配置已完整，已尝试启动 Daily arXiv 调度器")
+                except Exception as e:
+                    print(f"[Settings] 启动 Daily arXiv 调度器失败: {e}")
+
             return jsonify({"success": True})
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500

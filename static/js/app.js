@@ -4610,6 +4610,15 @@ async function saveAgenticSettings(silent = false) {
             body: JSON.stringify(settings)
         });
         if (response.ok) {
+            // 更新 Daily arXiv 的 LLM 配置状态
+            if (typeof checkDailyArxivLLMConfig === 'function') {
+                await checkDailyArxivLLMConfig();
+                // 如果配置完整，重新渲染网格以更新按钮状态
+                if (typeof renderDailyArxivGrid === 'function') {
+                    renderDailyArxivGrid();
+                }
+            }
+            
             if (!silent) {
                 showMessage('AI功能设置已保存', 'success');
             }
@@ -5002,7 +5011,8 @@ async function getUserSettings() {
     return {
         name: 'Paper Reader',
         avatar: null,
-        heatmapColorScheme: 'green'
+        heatmapColorScheme: 'green',
+        onboardingDontShow: false
     };
 }
 
@@ -5014,7 +5024,8 @@ function getUserSettingsSync() {
     return {
         name: 'Paper Reader',
         avatar: null,
-        heatmapColorScheme: 'green'
+        heatmapColorScheme: 'green',
+        onboardingDontShow: false
     };
 }
 
@@ -8524,6 +8535,7 @@ let dailyArxivSettings = {
 };
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
 let dailyArxivSearchQuery = '';        // Daily arXiv 页面搜索查询
+let dailyArxivLLMConfigured = false;  // LLM 配置状态
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
 let dailyArxivSelectedCountries = new Set(); // 当前选中的地区过滤条件
 let dailyArxivSelectedKeywords = new Set(); // 当前选中的关键词过滤条件
@@ -8734,8 +8746,27 @@ function getBgColorForString(str) {
     return `hsl(${hue}, 70%, 92%)`;
 }
 
+// 检查 Daily arXiv LLM 配置
+async function checkDailyArxivLLMConfig() {
+    try {
+        const res = await fetch('/api/daily-arxiv/check-llm-config');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                dailyArxivLLMConfigured = data.is_configured;
+            }
+        }
+    } catch (err) {
+        console.error('检查 LLM 配置失败:', err);
+        dailyArxivLLMConfigured = false;
+    }
+}
+
 // 初始化 Daily arXiv
 async function initDailyArxiv() {
+    // 检查 LLM 配置
+    await checkDailyArxivLLMConfig();
+    
     // 加载设置
     await loadDailyArxivSettings();
     
@@ -9416,6 +9447,19 @@ function renderDailyArxivCategoryTags() {
 
 // 触发抓取论文（当前分区）
 async function triggerFetchPapers(force = false) {
+    // 检查 LLM 配置
+    if (!dailyArxivLLMConfigured) {
+        showMessage('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
+        // 切换到设置页面
+        switchTab('setting');
+        // 切换到 Agentic 设置面板
+        setTimeout(() => {
+            const agenticBtn = document.querySelector('[data-setting="agentic"]');
+            if (agenticBtn) agenticBtn.click();
+        }, 100);
+        return;
+    }
+    
     if (dailyArxivCategories.length === 0) {
         showMessage('请先配置 arXiv 分区', 'warning');
         return;
@@ -9453,6 +9497,19 @@ async function triggerFetchPapers(force = false) {
 
 // 触发抓取所有分区的论文
 async function triggerFetchAllCategories(force = false) {
+    // 检查 LLM 配置
+    if (!dailyArxivLLMConfigured) {
+        showMessage('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
+        // 切换到设置页面
+        switchTab('setting');
+        // 切换到 Agentic 设置面板
+        setTimeout(() => {
+            const agenticBtn = document.querySelector('[data-setting="agentic"]');
+            if (agenticBtn) agenticBtn.click();
+        }, 100);
+        return;
+    }
+    
     if (dailyArxivCategories.length === 0) {
         showMessage('请先配置 arXiv 分区', 'warning');
         return;
@@ -10043,22 +10100,39 @@ function renderDailyArxivGrid() {
                 // 显示"等待中"提示
                 // 添加类使 grid 容器居中
                 gridEl.classList.add('daily-arxiv-grid-no-results');
-                gridEl.innerHTML = `
-                    <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666; width: 100%;">
-                        <i class="fas fa-clock fa-3x" style="margin-bottom: 20px; color: #999;"></i>
-                        <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">暂无新论文</h3>
-                        <p style="margin-bottom: 30px; font-size: 1em; color: #888;">等待自动抓取，或点击下方按钮手动触发</p>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-                            <button class="btn btn-primary" onclick="triggerFetchPapers(false)">
-                                <i class="fas fa-sync"></i> 抓取当前分区
-                            </button>
-                            <button class="btn btn-secondary" onclick="triggerFetchAllCategories(false)">
-                                <i class="fas fa-sync-alt"></i> 抓取所有分区
-                            </button>
+                
+                // 检查 LLM 配置
+                if (!dailyArxivLLMConfigured) {
+                    gridEl.innerHTML = `
+                        <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666; width: 100%;">
+                            <i class="fas fa-exclamation-triangle fa-3x" style="margin-bottom: 20px; color: #f39c12;"></i>
+                            <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">LLM API 未配置</h3>
+                            <p style="margin-bottom: 30px; font-size: 1em; color: #888;">Daily arXiv 功能需要配置 LLM API 才能使用。请在设置中配置 LLM API（Model、Base URL、API Key）</p>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                                <button class="btn btn-primary" onclick="switchTab('setting'); setTimeout(() => { const btn = document.querySelector('[data-setting=\\'agentic\\']'); if (btn) btn.click(); }, 100);">
+                                    <i class="fas fa-cog"></i> 前往设置
+                                </button>
+                            </div>
                         </div>
-                        ${hint}
-                    </div>
-                `;
+                    `;
+                } else {
+                    gridEl.innerHTML = `
+                        <div class="daily-arxiv-waiting" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center; color: #666; width: 100%;">
+                            <i class="fas fa-clock fa-3x" style="margin-bottom: 20px; color: #999;"></i>
+                            <h3 style="margin-bottom: 10px; font-size: 1.5em; color: #555;">暂无新论文</h3>
+                            <p style="margin-bottom: 30px; font-size: 1em; color: #888;">等待自动抓取，或点击下方按钮手动触发</p>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                                <button class="btn btn-primary" onclick="triggerFetchPapers(false)">
+                                    <i class="fas fa-sync"></i> 抓取当前分区
+                                </button>
+                                <button class="btn btn-secondary" onclick="triggerFetchAllCategories(false)">
+                                    <i class="fas fa-sync-alt"></i> 抓取所有分区
+                                </button>
+                            </div>
+                            ${hint}
+                        </div>
+                    `;
+                }
             }
             if (emptyEl) emptyEl.style.display = 'none';
         } else {
@@ -11133,8 +11207,9 @@ function showDailyArxivView() {
     const dailyArxivTab = document.querySelector('.nav-tab[data-tab="daily-arxiv"]');
     if (dailyArxivTab) dailyArxivTab.classList.add('active');
     
-    // 加载设置、日期和论文
-    loadDailyArxivSettings().then(async () => {
+    // 检查 LLM 配置并加载设置、日期和论文
+    checkDailyArxivLLMConfig().then(async () => {
+        await loadDailyArxivSettings();
         // 先加载可用日期（这会设置 dailyArxivCurrentDate）
         await loadAvailableDates();
         
@@ -11841,10 +11916,13 @@ function showOnboardingModal() {
         modal.style.display = 'flex';
         // 防止背景滚动
         document.body.style.overflow = 'hidden';
+        console.log('[Onboarding] 新手指引弹窗已显示');
+    } else {
+        console.error('[Onboarding] 未找到新手指引模态框元素');
     }
 }
 
-function closeOnboardingModal() {
+async function closeOnboardingModal() {
     const modal = document.getElementById('onboarding-modal');
     const checkbox = document.getElementById('onboarding-dont-show');
     
@@ -11854,36 +11932,61 @@ function closeOnboardingModal() {
         document.body.style.overflow = '';
     }
     
-    // 如果用户勾选了"下次不再提醒"，保存到 localStorage
+    // 如果用户勾选了"下次不再提醒"，保存到用户设置
     if (checkbox && checkbox.checked) {
         try {
-            localStorage.setItem('onboarding_dont_show', 'true');
+            await saveUserSettings({ onboardingDontShow: true });
+            console.log('[Onboarding] 用户选择不再显示，已保存设置');
         } catch (e) {
-            console.error('保存新手指引设置失败:', e);
+            console.error('[Onboarding] 保存新手指引设置失败:', e);
+        }
+    } else {
+        // 用户没有勾选，确保设置为 false，下次还会显示
+        try {
+            await saveUserSettings({ onboardingDontShow: false });
+            console.log('[Onboarding] 用户未勾选"不再提醒"，下次仍会显示');
+        } catch (e) {
+            console.error('[Onboarding] 保存新手指引设置失败:', e);
         }
     }
 }
 
-function checkAndShowOnboarding() {
+async function checkAndShowOnboarding() {
     try {
-        // 检查是否已经设置过"下次不再提醒"
-        const dontShow = localStorage.getItem('onboarding_dont_show');
-        if (dontShow === 'true') {
-            return; // 用户已经选择不再显示
+        // 从用户设置中检查是否已经设置过"下次不再提醒"
+        const userSettings = await getUserSettings();
+        const dontShow = userSettings.onboardingDontShow;
+        
+        // 如果用户已选择不再显示，跳过弹窗
+        if (dontShow === true) {
+            console.log('[Onboarding] 用户已选择不再显示，跳过弹窗');
+            return;
         }
         
         // 显示新手指引
         // 延迟一点显示，确保页面已完全加载
+        console.log('[Onboarding] 显示新手指引弹窗（onboardingDontShow:', dontShow, '）');
         setTimeout(() => {
             showOnboardingModal();
         }, 500);
     } catch (e) {
-        console.error('检查新手指引设置失败:', e);
+        console.error('[Onboarding] 检查新手指引设置失败:', e);
     }
 }
 
 // 在页面加载完成后检查是否需要显示新手指引
-document.addEventListener('DOMContentLoaded', () => {
-    checkAndShowOnboarding();
-});
+// 使用立即执行函数，支持延迟加载的情况
+(function() {
+    async function initOnboarding() {
+        await checkAndShowOnboarding();
+    }
+    
+    // 如果 DOM 已经加载完成，立即执行
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initOnboarding);
+    } else {
+        // DOM 已经加载完成，直接执行（支持脚本延迟加载的情况）
+        initOnboarding();
+    }
+})();
 

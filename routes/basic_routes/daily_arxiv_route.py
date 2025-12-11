@@ -46,10 +46,10 @@ def register_daily_arxiv_routes(
     # 确保临时目录存在
     os.makedirs(temp_papers_dir, exist_ok=True)
 
-    # 获取管理器实例
+    # 获取管理器实例（单例模式，如果已在 app.py 中创建则返回同一个实例）
     manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
 
-    # 设置 LLM 配置回调
+    # 设置 LLM 配置回调（如果还没有设置）
     def get_llm_config():
         if agentic_settings_file:
             try:
@@ -59,10 +59,37 @@ def register_daily_arxiv_routes(
                 pass
         return {}
 
-    manager.set_llm_config_callback(get_llm_config)
+    # 只有在回调还没有设置时才设置（避免覆盖 app.py 中的设置）
+    if manager._get_llm_config is None:
+        manager.set_llm_config_callback(get_llm_config)
 
-    # 启动调度器
-    manager.start_scheduler()
+    # 检查 LLM 配置是否完整
+    def is_llm_configured() -> bool:
+        """检查 LLM 配置是否完整"""
+        llm_config = get_llm_config()
+        return bool(
+            llm_config.get("llmBaseUrl")
+            and llm_config.get("llmApiKey")
+            and llm_config.get("llmModel")
+        )
+
+    # ========================================
+    # Check LLM Configuration
+    # ========================================
+    @app.route("/api/daily-arxiv/check-llm-config", methods=["GET"])
+    def api_check_llm_config():
+        """检查 LLM 配置是否完整"""
+        try:
+            llm_config = get_llm_config()
+            is_configured = is_llm_configured()
+            return jsonify(
+                {
+                    "success": True,
+                    "is_configured": is_configured,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
 
     # ========================================
     # Daily arXiv Settings
@@ -155,6 +182,15 @@ def register_daily_arxiv_routes(
     def api_fetch_daily_arxiv():
         """手动触发抓取论文（自动抓取指定日期的所有论文）"""
         try:
+            # 检查 LLM 配置
+            if not is_llm_configured():
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                    }
+                ), 400
+
             data = request.json or {}
             category = data.get("category")
             date_str = data.get("date", get_today_arxiv_date())
@@ -218,6 +254,15 @@ def register_daily_arxiv_routes(
     def api_fetch_all_categories():
         """抓取所有配置的分区（自动抓取今天所有论文）"""
         try:
+            # 检查 LLM 配置
+            if not is_llm_configured():
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                    }
+                ), 400
+
             data = request.json or {}
             force = data.get("force", False)
 
@@ -665,6 +710,42 @@ def register_daily_arxiv_routes(
 
             return jsonify(
                 {"success": True, "message": f"已清理 {retention_days} 天前的论文"}
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    # ========================================
+    # Scheduler Control
+    # ========================================
+    @app.route("/api/daily-arxiv/scheduler/start", methods=["POST"])
+    def api_start_scheduler():
+        """手动启动调度器"""
+        try:
+            if not is_llm_configured():
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "LLM 配置不完整，请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                    }
+                ), 400
+
+            if manager._scheduler_running:
+                return jsonify(
+                    {
+                        "success": True,
+                        "message": "调度器已在运行",
+                        "is_running": True,
+                    }
+                )
+
+            manager.start_scheduler()
+            print("[DailyArxiv] 调度器已手动启动")
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "调度器已启动",
+                    "is_running": True,
+                }
             )
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500

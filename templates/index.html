@@ -146,7 +146,7 @@
     <div class="daily-arxiv-view" id="daily-arxiv-view" style="display: none;">
         <div class="daily-arxiv-header">
             <div class="daily-arxiv-title">
-                <h2><i class="fas fa-newspaper"></i> Daily arXiv</h2>
+                <h2><img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="arxiv-logo-icon"> Daily arXiv</h2>
                 <!-- 日期选择器 -->
                 <div class="daily-arxiv-date-selector" id="daily-arxiv-date-selector">
                     <button class="date-nav-btn" id="daily-arxiv-prev-date" title="前一天">
@@ -1120,17 +1120,35 @@
                 </div>
                 <div class="onboarding-step">
                     <div class="onboarding-step-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>3. Agentic Tools</h3>
+                        <p>支持 <strong>AI 解读</strong> 和 <strong>AI 翻译</strong> 功能。AI 解读可将论文转换为详细的 Markdown 格式解读文章，AI 翻译可生成中英双语 PDF。在论文列表中选择论文，点击右键菜单或使用批量操作即可使用。</p>
+                    </div>
+                </div>
+                <div class="onboarding-step">
+                    <div class="onboarding-step-icon">
                         <img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="onboarding-arxiv-icon">
                     </div>
                     <div class="onboarding-step-content">
-                        <h3>3. Daily arXiv</h3>
+                        <h3>4. Daily arXiv</h3>
                         <p>自动抓取每日最新论文，支持按机构、地区、关键词过滤。感兴趣的论文可一键导入到主库。</p>
+                    </div>
+                </div>
+                <div class="onboarding-step">
+                    <div class="onboarding-step-icon">
+                        <i class="fas fa-file-import"></i>
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>5. 从 Zotero 导入</h3>
+                        <p>支持从 Zotero 导入论文库。前往 <strong>Settings → Import</strong>，上传 Zotero 导出的 RDF 文件，系统会自动下载 PDF 并恢复分类结构。</p>
                     </div>
                 </div>
             </div>
             <div class="onboarding-footer">
                 <label class="onboarding-checkbox">
-                    <input type="checkbox" id="onboarding-dont-show" checked>
+                    <input type="checkbox" id="onboarding-dont-show">
                     <span>下次不再提醒</span>
                 </label>
                 <button class="btn btn-primary" onclick="closeOnboardingModal()">
