@@ -2,17 +2,17 @@
 
 ### 1.1 Install Resophy Main Service (Local)
 
-Resophy supports multiple installation methods. We recommend using `uv` for dependency management, but you can also use the traditional `conda` + `pip` approach. It supports separated deployment architecture, allowing you to deploy Resophy main service and AI servers on different machines.
+Resophy supports multiple installation methods. We recommend using `uv` for dependency management.
 
-**Method 1: Using uv (Recommended)**
+**Install using uv (Recommended)**
 
-On the machine where you want to run Resophy main service, install the local version (without AI server dependencies):
+On the machine where you want to run the Resophy main service, install the local version (without AI server dependencies):
 
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone repository
+# Clone the repository
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
 
@@ -23,26 +23,6 @@ source .venv/bin/activate  # Linux/macOS
 
 # Install local version (without AI server dependencies)
 uv pip install -e ".[local]"
-
-# Or, if you don't want to use virtual environment, install to system environment
-# uv pip install -e ".[local]" --system
-```
-
-**Method 2: Using conda + pip**
-
-If you prefer using conda for environment management, you can use the following approach:
-
-```bash
-# Clone repository
-git clone https://github.com/Mountchicken/Resophy.git
-cd Resophy
-
-# Create conda environment (Python 3.10+)
-conda create -n resophy python=3.10
-conda activate resophy
-
-# Install local version (without AI server dependencies)
-pip install -e ".[local]"
 ```
 
 **Start Resophy Main Service**
@@ -56,28 +36,26 @@ Parameter description:
 - `--host`: Server listening address (default: `0.0.0.0`)
 - `--port`: Server listening port (default: `7890`)
 
-After service starts, access `http://0.0.0.0:7890` in your browser to access Resophy interface.
+After the service starts, access the Resophy interface at `http://0.0.0.0:7890` in your browser.
 
-> **Note**: Local installation does not include dependencies required for AI features. If you need to use AI translation, AI analysis, etc., you need to:
+> **Note**: The local installation does not include dependencies required for AI features. If you need to use AI translation, AI analysis, and other features, you need to:
 > - Deploy AI servers on another machine (see section 1.2), or
-> - Use remote AI API services (such as OpenAI, DeepSeek, etc.), and configure API address and key in Resophy settings
+> - Use remote AI API services (such as OpenAI, DeepSeek, etc.) and configure the API address and key in Resophy settings
 
-### 1.2 Install AI Server Side (Optional)
+### 1.2 Install AI Server (Optional)
 
-> **Important Note**: AI servers can be deployed on different machines from Resophy main service. Resophy main service only needs the API addresses of these AI servers to use AI features. You can deploy AI servers on machines with GPUs based on resource availability, while Resophy main service can be deployed on any machine.
+> **Important**: AI servers can be deployed on different machines than the Resophy main service. The Resophy main service only needs the API addresses of these AI servers to use AI features. You can deploy AI servers on machines with GPUs based on your resources, while the Resophy main service can be deployed on any machine.
 
-On the machine where you want to deploy MinerU and LLM servers (recommended: machines with GPU), install the server version:
+On the machine where you want to deploy MinerU and LLM servers (recommended to have GPU), install the server version:
 
-**Method 1: Using uv (Recommended)**
+**Method Install using uv (Recommended)**
 
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone repository
+# Clone the repository
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
-
 # Create virtual environment (skip if local and server are on the same machine)
 uv venv
 source .venv/bin/activate  # Linux/macOS
@@ -87,40 +65,23 @@ source .venv/bin/activate  # Linux/macOS
 uv pip install -e ".[server]"
 ```
 
-**Method 2: Using conda + pip**
-
-```bash
-# Clone repository
-git clone https://github.com/Mountchicken/Resophy.git
-cd Resophy
-
-# Create conda environment (Python 3.10+, recommended with GPU-enabled PyTorch)
-conda create -n resophy-server python=3.10
-conda activate resophy-server
-
-# Install PyTorch (choose according to your CUDA version, example for CUDA 11.8)
-conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
-
-# Install server version (includes MinerU and LLM server dependencies)
-pip install -e ".[server]"
-```
-
 Resophy's AI features (**AI Translation**, **AI Analysis**, **Daily arXiv**) depend on the following services:
 
-- **LLM API Access**: For paper translation, analysis generation, and arXiv paper intelligent analysis
-- **MinerU Service**: For parsing PDF to Markdown format, supporting high-quality document structure recognition
+- **LLM API Access**: Used for paper translation, analysis generation, and arXiv paper intelligent analysis
+- **MinerU Service**: Used to parse PDFs into Markdown format, supporting high-quality document structure recognition
 
 The following are detailed deployment steps:
 
 #### 1.2.1 Deploy MinerU
 
-MinerU is used to parse PDF documents into structured Markdown format and is the foundation of AI analysis features.
+MinerU is used to parse PDF documents into structured Markdown format and is the foundation of the AI analysis feature.
 
-**Step1: Download MinerU2.5 Model**
+**Step 1: Download MinerU2.5 Model**
 
-MinerU requires downloading corresponding model files. Model files should be placed in the `ai_server/` directory:
+MinerU requires downloading the corresponding model files. Model files should be placed in the `ai_server/` directory:
 
 ```bash
+mkdir ai_server
 # download from huggingface
 huggingface-cli download opendatalab/MinerU2.5-2509-1.2B --local-dir ai_server/MinerU2.5-2509-1.2B
 
@@ -129,7 +90,7 @@ pip install modelscope
 modelscope download opendatalab/MinerU2.5-2509-1.2B --local_dir ai_server/MinerU2.5-2509-1.2B
 ```
 
-**Step2: Start MinerU vLLM Server**
+**Step 2: Start MinerU vLLM Server**
 
 ```bash
 mineru-vllm-server \
@@ -138,22 +99,23 @@ mineru-vllm-server \
   --port 6001
 ```
 
-MinerU will start an API server at `http://0.0.0.0:6001` for parsing PDF to Markdown format.
+MinerU will start an API server at `http://0.0.0.0:6001` for parsing PDFs into Markdown format.
 
-> **Note**: MinerU server requires GPU support. If using CPU inference, please refer to [MinerU official documentation](https://github.com/opendatalab/MinerU?tab=readme-ov-file#local-deployment) for configuration.
+> **Note**: MinerU server requires GPU support. If using CPU inference, please refer to the [MinerU official documentation](https://github.com/opendatalab/MinerU?tab=readme-ov-file#local-deployment) for configuration.
 
 #### 1.2.2 Configure LLM Server (vLLM or lmdeploy)
 
 Resophy's AI features require access to LLM API. You can use one of the following two methods:
 
-**Method 1: Use Locally Deployed LLM (Recommended)**
+**Method 1: Use locally deployed LLM (Recommended)**
 
-Use `lmdeploy` or `vllm` to deploy local LLM models. In our actual testing, using `Qwen3-4B-Instruct` as the base model achieves good results.
+Use `lmdeploy` or `vllm` to deploy a local LLM model. In our actual testing, using `Qwen3-4B-Instruct` as the base model achieves good results.
 
-**Step1: Download Model Weights**
+**Step 1: Download Model Weights**
 
 ```bash
 # download from huggingface
+mkdir ai_server
 huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir ai_server/Qwen3-4B-Instruct-2507
 
 # or download from modelscope (for Chinese users)
@@ -161,17 +123,17 @@ huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir ai_server/Qwen3
 modelscope download Qwen/Qwen3-4B-Instruct-2507 --local_dir ai_server/Qwen3-4B-Instruct-2507
 ```
 
-**Step2: Start LLM Server**
+**Step 2: Start LLM Server**
 
 ```bash
 # Single GPU deployment example (4B model)
 lmdeploy serve api_server ai_server/Qwen3-4B-Instruct-2507 \
   --api-key token-abc123 \
   --server-name 0.0.0.0 \
-  --server-port 6002 \
+  --server-port 6002
 ```
 
 **Method 2: Use Remote LLM API**
 
-If you use remote API services like OpenAI, DeepSeek, etc., you can directly configure API address and key in Resophy settings without local deployment.
+If you use remote API services such as OpenAI, DeepSeek, etc., you can directly configure the API address and key in Resophy settings without local deployment.
 

@@ -2,7 +2,7 @@
 
 ### 1.1 安装 Resophy 主服务（本地端）
 
-Resophy 支持多种安装方式，推荐使用 `uv` 进行依赖管理，也支持使用 `conda` + `pip` 的传统方式。支持分离部署架构，你可以将 Resophy 主服务和 AI 服务器部署在不同的机器上。
+Resophy 支持多种安装方式，推荐使用 `uv` 进行依赖管理。
 
 **方式一：使用 uv 安装（推荐）**
 
@@ -20,24 +20,6 @@ cd Resophy
 uv venv
 source .venv/bin/activate  # Linux/macOS
 # 或 Windows: .venv\Scripts\activate
-
-# 安装本地端版本（不包含 AI 服务器依赖）
-uv pip install -e ".[local]"
-```
-
-**方式二：使用 conda + uv 安装**
-
-如果你习惯使用 conda 管理环境，也可以使用以下方式：
-
-```bash
-# 克隆仓库
-git clone https://github.com/Mountchicken/Resophy.git
-cd Resophy
-
-# 创建 conda 环境（Python 3.10+）
-conda create -n resophy python=3.10
-conda activate resophy
-pip install uv
 
 # 安装本地端版本（不包含 AI 服务器依赖）
 uv pip install -e ".[local]"
@@ -81,17 +63,6 @@ source .venv/bin/activate  # Linux/macOS
 # 或 Windows: .venv\Scripts\activate
 
 # 安装服务器端版本（包含 MinerU 和 LLM 服务器依赖）
-uv pip install -e ".[server]"
-```
-
-**方式二：使用 conda + uv 安装**
-
-```bash
-# 克隆仓库
-cd Resophy
-conda activate resophy
-# 安装服务器端版本（包含 MinerU 和 LLM 服务器依赖）
-pip install uv
 uv pip install -e ".[server]"
 ```
 
