@@ -435,14 +435,14 @@
                                 <label for="llm-model">Model Name</label>
                                 <small>LLM 模型名称</small>
                             </div>
-                            <input type="text" id="llm-model" placeholder="Qwen3-30B-A3B-Instruct-2507" class="setting-input" />
+                            <input type="text" id="llm-model" placeholder="ai_server/Qwen3-4B-Instruct-2507" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="llm-base-url">Base URL</label>
                                 <small>OpenAI 兼容的 API 服务地址</small>
                             </div>
-                            <input type="text" id="llm-base-url" placeholder="http://192.168.81.133:8080/v1" class="setting-input" />
+                            <input type="text" id="llm-base-url" placeholder="http://0.0.0.0:6002/v1" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
@@ -477,7 +477,7 @@
                                 <small>PDF 解析服务地址</small>
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
-                                <input type="text" id="mineru-server-url" placeholder="http://192.168.81.138:9000" class="setting-input" style="width: 300px; max-width: 300px;" />
+                                <input type="text" id="mineru-server-url" placeholder="http://0.0.0.0:6002" class="setting-input" style="width: 300px; max-width: 300px;" />
                                 <button id="test-mineru-api" class="btn btn-secondary" style="white-space: nowrap;" title="测试 MinerU API 连接">
                                     <i class="fas fa-vial"></i> 测试
                                 </button>

@@ -162,19 +162,10 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-
 .vscode/
-
 *.json
 *.pdf
-vllm_server/MinerU2.5-2509-1.2B/
-vllm_server/Qwen3-14B/
 papers/
-vllm_server/MinerU/
-vllm_server/Embedding_server/
 *.rdf
-vllm_server/Qwen3-4B-Instruct-2507/
-vllm_server
-leizhang_papers/
-multi_user_papers/
-test_papers/
+ai_server/MinerU2.5-2509-1.2B
+ai_server/Qwen3-4B-Instruct-2507

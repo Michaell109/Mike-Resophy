@@ -6,4 +6,4 @@ arxiv>=2.3.0
 openai==2.7.1
 requests>=2.32.3
 rdflib==7.5.0
-Pillow==11.3.0 
+Pillow==11.3.0

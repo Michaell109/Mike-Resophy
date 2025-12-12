@@ -8,42 +8,50 @@ from typing import Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from core.base_paper import Paper
-from core.paper_store import paper_store
-from core.search_index import SearchIndex
-from routes.agent_routes.agent_summary_route import register_agent_summary_routes
-from routes.agent_routes.agent_translate_route import register_agent_translate_routes
-from routes.basic_routes.category_tree_route import register_category_routes
-from routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
-from routes.basic_routes.export_route import register_export_routes
-from routes.basic_routes.import_route import register_import_routes
-from routes.basic_routes.institution_mapping_route import (
+from resophy.core.base_paper import Paper
+from resophy.core.paper_store import paper_store
+from resophy.core.search_index import SearchIndex
+from resophy.routes.agent_routes.agent_summary_route import (
+    register_agent_summary_routes,
+)
+from resophy.routes.agent_routes.agent_translate_route import (
+    register_agent_translate_routes,
+)
+from resophy.routes.basic_routes.category_tree_route import register_category_routes
+from resophy.routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
+from resophy.routes.basic_routes.export_route import register_export_routes
+from resophy.routes.basic_routes.import_route import register_import_routes
+from resophy.routes.basic_routes.institution_mapping_route import (
     register_institution_mapping_routes,
 )
-from routes.basic_routes.paper_operation_route import register_paper_operation_routes
-from routes.basic_routes.search_route import register_search_routes
-from routes.basic_routes.settings_route import register_settings_routes
-from routes.basic_routes.update_from_url_route import register_update_from_url_routes
-from routes.basic_routes.upload_from_pdf_route import register_upload_from_pdf_routes
-from tools.basic_tools import category_manager, paper_repository
+from resophy.routes.basic_routes.paper_operation_route import (
+    register_paper_operation_routes,
+)
+from resophy.routes.basic_routes.search_route import register_search_routes
+from resophy.routes.basic_routes.settings_route import register_settings_routes
+from resophy.routes.basic_routes.update_from_url_route import (
+    register_update_from_url_routes,
+)
+from resophy.routes.basic_routes.upload_from_pdf_route import (
+    register_upload_from_pdf_routes,
+)
+from resophy.tools.basic_tools import category_manager, paper_repository
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./papers",
+    default="./test_papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(
     "--host",
     type=str,
-    default="192.168.81.138",
-    help="服务器监听地址（默认: 192.168.81.138）",
+    default="0.0.0.0",
+    help="服务器监听地址（默认: 0.0.0.0）",
 )
-parser.add_argument(
-    "--port", type=int, default=5005, help="服务器监听端口（默认: 5005）"
-)
+parser.add_argument("--port", type=int, default=7190, help="服务器监听端口（默认: 7190")
 parser.add_argument("--debug", action="store_true", help="启用调试模式")
 
 app = Flask(__name__)
@@ -345,7 +353,7 @@ def register_routes():
     )
 
     # 先注册 Daily arXiv 路由，获取 manager 实例
-    from tools.basic_tools.daily_arxiv import get_manager
+    from resophy.tools.basic_tools.daily_arxiv import get_manager
 
     daily_arxiv_manager = get_manager(TEMP_PAPERS_DIR, DAILY_ARXIV_SETTINGS_FILE)
 
