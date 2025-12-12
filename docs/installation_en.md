@@ -11,6 +11,7 @@ On the machine where you want to run the Resophy main service, install the local
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc # for macos
 
 # Clone the repository
 git clone https://github.com/Mountchicken/Resophy.git
@@ -53,6 +54,7 @@ On the machine where you want to deploy MinerU and LLM servers (recommended to h
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc # for macos
 # Clone the repository
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy

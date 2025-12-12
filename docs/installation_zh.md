@@ -11,6 +11,7 @@ Resophy 支持多种安装方式，推荐使用 `uv` 进行依赖管理。
 ```bash
 # 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc # for macos
 
 # 克隆仓库
 git clone https://github.com/Mountchicken/Resophy.git
@@ -54,6 +55,8 @@ python app.py --papers-dir ./papers --host 0.0.0.0 --port 7890
 ```bash
 # 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc # for macos
+
 # 克隆仓库
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
