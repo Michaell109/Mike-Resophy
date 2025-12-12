@@ -8,7 +8,7 @@
 
 In the era of rapid AI development, researchers need a **customizable modern paper reader** to accelerate knowledge acquisition. **Resophy** is a fully open-source, Vibe Coding-oriented modern paper reading and management platform.
 
-- **Vibe Coding Oriented**: All features are implemented through Cursor + Claude Sonnet 4.5, using a simple tech stack (HTML + JavaScript + Python Flask). You can modify the source code anytime through Vibe Coding to add features you need and create your own paper reading tool.
+- **Vibe Coding Oriented**: All features in Resophy are implemented through Cursor + Claude Sonnet 4.5, using a simple tech stack (HTML + JavaScript + Python Flask). You can modify the source code anytime through Vibe Coding to add features you need and create your own paper reading tool.
 
 #### Core Features
 
@@ -20,6 +20,27 @@ In the era of rapid AI development, researchers need a **customizable modern pap
 - 📥 **Easy Import/Export**: Support importing Zotero references for seamless migration, and Resophy data can be easily exported for multi-platform migration
 
 ## Table of Contents
+
+- [](#)
+    - [Core Features](#core-features)
+- [Table of Contents](#table-of-contents)
+- [1. Installation](#1-installation)
+- [2. Quick Start](#2-quick-start)
+  - [2.1 ⚙️ Initial Configuration](#21-️-initial-configuration)
+    - [📥 Import Papers from Zotero](#-import-papers-from-zotero)
+    - [🤖 Configure LLM API](#-configure-llm-api)
+    - [🔧 Configure MinerU API (for AI Analysis)](#-configure-mineru-api-for-ai-analysis)
+  - [2.2 🚀 Main Features](#22--main-features)
+    - [📚 Paper Management](#-paper-management)
+    - [🌐 AI Translation](#-ai-translation)
+    - [🧠 AI Analysis](#-ai-analysis)
+    - [📰 Daily arXiv](#-daily-arxiv)
+    - [📊 Other Features](#-other-features)
+- [3. 💻 Vibe Coding](#3--vibe-coding)
+  - [🚀 Getting Started with Vibe Coding](#-getting-started-with-vibe-coding)
+  - [📁 Project Structure](#-project-structure)
+  - [💡 Example: Adding New Features](#-example-adding-new-features)
+- [4. LICENSE](#4-license)
 
 ## 1. Installation
 

@@ -2,9 +2,9 @@
 
 ### 1.1 Install Resophy Main Service (Local)
 
-Resophy uses `uv` for dependency management and supports separated deployment architecture. You can deploy Resophy main service and AI servers on different machines.
+Resophy supports multiple installation methods. We recommend using `uv` for dependency management, but you can also use the traditional `conda` + `pip` approach. It supports separated deployment architecture, allowing you to deploy Resophy main service and AI servers on different machines.
 
-**Install Local Version (Run Resophy Main Service)**
+**Method 1: Using uv (Recommended)**
 
 On the machine where you want to run Resophy main service, install the local version (without AI server dependencies):
 
@@ -26,6 +26,23 @@ uv pip install -e ".[local]"
 
 # Or, if you don't want to use virtual environment, install to system environment
 # uv pip install -e ".[local]" --system
+```
+
+**Method 2: Using conda + pip**
+
+If you prefer using conda for environment management, you can use the following approach:
+
+```bash
+# Clone repository
+git clone https://github.com/Mountchicken/Resophy.git
+cd Resophy
+
+# Create conda environment (Python 3.10+)
+conda create -n resophy python=3.10
+conda activate resophy
+
+# Install local version (without AI server dependencies)
+pip install -e ".[local]"
 ```
 
 **Start Resophy Main Service**
@@ -51,6 +68,8 @@ After service starts, access `http://0.0.0.0:7890` in your browser to access Res
 
 On the machine where you want to deploy MinerU and LLM servers (recommended: machines with GPU), install the server version:
 
+**Method 1: Using uv (Recommended)**
+
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -66,6 +85,24 @@ source .venv/bin/activate  # Linux/macOS
 
 # Install server version (includes MinerU and LLM server dependencies)
 uv pip install -e ".[server]"
+```
+
+**Method 2: Using conda + pip**
+
+```bash
+# Clone repository
+git clone https://github.com/Mountchicken/Resophy.git
+cd Resophy
+
+# Create conda environment (Python 3.10+, recommended with GPU-enabled PyTorch)
+conda create -n resophy-server python=3.10
+conda activate resophy-server
+
+# Install PyTorch (choose according to your CUDA version, example for CUDA 11.8)
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# Install server version (includes MinerU and LLM server dependencies)
+pip install -e ".[server]"
 ```
 
 Resophy's AI features (**AI Translation**, **AI Analysis**, **Daily arXiv**) depend on the following services:

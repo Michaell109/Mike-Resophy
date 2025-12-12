@@ -1,9 +1,0 @@
-Flask==2.3.3
-Werkzeug==2.3.7
-PyPDF2==3.0.1
-PyMuPDF==1.25.2
-arxiv>=2.3.0
-openai==2.7.1
-requests>=2.32.3
-rdflib==7.5.0
-Pillow==11.3.0

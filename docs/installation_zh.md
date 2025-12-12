@@ -2,9 +2,9 @@
 
 ### 1.1 安装 Resophy 主服务（本地端）
 
-Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将 Resophy 主服务和 AI 服务器部署在不同的机器上。
+Resophy 支持多种安装方式，推荐使用 `uv` 进行依赖管理，也支持使用 `conda` + `pip` 的传统方式。支持分离部署架构，你可以将 Resophy 主服务和 AI 服务器部署在不同的机器上。
 
-**安装本地端（运行 Resophy 主服务）**
+**方式一：使用 uv 安装（推荐）**
 
 在需要运行 Resophy 主服务的机器上，安装本地端版本（不包含 AI 服务器依赖）：
 
@@ -23,9 +23,24 @@ source .venv/bin/activate  # Linux/macOS
 
 # 安装本地端版本（不包含 AI 服务器依赖）
 uv pip install -e ".[local]"
+```
 
-# 或者，如果不想使用虚拟环境，可以安装到系统环境
-# uv pip install -e ".[local]" --system
+**方式二：使用 conda + uv 安装**
+
+如果你习惯使用 conda 管理环境，也可以使用以下方式：
+
+```bash
+# 克隆仓库
+git clone https://github.com/Mountchicken/Resophy.git
+cd Resophy
+
+# 创建 conda 环境（Python 3.10+）
+conda create -n resophy python=3.10
+conda activate resophy
+pip install uv
+
+# 安装本地端版本（不包含 AI 服务器依赖）
+uv pip install -e ".[local]"
 ```
 
 **启动 Resophy 主服务**
@@ -52,20 +67,31 @@ python app.py --papers-dir ./papers --host 0.0.0.0 --port 7890
 
 在需要部署 MinerU 和 LLM 服务器的机器上（推荐有 GPU 的机器），安装服务器端版本：
 
+**方式一：使用 uv 安装（推荐）**
+
 ```bash
 # 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # 克隆仓库
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
-
 # 创建虚拟环境（如果是本地端和服务器端在同一台机器， 则跳过环境创建）
 uv venv
 source .venv/bin/activate  # Linux/macOS
 # 或 Windows: .venv\Scripts\activate
 
 # 安装服务器端版本（包含 MinerU 和 LLM 服务器依赖）
+uv pip install -e ".[server]"
+```
+
+**方式二：使用 conda + uv 安装**
+
+```bash
+# 克隆仓库
+cd Resophy
+conda activate resophy
+# 安装服务器端版本（包含 MinerU 和 LLM 服务器依赖）
+pip install uv
 uv pip install -e ".[server]"
 ```
 
@@ -85,6 +111,7 @@ MinerU 用于将 PDF 文档解析为结构化的 Markdown 格式，是 AI 解读
 MinerU 需要下载对应的模型文件。模型文件应放置在 `ai_server/` 目录下：
 
 ```bash
+mkdir ai_server
 # download from huggingface
 huggingface-cli download opendatalab/MinerU2.5-2509-1.2B --local-dir ai_server/MinerU2.5-2509-1.2B
 
@@ -119,6 +146,7 @@ Resophy 的 AI 功能需要访问 LLM API。你可以使用以下两种方式之
 
 ```bash
 # download from huggingface
+mkdir ai_server
 huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir ai_server/Qwen3-4B-Instruct-2507
 
 # or donwload from modelscope (for chinese users)

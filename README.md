@@ -1,7 +1,15 @@
-<div align=center>
-  <img src="assets/cover.png" >
-</div>
+<div align="center" xmlns="http://www.w3.org/1999/html">
+<!-- logo -->
+<p align="center">
+  <img src="assets/cover.png" width="400px" style="vertical-align:middle;">
+</p>
 
+
+<!-- language -->
+
+[English](README.md) | [简体中文](docs/README_en.md)
+
+</div>
 ----
 
 
@@ -9,14 +17,9 @@
 
 ----
 
-
-<div align=center>
-  [中文版 (Chinese)](README.md) | [English](docs/README_en.md)
-</div>
-
 在 AI 快速发展的时代，科研工作者需要一个**定制化的现代论文阅读器**，加快你对知识的获取。**Resophy** 是一个完全开源、面向 Vibe Coding 的现代论文阅读与管理平台。
 
-- **Vibe Coding Oriented**：所有功能都通过 Cursor + Claude Sonnet 4.5 实现，采用简单的技术栈（HTML + JavaScript + Python Flask），你可以随时通过 Vibe Coding 的方式修改源码，添加自己需要的功能，打造专属的论文阅读工具
+- **Vibe Coding Oriented**：Resophy 所有功能都通过 Cursor + Claude Sonnet 4.5 实现，采用简单的技术栈（HTML + JavaScript + Python Flask），你可以随时通过 Vibe Coding 的方式修改源码，添加自己需要的功能，打造专属的论文阅读工具
 
 #### 核心功能
 
@@ -30,6 +33,27 @@
 
 
 ## 目录
+
+- [](#)
+    - [核心功能](#核心功能)
+- [目录](#目录)
+- [1. 安装](#1-安装)
+- [2. 快速上手](#2-快速上手)
+  - [2.1 ⚙️ 初始配置](#21-️-初始配置)
+    - [📥 从 Zotero 导入论文](#-从-zotero-导入论文)
+    - [🤖 配置 LLM API](#-配置-llm-api)
+    - [🔧 配置 MinerU API（用于 AI 解读）](#-配置-mineru-api用于-ai-解读)
+  - [2.2. 🚀 主要功能使用](#22--主要功能使用)
+    - [📚 论文管理](#-论文管理)
+    - [🌐 AI 翻译](#-ai-翻译)
+    - [🧠 AI 解读](#-ai-解读)
+    - [📰 Daily arXiv](#-daily-arxiv)
+    - [📊 其他功能](#-其他功能)
+- [3. 💻 Vibe Coding](#3--vibe-coding)
+  - [🚀 开始 Vibe Coding](#-开始-vibe-coding)
+  - [📁 项目结构](#-项目结构)
+  - [💡 示例：添加新功能](#-示例添加新功能)
+- [4. LICENSE](#4-license)
 
 ## 1. 安装
 Resophy 采用前后端分离的架构：
@@ -73,7 +97,7 @@ Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将
 1. 点击头像进入设置界面
 2. 找到 "Agentic" 部分
 3. 配置 LLM API：
-   - **本地部署**：输入本地 LLM 服务器地址（如 `http://0.0.0.0:6124`）
+   - **本地部署**：输入本地 LLM 服务器地址（如 `http://0.0.0.0:6002/v1`）
    - **远程 API**：输入 API 地址和密钥（如 OpenAI、DeepSeek 等）
 4. 保存设置
 
@@ -81,7 +105,7 @@ Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将
 
 1. 点击头像进入设置界面
 2. 找到 "Agentic" 部分
-3. 输入 MinerU 服务器地址（如 `http://0.0.0.0:6123`）
+3. 输入 MinerU 服务器地址（如 `http://0.0.0.0:6001`）
 3. 保存设置
 
 

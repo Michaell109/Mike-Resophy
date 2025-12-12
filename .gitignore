@@ -167,5 +167,4 @@ cython_debug/
 *.pdf
 papers/
 *.rdf
-ai_server/MinerU2.5-2509-1.2B
-ai_server/Qwen3-4B-Instruct-2507
+ai_server/
