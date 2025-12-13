@@ -23,6 +23,7 @@ from resophy.tools.basic_tools.daily_arxiv import (
     get_manager,
     get_today_arxiv_date,
 )
+from resophy.tools.basic_tools.upload_paper import fetch_bibtex_from_dblp
 
 
 def register_daily_arxiv_routes(
@@ -42,6 +43,36 @@ def register_daily_arxiv_routes(
     """
     注册 Daily arXiv 相关路由
     """
+
+    def _fetch_bibtex_background(
+        paper_id: str,
+        title: str,
+        authors: str,
+        arxiv_id: str,
+        file_path: str,
+        category_id: str,
+        category_path: List[str],
+    ):
+        """后台获取 BibTeX 并更新论文"""
+        try:
+            print(f"[后台 BibTeX] 开始获取 BibTeX: {title[:50]}...")
+            bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
+
+            if bibtex:
+                paper = paper_store.get(paper_id)
+                if paper:
+                    paper.bibtex = bibtex
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
+                    save_paper_metadata(file_path, paper)
+                    print(f"[后台 BibTeX] ✅ BibTeX 已更新: {paper_id}")
+                else:
+                    print(f"[后台 BibTeX] ❌ 找不到论文: {paper_id}")
+            else:
+                print(f"[后台 BibTeX] ❌ 未获取到 BibTeX")
+        except Exception as exc:
+            print(f"[后台 BibTeX] ❌ 获取 BibTeX 失败: {exc}")
 
     # 确保临时目录存在
     os.makedirs(temp_papers_dir, exist_ok=True)
@@ -281,7 +312,9 @@ def register_daily_arxiv_routes(
 
             data = request.json or {}
             force = data.get("force", False)
-            date_str = data.get("date", get_today_arxiv_date())  # 如果指定了日期则使用，否则使用今天的日期
+            date_str = data.get(
+                "date", get_today_arxiv_date()
+            )  # 如果指定了日期则使用，否则使用今天的日期
 
             settings = manager.get_settings()
             categories = settings.get("categories", [])
@@ -496,6 +529,24 @@ def register_daily_arxiv_routes(
                             )
                 except Exception as e:
                     print(f"添加到待读列表失败: {e}")
+
+            # 【后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）】
+            if paper.title:
+                thread = threading.Thread(
+                    target=_fetch_bibtex_background,
+                    args=(
+                        paper.id,
+                        paper.title,
+                        paper.authors or "",  # authors 可以为空
+                        arxiv_id,
+                        target_path,
+                        category_id,
+                        category_path,
+                    ),
+                    daemon=True,
+                )
+                thread.start()
+                print(f"[DailyArxiv] 论文已添加，BibTeX 后台获取中...")
 
             return jsonify(
                 {

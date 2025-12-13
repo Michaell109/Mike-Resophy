@@ -287,14 +287,14 @@ def register_update_from_url_routes(
             save_paper_metadata(file_path, registered_paper)
             _add_to_reading_list(registered_paper.id)
 
-            # 【后台获取 DBLP BibTeX】
-            if metadata.get("title") and metadata.get("authors"):
+            # 【后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）】
+            if metadata.get("title"):
                 thread = threading.Thread(
                     target=_fetch_dblp_bibtex_background,
                     args=(
                         paper_id,
                         metadata["title"],
-                        metadata["authors"],
+                        metadata.get("authors", ""),  # authors 可以为空
                         arxiv_id,
                         file_path,
                         category_id,
@@ -303,7 +303,7 @@ def register_update_from_url_routes(
                     daemon=True,
                 )
                 thread.start()
-                print(f"[立即返回] 论文已添加，DBLP BibTeX 后台获取中...")
+                print(f"[立即返回] 论文已添加，BibTeX 后台获取中...")
 
             return jsonify({"success": True, "paper": registered_paper.to_dict()})
 

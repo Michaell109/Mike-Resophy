@@ -159,17 +159,14 @@ def register_upload_from_pdf_routes(
                 save_paper_metadata(new_file_path, paper)
                 print(f"[后台 阶段1] ✅ arXiv 信息已更新: {new_filename}")
 
-                # 【阶段2】后台获取 DBLP BibTeX
-                if (
-                    paper_info.get("title")
-                    and paper_info.get("authors")
-                    and paper_info.get("arxiv_id")
-                ):
-                    print(f"[后台 阶段2] 开始获取 DBLP BibTeX...")
+                # 【阶段2】后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）
+                if paper_info.get("title") and paper_info.get("authors"):
+                    print(f"[后台 阶段2] 开始获取 BibTeX...")
+                    arxiv_id = paper_info.get("arxiv_id")
                     bibtex = fetch_bibtex_from_dblp(
                         title=paper_info["title"],
                         authors=paper_info["authors"],
-                        arxiv_id=paper_info["arxiv_id"],
+                        arxiv_id=arxiv_id or "",
                     )
                     if bibtex:
                         paper.bibtex = bibtex
@@ -177,9 +174,9 @@ def register_upload_from_pdf_routes(
                             paper, category_id=category_id, category_path=category_path
                         )
                         save_paper_metadata(new_file_path, paper)
-                        print(f"[后台 阶段2] ✅ DBLP BibTeX 已更新")
+                        print(f"[后台 阶段2] ✅ BibTeX 已更新")
                     else:
-                        print(f"[后台 阶段2] ❌ 未获取到 DBLP BibTeX")
+                        print(f"[后台 阶段2] ❌ 未获取到 BibTeX")
 
                 print(f"[后台] 论文元数据处理完成: {new_filename}")
             else:
