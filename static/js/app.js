@@ -9017,6 +9017,61 @@ function getBgColorForString(str) {
     return `hsl(${hue}, 70%, 92%)`;
 }
 
+// 重启 Daily arXiv 抓取（先测试 LLM API，然后开始抓取）
+async function restartDailyArxivFetch() {
+    // 先移除现有通知（如果有），给用户反馈
+    const existingNotification = document.getElementById('daily-arxiv-api-notification');
+    if (existingNotification) {
+        existingNotification.style.animation = 'slideInRight 0.3s ease-out reverse';
+        setTimeout(() => {
+            if (existingNotification.parentElement) {
+                existingNotification.remove();
+            }
+        }, 300);
+    }
+    
+    // 等待动画完成后再测试
+    await new Promise(resolve => setTimeout(resolve, 350));
+    
+    // 先测试 LLM API
+    const testResult = await testLLMAPIForDailyArxiv();
+    if (!testResult.success) {
+        // 测试失败，重新显示错误提示（带刷新效果）
+        const actionButton = `
+            <button class="notification-action-btn" onclick="restartDailyArxivFetch()" style="
+                background: #c62828;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                margin-left: 8px;
+                transition: background 0.2s;
+            " onmouseover="this.style.background='#a02020'" onmouseout="this.style.background='#c62828'" title="重新测试并启动抓取">
+                <i class="fas fa-redo"></i> 重启
+            </button>
+        `;
+        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true, 'daily-arxiv-api-notification', actionButton);
+        return;
+    }
+    
+    // 测试通过，更新配置状态
+    dailyArxivLLMConfigured = true;
+    
+    // 使用当前查看的日期（如果没有则使用今天的日期）
+    const dateToFetch = dailyArxivCurrentDate || new Date().toISOString().split('T')[0];
+    
+    // 开始抓取（根据当前视图决定抓取单个分区还是所有分区）
+    if (dailyArxivCurrentCategory && dailyArxivCurrentCategory !== 'all') {
+        // 抓取当前分区
+        await triggerFetchPapers(false);
+    } else {
+        // 抓取所有分区（使用当前查看的日期）
+        await triggerFetchAllCategories(false, dateToFetch);
+    }
+}
+
 // 检查 Daily arXiv LLM 配置
 async function checkDailyArxivLLMConfig() {
     try {
@@ -9028,8 +9083,23 @@ async function checkDailyArxivLLMConfig() {
                 
                 // 检查 LLM API 是否失败
                 if (data.llm_api_failed) {
-                    // 显示常驻弹窗
-                    showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
+                    // 显示常驻弹窗，带重启按钮
+                    const actionButton = `
+                        <button class="notification-action-btn" onclick="restartDailyArxivFetch()" style="
+                            background: #c62828;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 4px 12px;
+                            font-size: 12px;
+                            cursor: pointer;
+                            margin-left: 8px;
+                            transition: background 0.2s;
+                        " onmouseover="this.style.background='#a02020'" onmouseout="this.style.background='#c62828'" title="重新测试并启动抓取">
+                            <i class="fas fa-redo"></i> 重启
+                        </button>
+                    `;
+                    showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true, 'daily-arxiv-api-notification', actionButton);
                 } else {
                     // 如果 API 正常，移除弹窗（如果存在）
                     const notification = document.getElementById('daily-arxiv-api-notification');
@@ -9812,7 +9882,7 @@ async function testLLMAPIForDailyArxiv() {
 }
 
 // 显示圆角弹窗提示（参考 ti-item 设计，常驻显示）
-function showRoundedNotification(message, type = 'error', persistent = true, notificationId = 'daily-arxiv-api-notification') {
+function showRoundedNotification(message, type = 'error', persistent = true, notificationId = 'daily-arxiv-api-notification', actionButton = null) {
     // 如果已存在通知，只更新内容
     let notification = document.getElementById(notificationId);
     
@@ -9821,6 +9891,19 @@ function showRoundedNotification(message, type = 'error', persistent = true, not
         const messageSpan = notification.querySelector('span');
         if (messageSpan) {
             messageSpan.textContent = message;
+        }
+        // 更新操作按钮（如果提供）
+        if (actionButton) {
+            const existingActionBtn = notification.querySelector('.notification-action-btn');
+            if (existingActionBtn) {
+                existingActionBtn.outerHTML = actionButton;
+            } else {
+                // 在关闭按钮前插入操作按钮
+                const closeBtn = notification.querySelector('button[onclick*="remove"]');
+                if (closeBtn) {
+                    closeBtn.insertAdjacentHTML('beforebegin', actionButton);
+                }
+            }
         }
         return;
     }
@@ -9863,6 +9946,7 @@ function showRoundedNotification(message, type = 'error', persistent = true, not
     notification.innerHTML = `
         <i class="fas fa-exclamation-triangle" style="font-size: 14px;"></i>
         <span>${message}</span>
+        ${actionButton || ''}
         <button onclick="this.parentElement.remove()" style="
             background: none;
             border: none;
@@ -9938,17 +10022,34 @@ async function triggerFetchPapers(force = false) {
     // 在抓取前测试 LLM API
     const testResult = await testLLMAPIForDailyArxiv();
     if (!testResult.success) {
-        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
+        const actionButton = `
+            <button class="notification-action-btn" onclick="restartDailyArxivFetch()" style="
+                background: #c62828;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                margin-left: 8px;
+                transition: background 0.2s;
+            " onmouseover="this.style.background='#a02020'" onmouseout="this.style.background='#c62828'" title="重新测试并启动抓取">
+                <i class="fas fa-redo"></i> 重启抓取
+            </button>
+        `;
+        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true, 'daily-arxiv-api-notification', actionButton);
         return;
     }
     
     try {
-        // 触发后台抓取
+        // 触发后台抓取（使用当前查看的日期，如果没有则使用今天的日期）
+        const dateToFetch = dailyArxivCurrentDate || new Date().toISOString().split('T')[0];
         const res = await fetch('/api/daily-arxiv/fetch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 category: dailyArxivCurrentCategory,
+                date: dateToFetch,
                 force: force,
             })
         });
@@ -9969,7 +10070,7 @@ async function triggerFetchPapers(force = false) {
 }
 
 // 触发抓取所有分区的论文
-async function triggerFetchAllCategories(force = false) {
+async function triggerFetchAllCategories(force = false, dateStr = null) {
     // 检查 LLM 配置
     if (!dailyArxivLLMConfigured) {
         showRoundedNotification('请先在设置中配置 LLM API（Model、Base URL、API Key）', 'warning');
@@ -9991,16 +10092,35 @@ async function triggerFetchAllCategories(force = false) {
     // 在抓取前测试 LLM API
     const testResult = await testLLMAPIForDailyArxiv();
     if (!testResult.success) {
-        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true);
+        const actionButton = `
+            <button class="notification-action-btn" onclick="restartDailyArxivFetch()" style="
+                background: #c62828;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                margin-left: 8px;
+                transition: background 0.2s;
+            " onmouseover="this.style.background='#a02020'" onmouseout="this.style.background='#c62828'" title="重新测试并启动抓取">
+                <i class="fas fa-redo"></i> 重启抓取
+            </button>
+        `;
+        showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true, 'daily-arxiv-api-notification', actionButton);
         return;
     }
     
     try {
-        // 触发后台抓取所有分区
+        // 触发后台抓取所有分区（如果指定了日期则使用，否则使用今天的日期）
+        const dateToFetch = dateStr || new Date().toISOString().split('T')[0];
         const res = await fetch('/api/daily-arxiv/fetch-all', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ force: force })
+            body: JSON.stringify({ 
+                force: force,
+                date: dateToFetch
+            })
         });
         
         const data = await res.json();

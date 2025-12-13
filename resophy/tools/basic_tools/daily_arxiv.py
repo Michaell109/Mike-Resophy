@@ -749,6 +749,9 @@ class DailyArxivManager:
 
             all_results = []
             checked_count = 0
+            consecutive_older_count = 0  # 连续找到更早日期的论文数量
+            min_check_count = 100  # 至少检查的论文数量
+            max_consecutive_older = 20  # 连续找到更早日期论文的最大数量，超过则停止
 
             for result in self.client.results(search):
                 checked_count += 1
@@ -762,12 +765,19 @@ class DailyArxivManager:
                 if paper_date and paper_date == target_date:
                     # 是目标日期的论文，添加到结果中
                     all_results.append(result)
+                    consecutive_older_count = 0  # 重置连续更早日期计数
                 elif paper_date and paper_date < target_date:
-                    # 找到了比目标日期更早的论文，停止抓取
-                    print(
-                        f"[DailyArxiv] 找到 {paper_date} 的论文（早于目标日期 {target_date}），停止抓取"
-                    )
-                    break
+                    # 找到了比目标日期更早的论文
+                    consecutive_older_count += 1
+                    # 只有在至少检查了一定数量的论文，且连续找到多篇更早日期的论文时，才停止
+                    if (
+                        checked_count >= min_check_count
+                        and consecutive_older_count >= max_consecutive_older
+                    ):
+                        print(
+                            f"[DailyArxiv] 已检查 {checked_count} 篇论文，连续找到 {consecutive_older_count} 篇更早日期的论文（{paper_date} < {target_date}），停止抓取"
+                        )
+                        break
                 # 如果是未来日期的论文，跳过（通常不会出现）
 
                 # 定期输出进度

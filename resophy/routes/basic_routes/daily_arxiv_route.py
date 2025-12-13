@@ -281,14 +281,13 @@ def register_daily_arxiv_routes(
 
             data = request.json or {}
             force = data.get("force", False)
+            date_str = data.get("date", get_today_arxiv_date())  # 如果指定了日期则使用，否则使用今天的日期
 
             settings = manager.get_settings()
             categories = settings.get("categories", [])
 
             if not categories:
                 return jsonify({"success": False, "error": "未配置分区"}), 400
-
-            date_str = get_today_arxiv_date()
 
             # 在后台线程中执行抓取
             def do_fetch_all():
