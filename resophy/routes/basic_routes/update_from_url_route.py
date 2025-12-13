@@ -14,9 +14,7 @@ from flask import Flask, jsonify, request
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.upload_paper import (
-    fetch_bibtex_from_dblp,
-    fetch_paper_by_arxiv_id_fast,
-)
+    fetch_bibtex_from_dblp, fetch_paper_by_arxiv_id_fast)
 
 
 class GetCategoriesFn(Protocol):
