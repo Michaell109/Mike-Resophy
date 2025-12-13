@@ -9017,18 +9017,23 @@ function getBgColorForString(str) {
     return `hsl(${hue}, 70%, 92%)`;
 }
 
-// 重启 Daily arXiv 抓取（先测试 LLM API，然后开始抓取）
-async function restartDailyArxivFetch() {
-    // 先移除现有通知（如果有），给用户反馈
-    const existingNotification = document.getElementById('daily-arxiv-api-notification');
-    if (existingNotification) {
-        existingNotification.style.animation = 'slideInRight 0.3s ease-out reverse';
+// 移除通知（带动画效果）
+function removeNotificationWithAnimation(notificationId = 'daily-arxiv-api-notification') {
+    const notification = document.getElementById(notificationId);
+    if (notification) {
+        notification.style.animation = 'slideOutRight 0.3s ease-out';
         setTimeout(() => {
-            if (existingNotification.parentElement) {
-                existingNotification.remove();
+            if (notification.parentElement) {
+                notification.remove();
             }
         }, 300);
     }
+}
+
+// 重启 Daily arXiv 抓取（先测试 LLM API，然后开始抓取）
+async function restartDailyArxivFetch() {
+    // 先移除现有通知（如果有），给用户反馈
+    removeNotificationWithAnimation('daily-arxiv-api-notification');
     
     // 等待动画完成后再测试
     await new Promise(resolve => setTimeout(resolve, 350));
@@ -9101,11 +9106,8 @@ async function checkDailyArxivLLMConfig() {
                     `;
                     showRoundedNotification('LLM API 调用失败，停止 Daily arXiv，请检查 LLM API 设置。', 'error', true, 'daily-arxiv-api-notification', actionButton);
                 } else {
-                    // 如果 API 正常，移除弹窗（如果存在）
-                    const notification = document.getElementById('daily-arxiv-api-notification');
-                    if (notification) {
-                        notification.remove();
-                    }
+                    // 如果 API 正常，移除弹窗（如果存在，带动画）
+                    removeNotificationWithAnimation('daily-arxiv-api-notification');
                 }
             }
         }
@@ -9947,7 +9949,7 @@ function showRoundedNotification(message, type = 'error', persistent = true, not
         <i class="fas fa-exclamation-triangle" style="font-size: 14px;"></i>
         <span>${message}</span>
         ${actionButton || ''}
-        <button onclick="this.parentElement.remove()" style="
+        <button onclick="removeNotificationWithAnimation('${notificationId}')" style="
             background: none;
             border: none;
             color: inherit;
@@ -9978,6 +9980,16 @@ function showRoundedNotification(message, type = 'error', persistent = true, not
                     opacity: 1;
                 }
             }
+            @keyframes slideOutRight {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+            }
         `;
         document.head.appendChild(style);
     }
@@ -9987,10 +9999,7 @@ function showRoundedNotification(message, type = 'error', persistent = true, not
     // 如果 persistent 为 false，5秒后自动移除
     if (!persistent) {
         setTimeout(() => {
-            if (notification.parentElement) {
-                notification.style.animation = 'slideInRight 0.3s ease-out reverse';
-                setTimeout(() => notification.remove(), 300);
-            }
+            removeNotificationWithAnimation(notificationId);
         }, 5000);
     }
 }
