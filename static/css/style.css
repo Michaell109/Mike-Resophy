@@ -1407,6 +1407,14 @@ body {
     transform: translateY(-1px);
 }
 
+.reading-list-label {
+    color: #8b6ba8;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0 8px;
+    white-space: nowrap;
+}
+
 .papers-list {
     flex: 1;
     overflow-y: auto;

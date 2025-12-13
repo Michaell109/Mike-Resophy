@@ -355,7 +355,8 @@ function setupEventListeners() {
 
     // 上传按钮
     document.getElementById('upload-btn').addEventListener('click', () => {
-        if (currentCategoryId) {
+        // 如果在待读列表界面，也允许上传
+        if (currentCategoryId || currentViewMode === 'reading-list') {
             fileInput.click();
         } else {
             showMessage('请先选择一个分类', 'warning');
@@ -807,6 +808,11 @@ async function loadPapers(categoryId, recursive = false) {
         currentViewMode = 'category';
         currentCategoryId = categoryId;
         saveCurrentViewState();
+        // 隐藏"待读列表"标签
+        const readingListLabel = document.getElementById('reading-list-label');
+        if (readingListLabel) {
+            readingListLabel.style.display = 'none';
+        }
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 如果点击了分类，选中它
@@ -851,6 +857,11 @@ async function showTranslatingPapers() {
         currentViewMode = 'translating';
         currentCategoryId = null; // 清除分类选中
         saveCurrentViewState();
+        // 隐藏"待读列表"标签
+        const readingListLabel = document.getElementById('reading-list-label');
+        if (readingListLabel) {
+            readingListLabel.style.display = 'none';
+        }
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 更新标题
@@ -923,6 +934,11 @@ async function showReadingList() {
         const currentCategoryTitle = document.getElementById('current-category');
         if (currentCategoryTitle) {
             currentCategoryTitle.textContent = `待读列表 (${readingListCount} 篇)`;
+        }
+        // 显示"待读列表"标签
+        const readingListLabel = document.getElementById('reading-list-label');
+        if (readingListLabel) {
+            readingListLabel.style.display = 'inline-block';
         }
         // 从后端获取待读列表
         papersList.innerHTML = `
@@ -1095,6 +1111,11 @@ async function showAnalyzingPapers() {
         currentViewMode = 'analyzing';
         currentCategoryId = null; // 清除分类选中
         saveCurrentViewState();
+        // 隐藏"待读列表"标签
+        const readingListLabel = document.getElementById('reading-list-label');
+        if (readingListLabel) {
+            readingListLabel.style.display = 'none';
+        }
         // 清除分类树中的选中状态
         document.querySelectorAll('.category-item.selected').forEach(item => item.classList.remove('selected'));
         // 更新标题
@@ -11952,6 +11973,12 @@ async function showDailyArxivView() {
     document.getElementById('paper-view').style.display = 'none';
     document.getElementById('setting-view').style.display = 'none';
     document.getElementById('daily-arxiv-view').style.display = 'block';
+    
+    // 隐藏"待读列表"标签
+    const readingListLabel = document.getElementById('reading-list-label');
+    if (readingListLabel) {
+        readingListLabel.style.display = 'none';
+    }
     
     // 更新导航栏状态
     document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
