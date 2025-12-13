@@ -10,7 +10,7 @@
 [English](README.md) | [简体中文](docs/README_en.md)
 
 </div>
-----
+
 
 
 [![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/25f15670-1259-4e87-88a9-2648dcd78272)
@@ -34,8 +34,6 @@
 
 ## 目录
 
-- [](#)
-    - [核心功能](#核心功能)
 - [目录](#目录)
 - [1. 安装](#1-安装)
 - [2. 快速上手](#2-快速上手)

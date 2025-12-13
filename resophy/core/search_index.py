@@ -161,15 +161,99 @@ class SearchIndex:
         except Exception:
             return False
 
+    def _try_repair_fts5_index(self) -> bool:
+        """
+        尝试修复 FTS5 索引同步问题（轻量级修复）
+
+        Returns:
+            True 如果修复成功，False 如果修复失败需要完全重建
+        """
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=FULL")
+            try:
+                cursor = conn.cursor()
+                # 删除旧的触发器
+                cursor.execute("DROP TRIGGER IF EXISTS papers_fts_insert")
+                cursor.execute("DROP TRIGGER IF EXISTS papers_fts_delete")
+                cursor.execute("DROP TRIGGER IF EXISTS papers_fts_update")
+
+                # 尝试删除并重建 FTS5 索引
+                cursor.execute("DROP TABLE IF EXISTS papers_fts")
+                cursor.execute(
+                    """
+                    CREATE VIRTUAL TABLE papers_fts USING fts5(
+                        id UNINDEXED,
+                        title,
+                        authors,
+                        abstract,
+                        notes,
+                        content='papers',
+                        content_rowid='rowid'
+                    )
+                    """
+                )
+
+                # 重新创建触发器，自动更新 FTS 索引
+                cursor.execute(
+                    """
+                    CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
+                        INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract, new.notes);
+                    END
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TRIGGER papers_fts_delete AFTER DELETE ON papers BEGIN
+                        DELETE FROM papers_fts WHERE rowid = old.rowid;
+                    END
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TRIGGER papers_fts_update AFTER UPDATE ON papers BEGIN
+                        DELETE FROM papers_fts WHERE rowid = old.rowid;
+                        INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                        VALUES (new.rowid, new.id, new.title, new.authors, new.abstract, new.notes);
+                    END
+                    """
+                )
+
+                # 重新从 papers 表填充 FTS5 索引
+                cursor.execute(
+                    """
+                    INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
+                    SELECT rowid, id, title, authors, abstract, notes FROM papers
+                    """
+                )
+                conn.commit()
+                print("FTS5 索引同步修复成功")
+                return True
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"FTS5 索引修复失败，需要完全重建: {e}")
+            return False
+
     def _repair_database(self) -> None:
-        """修复损坏的数据库：删除并重建"""
+        """修复损坏的数据库：先尝试轻量级修复，失败则删除并重建"""
         # 如果已经在重建中，跳过
         with self._rebuild_lock:
             if self._is_rebuilding:
                 return
 
-            print(f"检测到数据库损坏，正在修复: {self.db_path}")
+            print(f"检测到数据库问题，正在尝试修复: {self.db_path}")
             try:
+                # 先尝试轻量级修复（仅修复 FTS5 索引同步问题）
+                if self._try_repair_fts5_index():
+                    print("索引同步问题已修复")
+                    return
+
+                # 如果轻量级修复失败，执行完全重建
+                print("轻量级修复失败，执行完全重建...")
+
                 # 备份损坏的数据库
                 if os.path.exists(self.db_path):
                     backup_path = self.db_path + ".corrupted"
@@ -340,8 +424,14 @@ class SearchIndex:
                 self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"索引论文时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"索引论文时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                 else:
                     raise
@@ -367,8 +457,14 @@ class SearchIndex:
                 self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"删除论文时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"删除论文时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                 else:
                     raise
@@ -398,8 +494,14 @@ class SearchIndex:
                 self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"更新分类时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"更新分类时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                 else:
                     raise
@@ -648,12 +750,19 @@ class SearchIndex:
 
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    # 搜索时遇到数据库损坏，不立即触发重建（避免阻塞）
+                # 检测数据库损坏或 FTS5 索引不同步的错误
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg  # FTS5 同步错误
+                    or "fts5" in error_msg  # FTS5 相关错误
+                )
+                if is_db_error:
+                    # 搜索时遇到数据库损坏或索引不同步，不立即触发重建（避免阻塞）
                     # 只记录错误并返回空结果，重建会在后台进行
                     if not self._is_rebuilding:
-                        print(f"搜索时检测到数据库损坏: {e}")
-                        print("正在后台修复数据库，请稍后重试搜索...")
+                        print(f"搜索时检测到数据库问题（可能是索引不同步）: {e}")
+                        print("正在后台修复数据库和重建索引，请稍后重试搜索...")
                         # 异步触发修复和重建，不阻塞搜索
                         import threading
 
@@ -737,8 +846,14 @@ class SearchIndex:
                     conn.close()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"重建索引时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"重建索引时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                     # 修复后重新尝试（重置标志后递归调用）
                     if papers:
@@ -782,8 +897,14 @@ class SearchIndex:
                     conn.close()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"获取论文数量时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"获取论文数量时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                     return 0
                 else:
@@ -806,8 +927,14 @@ class SearchIndex:
                     conn.close()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                if "malformed" in error_msg or "corrupt" in error_msg:
-                    print(f"清空索引时数据库损坏: {e}")
+                is_db_error = (
+                    "malformed" in error_msg
+                    or "corrupt" in error_msg
+                    or "missing row" in error_msg
+                    or "fts5" in error_msg
+                )
+                if is_db_error:
+                    print(f"清空索引时检测到数据库问题（可能是索引不同步）: {e}")
                     self._repair_database()
                 else:
                     raise
