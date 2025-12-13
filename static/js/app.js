@@ -6871,6 +6871,7 @@ async function getAnalysisSettings() {
 // 导入状态
 let importEventSource = null;
 let importInProgress = false;
+let currentImportTaskId = null;
 
 // 初始化导入功能
 async function initImportFeature() {
@@ -7282,6 +7283,7 @@ async function checkExistingImportTask() {
             );
             
             // 重新连接 SSE
+            currentImportTaskId = data.task_id;
             startImportProgressStream(data.task_id);
         } else if (data.has_task && data.status === 'completed') {
             // 任务已完成，显示结果
@@ -7359,6 +7361,14 @@ function startImportProgressStream(taskId) {
         importEventSource.close();
     }
     
+    currentImportTaskId = taskId;
+    
+    // 显示取消按钮
+    const cancelBtn = document.getElementById('cancel-import-btn');
+    if (cancelBtn) {
+        cancelBtn.style.display = 'inline-block';
+    }
+    
     importEventSource = new EventSource(`/api/import/zotero/progress/${taskId}`);
     
     importEventSource.onmessage = (event) => {
@@ -7407,6 +7417,34 @@ function handleImportProgress(data) {
                 });
             }
         }
+    } else if (status === 'cancelled' || status === 'cancelling') {
+        // 导入已取消
+        if (importEventSource) {
+            importEventSource.close();
+            importEventSource = null;
+        }
+        importInProgress = false;
+        currentImportTaskId = null;
+        
+        // 隐藏取消按钮
+        const cancelBtn = document.getElementById('cancel-import-btn');
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+        
+        // 更新状态显示
+        updateImportStatus('导入已取消', progress || 0, message || '导入任务已取消');
+        
+        // 移除所有加载状态
+        showLoading(false);
+        
+        // 显示取消消息
+        showMessage('导入已取消', 'warning');
+        
+        // 延迟后重置界面
+        setTimeout(() => {
+            resetImport();
+        }, 2000);
     } else if (status === 'completed') {
         // 导入完成
         if (importEventSource) {
@@ -7414,6 +7452,13 @@ function handleImportProgress(data) {
             importEventSource = null;
         }
         importInProgress = false;
+        currentImportTaskId = null;
+        
+        // 隐藏取消按钮
+        const cancelBtn = document.getElementById('cancel-import-btn');
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
         
         // 移除所有加载状态
         showLoading(false);
@@ -7445,10 +7490,58 @@ function handleImportProgress(data) {
             importEventSource.close();
             importEventSource = null;
         }
+        importInProgress = false;
+        currentImportTaskId = null;
+        
+        // 隐藏取消按钮
+        const cancelBtn = document.getElementById('cancel-import-btn');
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+        
         // 移除加载状态
         showLoading(false);
         showMessage('导入失败: ' + (message || '未知错误'), 'error');
         resetImport();
+    }
+}
+
+// 取消导入
+async function cancelImport() {
+    if (!currentImportTaskId) {
+        showMessage('没有正在进行的导入任务', 'warning');
+        return;
+    }
+    
+    const cancelBtn = document.getElementById('cancel-import-btn');
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 取消中...';
+    }
+    
+    try {
+        const response = await fetch(`/api/import/zotero/cancel/${currentImportTaskId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showMessage('正在取消导入...', 'info');
+        } else {
+            showMessage('取消失败: ' + (result.error || '未知错误'), 'error');
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.innerHTML = '<i class="fas fa-times"></i> 取消导入';
+            }
+        }
+    } catch (error) {
+        console.error('取消导入失败:', error);
+        showMessage('取消导入失败: ' + error.message, 'error');
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = '<i class="fas fa-times"></i> 取消导入';
+        }
     }
 }
 
@@ -7496,10 +7589,19 @@ function showImportResult(successCount, failedCount, skippedCount, duplicateCoun
 // 重置导入界面
 function resetImport() {
     importInProgress = false;
+    currentImportTaskId = null;
     
     if (importEventSource) {
         importEventSource.close();
         importEventSource = null;
+    }
+    
+    // 隐藏取消按钮
+    const cancelBtn = document.getElementById('cancel-import-btn');
+    if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+        cancelBtn.disabled = false;
+        cancelBtn.innerHTML = '<i class="fas fa-times"></i> 取消导入';
     }
     
     document.getElementById('drop-zone-content').style.display = 'flex';

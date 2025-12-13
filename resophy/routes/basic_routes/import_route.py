@@ -489,6 +489,27 @@ def register_import_routes(
             print("[Import] 未指定目标目录，将在根目录下按 Zotero 分类导入")
 
         for idx, paper_data in enumerate(papers_data):
+            # 检查是否已取消
+            with import_tasks_lock:
+                task = import_tasks.get(task_id)
+                if task and task.get("cancelled", False):
+                    print(f"[Import] 导入任务已取消")
+                    _update_task_progress(
+                        task_id,
+                        status="cancelled",
+                        progress=int((idx / total) * 100),
+                        current=idx,
+                        total=total,
+                        message="导入已取消",
+                        success_count=success_count,
+                        failed_count=failed_count,
+                        skipped_count=skipped_count,
+                        duplicate_count=duplicate_count,
+                        others_count=others_count,
+                    )
+                    current_import_task_id = None
+                    return
+            
             try:
                 # 更新进度状态
                 _update_task_progress(
@@ -734,7 +755,6 @@ def register_import_routes(
         )
 
         # 清除当前任务标记
-        global current_import_task_id
         current_import_task_id = None
 
         print(
@@ -858,6 +878,7 @@ def register_import_routes(
                     "message": "正在准备导入...",
                     "start_time": datetime.now().isoformat(),
                     "last_update": datetime.now().isoformat(),
+                    "cancelled": False,
                 }
 
             # 启动后台导入任务（不使用 daemon=True，确保任务完成）
@@ -952,8 +973,8 @@ def register_import_routes(
                     yield f"data: {json.dumps(progress_data)}\n\n"
                     last_status = current_key
 
-                # 如果完成或出错，结束流
-                if progress_data["status"] in ["completed", "error"]:
+                # 如果完成、出错或取消，结束流
+                if progress_data["status"] in ["completed", "error", "cancelled"]:
                     break
 
                 # 短暂休眠，避免 CPU 过载
@@ -968,6 +989,34 @@ def register_import_routes(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.route("/api/import/zotero/cancel/<task_id>", methods=["POST"])
+    def api_cancel_import(task_id):
+        """取消导入任务"""
+        global current_import_task_id
+
+        with import_tasks_lock:
+            task = import_tasks.get(task_id)
+            if not task:
+                return jsonify({"success": False, "error": "任务不存在"}), 404
+
+            # 检查任务状态
+            status = task.get("status")
+            if status in ["completed", "error", "cancelled"]:
+                return jsonify({"success": False, "error": f"任务已{status}"}), 400
+
+            # 标记为取消
+            task["cancelled"] = True
+            task["status"] = "cancelling"
+            task["message"] = "正在取消导入..."
+            task["last_update"] = datetime.now().isoformat()
+
+            # 如果这是当前任务，清除标记
+            if current_import_task_id == task_id:
+                current_import_task_id = None
+
+        print(f"[Import] 导入任务 {task_id} 已标记为取消")
+        return jsonify({"success": True, "message": "取消请求已发送"})
 
     @app.route("/api/import/from-export", methods=["POST"])
     def api_import_from_export():
@@ -1081,6 +1130,7 @@ def register_import_routes(
                     "message": "文件夹已复制，开始重建论文...",
                     "start_time": datetime.now().isoformat(),
                     "last_update": datetime.now().isoformat(),
+                    "cancelled": False,
                 }
 
             # 2. 启动后台任务重建论文（从 arXiv 下载 PDF）
@@ -1196,6 +1246,25 @@ def register_import_routes(
 
             # 2. 逐个处理 JSON 文件
             for idx, json_path in enumerate(json_files):
+                # 检查是否已取消
+                with import_tasks_lock:
+                    task = import_tasks.get(task_id)
+                    if task and task.get("cancelled", False):
+                        print(f"[Import] 导入任务已取消")
+                        update_progress(
+                            status="cancelled",
+                            progress=int((idx / total_papers) * 100),
+                            current=idx,
+                            total=total_papers,
+                            message="导入已取消",
+                            success_count=success_count,
+                            failed_count=failed_count,
+                            skipped_count=skipped_count,
+                            duplicate_count=duplicate_count,
+                        )
+                        current_import_task_id = None
+                        return
+                
                 try:
                     # 读取 JSON 元数据
                     with open(json_path, "r", encoding="utf-8") as f:

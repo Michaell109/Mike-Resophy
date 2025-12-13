@@ -1,25 +1,54 @@
 <div align="center" xmlns="http://www.w3.org/1999/html">
 <!-- logo -->
 <p align="center">
-  <img src="assets/cover.png" width="400px" style="vertical-align:middle;">
+  <img src="assets/cover.png" width="500px" style="vertical-align:middle;">
+</p>
+
+<p align="center">
+
+
+  <!-- Stars Badge -->
+  <img src="https://img.shields.io/github/stars/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Stars">
+
+  <!-- Forks Badge -->
+  <img src="https://img.shields.io/github/forks/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Forks">
+
+  <!-- Open Issues Badge -->
+  <a href="https://github.com/Mountchicken/Resophy/issues">
+    <img src="https://img.shields.io/github/issues-raw/Mountchicken/Resophy?color=D3C1D9" alt="Open Issues">
+  </a>
+
+  <!-- Issue Resolution Badge -->
+  <a href="https://github.com/Mountchicken/Resophy/issues">
+    <img src="https://img.shields.io/github/issues-closed-raw/Mountchicken/Resophy?color=32CD32" alt="Issue Resolution">
+  </a>
+
+  <!-- Pull Requests Badge -->
+  <img src="https://img.shields.io/github/issues-pr/Mountchicken/Resophy?color=FFFF00" alt="Pull Requests">
+
+  <!-- Platform Support Badge (Windows, Mac, Linux) with Light Green -->
+  <img src="https://img.shields.io/badge/Platform-Windows%2C%20Mac%2C%20Linux-D3C1D9" alt="Platform Support">
+
+  <!-- UV Installation Badge (Custom) -->
+  <img src="https://img.shields.io/badge/Install-UV-D3C1D9?style=flat" alt="UV Installation">
+
+  <img src="https://img.shields.io/badge/License-CC%20BY--NC%204.0-FFCDC9" alt="License">
 </p>
 
 
-<!-- language -->
 
-[English](README.md) | [简体中文](docs/README_en.md)
+[English](README.md) | [简体中文](docs/README_en.md) | [安装文档](docs/installation_zh.md) | [快速开始](docs/quick_start_zh.md)
 
 </div>
 
-
-
-[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/25f15670-1259-4e87-88a9-2648dcd78272)
-
 ----
+# Resophy
 
-在 AI 快速发展的时代，科研工作者需要一个**定制化的现代论文阅读器**，加快你对知识的获取。**Resophy** 是一个完全开源、面向 Vibe Coding 的现代论文阅读与管理平台。
+在如今信息爆炸的时代，科研人员面对海量的论文，常常感到疲惫不堪。如何快速获取精华、理解前沿成果，成了每个研究者的痛点。Resophy 诞生的初衷就是要让你告别低效的论文阅读，赋能科研者，让读论文变得更高效、更智能📚⚡。
 
-- **Vibe Coding Oriented**：Resophy 所有功能都通过 Cursor + Claude Sonnet 4.5 实现，采用简单的技术栈（HTML + JavaScript + Python Flask），你可以随时通过 Vibe Coding 的方式修改源码，添加自己需要的功能，打造专属的论文阅读工具
+Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它通过简洁的技术栈（HTML + JavaScript + Python Flask）和 AI 功能，帮助你快速理解论文的核心内容🤖💡。从自动翻译到论文解析，从智能推荐到一键导入 Zotero，Resophy 一站式解决你的论文阅读需求📑✨。最重要的是，你可以随时通过 **Vibe Coding** 的方式自定义功能，打造成专属于你的论文助手🎨🛠️。
+
+**⚠️⚠️⚠️ Resophy 所有功能都通过 Cusor + Claude Sonnet 4.5 实现 ⚠️⚠️⚠️**
 
 #### 核心功能
 
@@ -30,43 +59,48 @@
 - 📚 **文献管理**：树形分类、全文搜索、元数据管理
 - 📥 **简易导入导出**：支持导入 Zotero 文献，实现无缝迁移，同时 Resophy 的数据可以轻松导出进行多平台迁移
 
+[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/25f15670-1259-4e87-88a9-2648dcd78272)
 
+----
 
 ## 目录
 
-- [目录](#目录)
-- [1. 安装](#1-安装)
-- [2. 快速上手](#2-快速上手)
-  - [2.1 ⚙️ 初始配置](#21-️-初始配置)
-    - [📥 从 Zotero 导入论文](#-从-zotero-导入论文)
-    - [🤖 配置 LLM API](#-配置-llm-api)
-    - [🔧 配置 MinerU API（用于 AI 解读）](#-配置-mineru-api用于-ai-解读)
-  - [2.2. 🚀 主要功能使用](#22--主要功能使用)
-    - [📚 论文管理](#-论文管理)
-    - [🌐 AI 翻译](#-ai-翻译)
-    - [🧠 AI 解读](#-ai-解读)
-    - [📰 Daily arXiv](#-daily-arxiv)
-    - [📊 其他功能](#-其他功能)
-- [3. 💻 Vibe Coding](#3--vibe-coding)
-  - [🚀 开始 Vibe Coding](#-开始-vibe-coding)
-  - [📁 项目结构](#-项目结构)
-  - [💡 示例：添加新功能](#-示例添加新功能)
-- [4. LICENSE](#4-license)
+
+- [Resophy](#resophy)
+      - [核心功能](#核心功能)
+  - [目录](#目录)
+  - [1. 安装](#1-安装)
+  - [2. 快速上手](#2-快速上手)
+    - [2.1 ⚙️ 初始配置](#21-️-初始配置)
+      - [📥 从 Zotero 导入论文](#-从-zotero-导入论文)
+      - [🤖 配置 LLM API](#-配置-llm-api)
+      - [🔧 配置 MinerU API（用于 AI 解读）](#-配置-mineru-api用于-ai-解读)
+    - [2.2. 🚀 主要功能使用](#22--主要功能使用)
+      - [📚 论文管理](#-论文管理)
+      - [🌐 AI 翻译](#-ai-翻译)
+      - [🧠 AI 解读](#-ai-解读)
+      - [📰 Daily arXiv](#-daily-arxiv)
+      - [📊 其他功能](#-其他功能)
+  - [3. 💻 Vibe Coding](#3--vibe-coding)
+    - [🚀 开始 Vibe Coding](#-开始-vibe-coding)
+    - [📁 项目结构](#-项目结构)
+    - [💡 示例：添加新功能](#-示例添加新功能)
+  - [4. LICENSE](#4-license)
 
 ## 1. 安装
 Resophy 采用前后端分离的架构：
 
 1. **主服务（Resophy Core）**：Flask 后端服务，提供论文管理、分类、搜索等核心功能
-   - 代码位置：项目根目录的 `app.py`, `routes/`, `core/`, `tools/` 目录
-   - 前端代码：`templates/` 和 `static/` 目录
-
 2. **LLM 服务器**：用于 AI 翻译、解读和 arXiv 论文分析的 LLM 推理服务（可选，支持本地部署或远程 API）
-   - 支持使用 `lmdeploy` 或 `vllm` 框架部署本地模型
-
 3. **MinerU 服务器**：用于 PDF 到 Markdown 解析的文档解析服务（可选，用于 AI 功能）
-   - 使用 MinerU2.5 模型进行高精度文档解析
   
-Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将 Resophy 主服务和 AI 服务器部署在不同的机器上。安装和配置说明，请参考 [安装文档](docs/installation_zh.md)
+Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将 Resophy 主服务和 AI 服务器部署在不同的机器上。安装和配置说明，请参考：
+
+|系统|文档|
+|---|---|
+|Windows|[安装文档](docs/installation_zh.md)|
+|Mac|[安装文档](docs/installation_en.md)|
+|Linux|[安装文档](docs/installation_zh.md)|
 
 
 ## 2. 快速上手
