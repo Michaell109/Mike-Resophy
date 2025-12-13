@@ -10256,6 +10256,19 @@ function updateProgressUI(category, progress) {
                 timeText = `${hours}小时${minutes}分钟`;
             }
             
+            // 格式化文件大小
+            const pdfSizeBytes = progress.current_paper_pdf_size || 0;
+            let sizeText = '';
+            if (pdfSizeBytes > 0) {
+                if (pdfSizeBytes < 1024) {
+                    sizeText = `${pdfSizeBytes} B`;
+                } else if (pdfSizeBytes < 1024 * 1024) {
+                    sizeText = `${(pdfSizeBytes / 1024).toFixed(1)} KB`;
+                } else {
+                    sizeText = `${(pdfSizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+                }
+            }
+            
             // 截断过长的标题
             const maxTitleLength = 50;
             let paperTitle = progress.current_paper;
@@ -10263,7 +10276,12 @@ function updateProgressUI(category, progress) {
                 paperTitle = paperTitle.substring(0, maxTitleLength) + '...';
             }
             
-            currentEl.textContent = `正在下载: ${paperTitle} (已用时: ${timeText})`;
+            // 构建显示文本
+            let displayText = `正在下载: ${paperTitle} (已用时: ${timeText})`;
+            if (sizeText) {
+                displayText += ` | ${sizeText}`;
+            }
+            currentEl.textContent = displayText;
             
             // 检查下载时间是否超过30秒
             if (elapsedSeconds > 30 && !dailyArxivSlowDownloadNotified[category]) {

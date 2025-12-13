@@ -313,6 +313,7 @@ class FetchProgress:
         self.message = ""
         self.current_paper = None
         self.current_paper_start_time = None  # 当前论文开始处理的时间戳
+        self.current_paper_pdf_path = None  # 当前正在下载的 PDF 文件路径
         self.papers = []
         self.lock = threading.Lock()
 
@@ -324,6 +325,7 @@ class FetchProgress:
             self.message = "正在获取论文列表..."
             self.current_paper = None
             self.current_paper_start_time = None
+            self.current_paper_pdf_path = None
             self.papers = []
 
     def set_processing(self, total: int):
@@ -333,17 +335,23 @@ class FetchProgress:
             self.status = "processing"
             self.message = f"正在处理 0/{total} 篇论文"
             self.current_paper_start_time = None
+            self.current_paper_pdf_path = None
 
-    def update(self, current: int, paper_title: str = None):
+    def update(self, current: int, paper_title: str = None, pdf_path: str = None):
         with self.lock:
             self.current = current
             # 如果论文标题改变，记录新的开始时间
             if paper_title and paper_title != self.current_paper:
                 self.current_paper = paper_title
                 self.current_paper_start_time = time.time()
+                self.current_paper_pdf_path = pdf_path  # 设置 PDF 路径
             elif not paper_title:
                 self.current_paper = None
                 self.current_paper_start_time = None
+                self.current_paper_pdf_path = None
+            # 如果只是更新 PDF 路径（下载过程中），即使标题相同也要更新
+            if pdf_path and self.current_paper:
+                self.current_paper_pdf_path = pdf_path
             self.message = f"正在处理 {current}/{self.total} 篇论文"
 
     def add_paper(self, paper_dict: Dict):
@@ -356,6 +364,7 @@ class FetchProgress:
             self.message = message
             self.current_paper = None
             self.current_paper_start_time = None
+            self.current_paper_pdf_path = None
 
     def set_error(self, error: str):
         with self.lock:
@@ -363,6 +372,7 @@ class FetchProgress:
             self.message = error
             self.current_paper = None
             self.current_paper_start_time = None
+            self.current_paper_pdf_path = None
 
     def to_dict(self) -> Dict:
         with self.lock:
@@ -371,6 +381,18 @@ class FetchProgress:
             if self.current_paper_start_time:
                 elapsed_seconds = int(time.time() - self.current_paper_start_time)
 
+            # 计算当前下载的 PDF 文件大小（字节）
+            current_paper_pdf_size = 0
+            if self.current_paper_pdf_path and os.path.exists(
+                self.current_paper_pdf_path
+            ):
+                try:
+                    current_paper_pdf_size = os.path.getsize(
+                        self.current_paper_pdf_path
+                    )
+                except:
+                    pass
+
             return {
                 "total": self.total,
                 "current": self.current,
@@ -378,6 +400,7 @@ class FetchProgress:
                 "message": self.message,
                 "current_paper": self.current_paper,
                 "current_paper_elapsed_seconds": elapsed_seconds,  # 当前论文已用时间（秒）
+                "current_paper_pdf_size": current_paper_pdf_size,  # 当前下载的 PDF 文件大小（字节）
                 "papers": list(self.papers),
             }
 
@@ -895,15 +918,16 @@ class DailyArxivManager:
                             # 如果读取失败，继续执行下载流程
 
                     # 更新进度（在开始下载前更新，这样前端可以立即看到当前论文）
-                    progress.update(i + 1, paper.title[:50])
+                    # 先设置 PDF 路径（即使文件还不存在，这样前端可以显示）
+                    progress.update(i + 1, paper.title[:50], pdf_path=pdf_path)
 
                     # 标记为下载中
                     self._mark_downloading(
                         paper_announce_date, category, paper.arxiv_id
                     )
 
-                    # 下载 PDF 到正确的日期目录
-                    pdf_path = self._download_pdf(paper, paper_cat_dir)
+                    # 下载 PDF 到正确的日期目录（在下载过程中会定期更新文件大小）
+                    pdf_path = self._download_pdf(paper, paper_cat_dir, progress)
                     if pdf_path:
                         paper.local_pdf_path = pdf_path
                         paper.pdf_downloaded = True  # 标记 PDF 已成功下载
@@ -1079,10 +1103,17 @@ class DailyArxivManager:
             print(f"[DailyArxiv] 验证 PDF 完整性时出错: {pdf_path}, 错误: {e}")
             return False
 
-    def _download_pdf(self, paper: ArxivPaper, cat_dir: str) -> Optional[str]:
+    def _download_pdf(
+        self, paper: ArxivPaper, cat_dir: str, progress: FetchProgress = None
+    ) -> Optional[str]:
         """下载 PDF
 
         使用 export.arxiv.org 来避免 IP 限制问题
+
+        Args:
+            paper: 论文对象
+            cat_dir: 分类目录
+            progress: 进度追踪对象（可选），用于在下载过程中更新文件大小
         """
         try:
             safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
@@ -1137,10 +1168,19 @@ class DailyArxivManager:
                 )
 
                 if response.status_code == 200:
+                    chunk_count = 0
                     with open(pdf_path, "wb") as out_file:
                         for chunk in response.iter_content(chunk_size=8192):
                             if chunk:
                                 out_file.write(chunk)
+                                chunk_count += 1
+                                # 每写入 10 个 chunk（约 80KB）更新一次进度
+                                if progress and chunk_count % 10 == 0:
+                                    progress.update(
+                                        progress.current,
+                                        progress.current_paper,
+                                        pdf_path=pdf_path,
+                                    )
 
                     # 检查文件是否下载成功（基本检查：文件存在且不为空）
                     if os.path.exists(pdf_path):
@@ -1154,6 +1194,12 @@ class DailyArxivManager:
                             except:
                                 pass
                             return None
+
+                    # 最后更新一次进度，确保显示最终文件大小
+                    if progress:
+                        progress.update(
+                            progress.current, progress.current_paper, pdf_path=pdf_path
+                        )
 
                     print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
                     return pdf_path
@@ -1172,10 +1218,16 @@ class DailyArxivManager:
                     },
                 )
 
-                # 下载文件
+                # 下载文件（urllib 是一次性读取，无法在下载过程中更新进度）
                 with urllib.request.urlopen(req, timeout=30) as response:
                     with open(pdf_path, "wb") as out_file:
                         out_file.write(response.read())
+
+                # 下载完成后更新进度（显示最终文件大小）
+                if progress:
+                    progress.update(
+                        progress.current, progress.current_paper, pdf_path=pdf_path
+                    )
 
                 # 检查文件是否下载成功（基本检查：文件存在且不为空）
                 if os.path.exists(pdf_path):
