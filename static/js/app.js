@@ -8726,6 +8726,8 @@ let dailyArxivSettings = {
 let dailyArxivProgressIntervals = {};  // 每个分区的进度轮询定时器: {category: intervalId}
 let dailyArxivSearchQuery = '';        // Daily arXiv 页面搜索查询
 let dailyArxivLLMConfigured = false;  // LLM 配置状态
+let dailyArxivSlowDownloadNotified = {};  // 记录每个分区是否已显示慢速下载提示: {category: true}
+let dailyArxivLastPaperKey = '';  // 跟踪上一个论文的key，用于检测论文切换
 let dailyArxivSelectedAffiliations = new Set(); // 当前选中的单位过滤条件
 let dailyArxivSelectedCountries = new Set(); // 当前选中的地区过滤条件
 let dailyArxivSelectedKeywords = new Set(); // 当前选中的关键词过滤条件
@@ -9810,9 +9812,9 @@ async function testLLMAPIForDailyArxiv() {
 }
 
 // 显示圆角弹窗提示（参考 ti-item 设计，常驻显示）
-function showRoundedNotification(message, type = 'error', persistent = true) {
+function showRoundedNotification(message, type = 'error', persistent = true, notificationId = 'daily-arxiv-api-notification') {
     // 如果已存在通知，只更新内容
-    let notification = document.getElementById('daily-arxiv-api-notification');
+    let notification = document.getElementById(notificationId);
     
     if (notification) {
         // 更新现有通知的内容
@@ -9825,7 +9827,7 @@ function showRoundedNotification(message, type = 'error', persistent = true) {
     
     // 创建通知元素
     notification = document.createElement('div');
-    notification.id = 'daily-arxiv-api-notification';
+    notification.id = notificationId;
     notification.style.cssText = `
         position: fixed;
         top: 70px;
@@ -10047,6 +10049,15 @@ function startProgressPolling(category) {
                         if (progressEl) progressEl.style.display = 'block';
                         if (loadingEl) loadingEl.style.display = 'none';
                         updateProgressUI(category, progress);
+                        
+                        // 确保隐藏"暂无新论文"界面
+                        const gridEl = document.getElementById('daily-arxiv-grid');
+                        if (gridEl) {
+                            const waitingEl = gridEl.querySelector('.daily-arxiv-waiting');
+                            if (waitingEl) {
+                                gridEl.innerHTML = '';
+                            }
+                        }
                     }
                     
                     // 实时显示已抓取的论文（所有分区都更新数据）
@@ -10146,6 +10157,16 @@ function stopProgressPolling(category = null) {
             delete dailyArxivProgressIntervals[category];
         }
         
+        // 重置该分区的慢速下载提示状态
+        delete dailyArxivSlowDownloadNotified[category];
+        dailyArxivLastPaperKey = '';
+        
+        // 移除慢速下载提示（如果存在）
+        const slowDownloadNotification = document.getElementById('daily-arxiv-slow-download-notification');
+        if (slowDownloadNotification) {
+            slowDownloadNotification.remove();
+        }
+        
         // 如果是当前分区或"全部"，且没有其他分区在抓取，隐藏进度条
         const shouldHideProgress = (dailyArxivCurrentCategory === 'all' || category === dailyArxivCurrentCategory) 
             && Object.keys(dailyArxivProgressIntervals).length === 0;
@@ -10167,6 +10188,16 @@ function stopProgressPolling(category = null) {
             clearInterval(dailyArxivProgressIntervals[cat]);
         });
         dailyArxivProgressIntervals = {};
+        
+        // 重置所有分区的慢速下载提示状态
+        dailyArxivSlowDownloadNotified = {};
+        dailyArxivLastPaperKey = '';
+        
+        // 移除慢速下载提示（如果存在）
+        const slowDownloadNotification = document.getElementById('daily-arxiv-slow-download-notification');
+        if (slowDownloadNotification) {
+            slowDownloadNotification.remove();
+        }
         
         const progressEl = document.getElementById('daily-arxiv-progress');
         const loadingEl = document.getElementById('daily-arxiv-loading');
@@ -10193,10 +10224,76 @@ function updateProgressUI(category, progress) {
     const percent = progress.total > 0 ? (progress.current / progress.total * 100) : 0;
     if (barEl) barEl.style.width = `${percent}%`;
     
+    // 跟踪当前论文，用于检测论文切换
+    const currentPaperKey = `${category}_${progress.current_paper || ''}`;
+    const lastPaperKey = dailyArxivLastPaperKey || '';
+    
+    // 如果论文切换了，重置慢速下载提示状态并移除提示
+    if (currentPaperKey !== lastPaperKey && lastPaperKey) {
+        delete dailyArxivSlowDownloadNotified[category];
+        // 移除慢速下载提示（如果存在）
+        const slowDownloadNotification = document.getElementById('daily-arxiv-slow-download-notification');
+        if (slowDownloadNotification) {
+            slowDownloadNotification.remove();
+        }
+    }
+    dailyArxivLastPaperKey = currentPaperKey;
+    
     if (currentEl) {
-        currentEl.textContent = progress.current_paper 
-            ? `正在处理: ${progress.current_paper}` 
-            : '';
+        if (progress.current_paper) {
+            // 格式化已用时间
+            const elapsedSeconds = progress.current_paper_elapsed_seconds || 0;
+            let timeText = '';
+            if (elapsedSeconds < 60) {
+                timeText = `${elapsedSeconds}秒`;
+            } else if (elapsedSeconds < 3600) {
+                const minutes = Math.floor(elapsedSeconds / 60);
+                const seconds = elapsedSeconds % 60;
+                timeText = `${minutes}分${seconds}秒`;
+            } else {
+                const hours = Math.floor(elapsedSeconds / 3600);
+                const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+                timeText = `${hours}小时${minutes}分钟`;
+            }
+            
+            // 截断过长的标题
+            const maxTitleLength = 50;
+            let paperTitle = progress.current_paper;
+            if (paperTitle.length > maxTitleLength) {
+                paperTitle = paperTitle.substring(0, maxTitleLength) + '...';
+            }
+            
+            currentEl.textContent = `正在下载: ${paperTitle} (已用时: ${timeText})`;
+            
+            // 检查下载时间是否超过30秒
+            if (elapsedSeconds > 30 && !dailyArxivSlowDownloadNotified[category]) {
+                // 显示慢速下载提示（使用独立的通知ID，避免与LLM API失败提示冲突）
+                showRoundedNotification('下载 arXiv 论文时间过长，请检查 proxy 是否设置。', 'warning', true, 'daily-arxiv-slow-download-notification');
+                dailyArxivSlowDownloadNotified[category] = true;
+            }
+        } else {
+            currentEl.textContent = '';
+            // 如果没有当前论文，重置慢速下载提示状态并移除提示
+            delete dailyArxivSlowDownloadNotified[category];
+            const slowDownloadNotification = document.getElementById('daily-arxiv-slow-download-notification');
+            if (slowDownloadNotification) {
+                slowDownloadNotification.remove();
+            }
+        }
+    }
+    
+    // 确保进度条显示时，隐藏"暂无新论文"界面
+    const progressEl = document.getElementById('daily-arxiv-progress');
+    if (progressEl && progressEl.style.display !== 'none') {
+        // 隐藏"暂无新论文"界面（通过清空 grid 内容）
+        const gridEl = document.getElementById('daily-arxiv-grid');
+        if (gridEl) {
+            // 检查是否显示的是"暂无新论文"界面
+            const waitingEl = gridEl.querySelector('.daily-arxiv-waiting');
+            if (waitingEl) {
+                gridEl.innerHTML = '';
+            }
+        }
     }
 }
 
@@ -10271,6 +10368,15 @@ async function checkCategoryProgress(category) {
                 if (progressEl) progressEl.style.display = 'block';
                 if (loadingEl) loadingEl.style.display = 'none';
                 updateProgressUI(category, progress);
+                
+                // 确保隐藏"暂无新论文"界面
+                const gridEl = document.getElementById('daily-arxiv-grid');
+                if (gridEl) {
+                    const waitingEl = gridEl.querySelector('.daily-arxiv-waiting');
+                    if (waitingEl) {
+                        gridEl.innerHTML = '';
+                    }
+                }
             }
         }
     } catch (err) {
@@ -10559,10 +10665,14 @@ function renderDailyArxivGrid() {
             ? Object.keys(dailyArxivProgressIntervals).length > 0
             : dailyArxivProgressIntervals[dailyArxivCurrentCategory] !== undefined;
         
+        // 检查进度条是否显示（如果有进度条显示，说明正在抓取，不应该显示"暂无新论文"）
+        const progressEl = document.getElementById('daily-arxiv-progress');
+        const isProgressVisible = progressEl && progressEl.style.display !== 'none';
+        
         // 如果有配置分区但没有论文
         if (dailyArxivCategories.length > 0) {
-            // 如果正在抓取，显示空白（等待论文出现）
-            if (isFetching) {
+            // 如果正在抓取或进度条显示，显示空白（等待论文出现）
+            if (isFetching || isProgressVisible) {
                 gridEl.innerHTML = '';
             } else {
                 // 不在抓取，检查其他日期是否有论文

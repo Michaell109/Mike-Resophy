@@ -42,7 +42,7 @@ parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./test_papers",
+    default="./papers",
     help="论文存储目录路径（默认: ./papers）",
 )
 parser.add_argument(

@@ -312,6 +312,7 @@ class FetchProgress:
         self.status = "idle"  # idle, fetching, processing, done, error
         self.message = ""
         self.current_paper = None
+        self.current_paper_start_time = None  # 当前论文开始处理的时间戳
         self.papers = []
         self.lock = threading.Lock()
 
@@ -322,6 +323,7 @@ class FetchProgress:
             self.status = "fetching"
             self.message = "正在获取论文列表..."
             self.current_paper = None
+            self.current_paper_start_time = None
             self.papers = []
 
     def set_processing(self, total: int):
@@ -330,11 +332,18 @@ class FetchProgress:
             self.current = 0
             self.status = "processing"
             self.message = f"正在处理 0/{total} 篇论文"
+            self.current_paper_start_time = None
 
     def update(self, current: int, paper_title: str = None):
         with self.lock:
             self.current = current
-            self.current_paper = paper_title
+            # 如果论文标题改变，记录新的开始时间
+            if paper_title and paper_title != self.current_paper:
+                self.current_paper = paper_title
+                self.current_paper_start_time = time.time()
+            elif not paper_title:
+                self.current_paper = None
+                self.current_paper_start_time = None
             self.message = f"正在处理 {current}/{self.total} 篇论文"
 
     def add_paper(self, paper_dict: Dict):
@@ -345,20 +354,30 @@ class FetchProgress:
         with self.lock:
             self.status = "done"
             self.message = message
+            self.current_paper = None
+            self.current_paper_start_time = None
 
     def set_error(self, error: str):
         with self.lock:
             self.status = "error"
             self.message = error
+            self.current_paper = None
+            self.current_paper_start_time = None
 
     def to_dict(self) -> Dict:
         with self.lock:
+            # 计算当前论文已用时间（秒）
+            elapsed_seconds = 0
+            if self.current_paper_start_time:
+                elapsed_seconds = int(time.time() - self.current_paper_start_time)
+
             return {
                 "total": self.total,
                 "current": self.current,
                 "status": self.status,
                 "message": self.message,
                 "current_paper": self.current_paper,
+                "current_paper_elapsed_seconds": elapsed_seconds,  # 当前论文已用时间（秒）
                 "papers": list(self.papers),
             }
 
@@ -451,6 +470,104 @@ class DailyArxivManager:
         """获取分区目录路径"""
         return os.path.join(self.base_dir, date_str, category.replace(".", "_"))
 
+    def get_download_status_file(self, date_str: str, category: str) -> str:
+        """获取下载状态文件路径"""
+        cat_dir = self.get_category_dir(date_str, category)
+        return os.path.join(cat_dir, "download_status.json")
+
+    def _load_download_status(self, date_str: str, category: str) -> Dict[str, str]:
+        """加载下载状态
+
+        Returns:
+            {arxiv_id: status} 字典，status 为 "downloading" 或 "completed"
+        """
+        status_file = self.get_download_status_file(date_str, category)
+        if os.path.exists(status_file):
+            try:
+                with open(status_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[DailyArxiv] 加载下载状态失败: {e}")
+                return {}
+        return {}
+
+    def _save_download_status(
+        self, date_str: str, category: str, status_dict: Dict[str, str]
+    ):
+        """保存下载状态"""
+        status_file = self.get_download_status_file(date_str, category)
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(status_file), exist_ok=True)
+            with open(status_file, "w", encoding="utf-8") as f:
+                json.dump(status_dict, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[DailyArxiv] 保存下载状态失败: {e}")
+
+    def _mark_downloading(self, date_str: str, category: str, arxiv_id: str):
+        """标记论文为下载中"""
+        status = self._load_download_status(date_str, category)
+        status[arxiv_id] = "downloading"
+        self._save_download_status(date_str, category, status)
+
+    def _mark_download_completed(self, date_str: str, category: str, arxiv_id: str):
+        """标记论文为下载完成"""
+        status = self._load_download_status(date_str, category)
+        status[arxiv_id] = "completed"
+        self._save_download_status(date_str, category, status)
+
+    def _cleanup_incomplete_downloads(self, date_str: str, category: str):
+        """清理未完成的下载（服务器重启后调用）
+
+        删除所有标记为 "downloading" 的论文文件和相关数据
+        """
+        status = self._load_download_status(date_str, category)
+        cat_dir = self.get_category_dir(date_str, category)
+
+        if not os.path.exists(cat_dir):
+            return
+
+        incomplete_count = 0
+        for arxiv_id, download_status in list(status.items()):
+            if download_status == "downloading":
+                print(f"[DailyArxiv] 检测到未完成的下载: {arxiv_id}，清理相关文件...")
+                safe_id = arxiv_id.replace("/", "_").replace(":", "_")
+
+                # 删除 PDF 文件
+                pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
+                if os.path.exists(pdf_path):
+                    try:
+                        os.remove(pdf_path)
+                        print(f"[DailyArxiv] 已删除不完整的 PDF: {pdf_path}")
+                    except Exception as e:
+                        print(f"[DailyArxiv] 删除 PDF 失败: {e}")
+
+                # 删除缩略图
+                thumbnail_path = os.path.join(cat_dir, f"{safe_id}_thumbnail.jpg")
+                if os.path.exists(thumbnail_path):
+                    try:
+                        os.remove(thumbnail_path)
+                    except:
+                        pass
+
+                # 删除 JSON 元数据文件
+                json_path = os.path.join(cat_dir, f"{safe_id}.json")
+                if os.path.exists(json_path):
+                    try:
+                        os.remove(json_path)
+                        print(f"[DailyArxiv] 已删除不完整的元数据: {json_path}")
+                    except Exception as e:
+                        print(f"[DailyArxiv] 删除元数据失败: {e}")
+
+                # 从状态中移除
+                del status[arxiv_id]
+                incomplete_count += 1
+
+        if incomplete_count > 0:
+            # 保存更新后的状态
+            self._save_download_status(date_str, category, status)
+            print(f"[DailyArxiv] 清理完成，共清理 {incomplete_count} 个未完成的下载")
+
     def get_available_dates(self) -> List[str]:
         """
         获取有论文的日期列表
@@ -515,12 +632,45 @@ class DailyArxivManager:
             if not os.path.exists(cat_dir):
                 continue
 
+            # 获取该分区的下载状态
+            # 从目录路径中提取分区名称
+            cat_name = os.path.basename(cat_dir)
+            download_status = self._load_download_status(date_str, cat_name)
+
             for filename in os.listdir(cat_dir):
                 if filename.endswith(".json"):
                     json_path = os.path.join(cat_dir, filename)
                     try:
                         with open(json_path, "r", encoding="utf-8") as f:
                             paper_data = json.load(f)
+
+                            # 检查论文的下载状态
+                            arxiv_id = paper_data.get("arxiv_id")
+                            if arxiv_id:
+                                paper_status = download_status.get(arxiv_id)
+                                # 如果论文状态是 downloading，跳过（不返回给前端）
+                                if paper_status == "downloading":
+                                    continue
+
+                            # 检查论文是否有完整的元数据（至少要有 PDF 文件）
+                            local_pdf_path = paper_data.get("local_pdf_path")
+                            if local_pdf_path:
+                                # 如果 JSON 中有 PDF 路径，检查文件是否存在
+                                if not os.path.exists(local_pdf_path):
+                                    # PDF 文件不存在，跳过（可能是未完成的下载）
+                                    continue
+                            else:
+                                # 如果 JSON 中没有 PDF 路径，尝试从文件名推断
+                                safe_id = (
+                                    arxiv_id.replace("/", "_").replace(":", "_")
+                                    if arxiv_id
+                                    else filename[:-5]
+                                )
+                                pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
+                                if not os.path.exists(pdf_path):
+                                    # 没有 PDF 文件，跳过（可能是未完成的下载）
+                                    continue
+
                             papers.append(paper_data)
                     except Exception as e:
                         print(f"[DailyArxiv] 读取论文失败 {json_path}: {e}")
@@ -634,6 +784,24 @@ class DailyArxivManager:
             # 设置处理进度
             progress.set_processing(len(results))
 
+            # 清理未完成的下载（服务器重启后）
+            # 收集所有需要清理的日期
+            dates_to_clean = set()
+            for result in results:
+                paper_tmp = ArxivPaper.from_arxiv_result(
+                    result, fetch_category=category
+                )
+                paper_announce_date = (
+                    paper_tmp.announced.strftime("%Y-%m-%d")
+                    if paper_tmp.announced
+                    else date_str
+                )
+                dates_to_clean.add(paper_announce_date)
+
+            # 清理每个日期的未完成下载
+            for clean_date in dates_to_clean:
+                self._cleanup_incomplete_downloads(clean_date, category)
+
             # 获取 LLM 配置
             llm_config = {}
             if self._get_llm_config:
@@ -681,44 +849,44 @@ class DailyArxivManager:
                     paper_cat_dir = self.get_category_dir(paper_announce_date, category)
                     os.makedirs(paper_cat_dir, exist_ok=True)
 
-                    # 检查论文是否已存在
+                    # 检查下载状态
+                    download_status = self._load_download_status(
+                        paper_announce_date, category
+                    )
+                    paper_status = download_status.get(paper.arxiv_id)
+
+                    # 检查论文是否已存在且已完成下载
                     safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
                     json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
-                    if not force and os.path.exists(json_path):
-                        # 已存在，检查 PDF 是否已成功下载
+                    pdf_path = os.path.join(paper_cat_dir, f"{safe_id}.pdf")
+
+                    if (
+                        not force
+                        and paper_status == "completed"
+                        and os.path.exists(json_path)
+                        and os.path.exists(pdf_path)
+                    ):
+                        # 已存在且标记为已完成，检查是否需要生成缩略图
                         try:
                             with open(json_path, "r", encoding="utf-8") as f:
                                 existing_data = json.load(f)
-                            paper_dict = existing_data
 
-                            # 检查 PDF 是否真的存在
-                            pdf_path = paper_dict.get("local_pdf_path")
-                            pdf_exists = pdf_path and os.path.exists(pdf_path)
-                            pdf_downloaded = paper_dict.get("pdf_downloaded", False)
-
-                            # 如果 PDF 不存在或标记为未下载，需要重新下载
-                            if not pdf_exists or not pdf_downloaded:
-                                print(
-                                    f"[DailyArxiv] PDF 未下载或文件不存在，重新尝试下载: {paper.arxiv_id}"
+                            # 检查是否需要生成缩略图
+                            if not existing_data.get("thumbnail_path"):
+                                thumbnail_path = self._generate_thumbnail(
+                                    pdf_path, paper_cat_dir
                                 )
-                                # 继续执行下载流程（不跳过）
-                            else:
-                                # PDF 已存在且标记为已下载，检查是否需要生成缩略图
-                                if not paper_dict.get("thumbnail_path"):
-                                    thumbnail_path = self._generate_thumbnail(
-                                        pdf_path, paper_cat_dir
-                                    )
-                                    if thumbnail_path:
-                                        paper_dict["thumbnail_path"] = thumbnail_path
-                                        self._save_paper(paper_dict, paper_cat_dir)
+                                if thumbnail_path:
+                                    existing_data["thumbnail_path"] = thumbnail_path
+                                    self._save_paper(existing_data, paper_cat_dir)
 
-                                # PDF 已完整下载，跳过
-                                skipped_count += 1
-                                progress.update(i + 1, f"[已存在] {paper.title[:40]}")
-                                print(
-                                    f"[DailyArxiv] 跳过已完整下载的论文: {paper.arxiv_id}"
-                                )
-                                continue
+                            # PDF 已完整下载，跳过
+                            skipped_count += 1
+                            progress.update(i + 1, f"[已存在] {paper.title[:40]}")
+                            print(
+                                f"[DailyArxiv] 跳过已完整下载的论文: {paper.arxiv_id}"
+                            )
+                            continue
                         except Exception as e:
                             print(f"[DailyArxiv] 检查已存在论文失败: {e}")
                             import traceback
@@ -726,13 +894,23 @@ class DailyArxivManager:
                             traceback.print_exc()
                             # 如果读取失败，继续执行下载流程
 
+                    # 更新进度（在开始下载前更新，这样前端可以立即看到当前论文）
                     progress.update(i + 1, paper.title[:50])
+
+                    # 标记为下载中
+                    self._mark_downloading(
+                        paper_announce_date, category, paper.arxiv_id
+                    )
 
                     # 下载 PDF 到正确的日期目录
                     pdf_path = self._download_pdf(paper, paper_cat_dir)
                     if pdf_path:
                         paper.local_pdf_path = pdf_path
                         paper.pdf_downloaded = True  # 标记 PDF 已成功下载
+                        # 标记为下载完成
+                        self._mark_download_completed(
+                            paper_announce_date, category, paper.arxiv_id
+                        )
 
                         # 生成缩略图（PDF第一页上半部分）
                         thumbnail_path = self._generate_thumbnail(
@@ -757,7 +935,15 @@ class DailyArxivManager:
                             paper.github = extraction_result.get("github")
                             paper.affiliations_extracted = True
                     else:
-                        # PDF 下载失败，标记为未下载
+                        # PDF 下载失败，从状态中移除（下次会重新下载）
+                        download_status = self._load_download_status(
+                            paper_announce_date, category
+                        )
+                        if paper.arxiv_id in download_status:
+                            del download_status[paper.arxiv_id]
+                            self._save_download_status(
+                                paper_announce_date, category, download_status
+                            )
                         paper.pdf_downloaded = False
                         print(
                             f"[DailyArxiv] PDF 下载失败，将在下次检查时重试: {paper.arxiv_id}"
@@ -819,6 +1005,80 @@ class DailyArxivManager:
             progress.set_error(str(e))
             return []
 
+    def _validate_pdf_integrity(self, pdf_path: str) -> bool:
+        """验证 PDF 文件完整性
+
+        Returns:
+            True 如果 PDF 文件完整且有效，False 否则
+        """
+        try:
+            if not os.path.exists(pdf_path):
+                return False
+
+            file_size = os.path.getsize(pdf_path)
+            if file_size == 0 or file_size < 1024:
+                return False
+
+            # 检查 PDF 文件头（必须以 %PDF- 开头）
+            with open(pdf_path, "rb") as f:
+                header = f.read(8)
+                if not header.startswith(b"%PDF-"):
+                    print(f"[DailyArxiv] PDF 文件头无效: {pdf_path}")
+                    return False
+
+            # 检查 PDF 文件尾（应该包含 %%EOF）
+            with open(pdf_path, "rb") as f:
+                f.seek(max(0, file_size - 1024))  # 读取最后1KB
+                tail = f.read()
+                if b"%%EOF" not in tail:
+                    print(f"[DailyArxiv] PDF 文件尾无效（缺少 %%EOF）: {pdf_path}")
+                    return False
+
+            # 尝试使用 PyMuPDF 打开文件验证完整性（最可靠的方法）
+            try:
+                import fitz  # PyMuPDF
+
+                doc = fitz.open(pdf_path)
+                # 尝试访问第一页和最后一页
+                if len(doc) == 0:
+                    doc.close()
+                    print(f"[DailyArxiv] PDF 文件没有页面: {pdf_path}")
+                    return False
+                # 尝试渲染第一页（验证文件完整性）
+                try:
+                    page = doc[0]
+                    _ = page.get_pixmap()  # 尝试渲染页面
+                except Exception as e:
+                    doc.close()
+                    print(f"[DailyArxiv] PDF 文件无法渲染页面: {pdf_path}, 错误: {e}")
+                    return False
+                doc.close()
+            except ImportError:
+                # 如果没有 PyMuPDF，尝试使用 PyPDF2
+                try:
+                    import PyPDF2
+
+                    with open(pdf_path, "rb") as f:
+                        pdf_reader = PyPDF2.PdfReader(f)
+                        if len(pdf_reader.pages) == 0:
+                            print(f"[DailyArxiv] PDF 文件没有页面 (PyPDF2): {pdf_path}")
+                            return False
+                        # 尝试访问第一页
+                        _ = pdf_reader.pages[0]
+                except Exception as e:
+                    print(
+                        f"[DailyArxiv] PDF 文件无法解析 (PyPDF2): {pdf_path}, 错误: {e}"
+                    )
+                    return False
+            except Exception as e:
+                print(f"[DailyArxiv] PDF 文件验证失败: {pdf_path}, 错误: {e}")
+                return False
+
+            return True
+        except Exception as e:
+            print(f"[DailyArxiv] 验证 PDF 完整性时出错: {pdf_path}, 错误: {e}")
+            return False
+
     def _download_pdf(self, paper: ArxivPaper, cat_dir: str) -> Optional[str]:
         """下载 PDF
 
@@ -829,19 +1089,15 @@ class DailyArxivManager:
             pdf_filename = f"{safe_id}.pdf"
             pdf_path = os.path.join(cat_dir, pdf_filename)
 
+            # 如果文件已存在，删除它（因为已经标记为 downloading，说明之前的下载未完成）
             if os.path.exists(pdf_path):
-                # 检查已存在的文件是否为空
-                file_size = os.path.getsize(pdf_path)
-                if file_size == 0 or file_size < 1024:
+                try:
+                    os.remove(pdf_path)
                     print(
-                        f"[DailyArxiv] 已存在的 PDF 文件为空或太小 ({file_size} bytes)，将重新下载: {paper.arxiv_id}"
+                        f"[DailyArxiv] 删除已存在的 PDF 文件，重新下载: {paper.arxiv_id}"
                     )
-                    try:
-                        os.remove(pdf_path)
-                    except:
-                        pass
-                else:
-                    return pdf_path
+                except:
+                    pass
 
             print(f"[DailyArxiv] 下载 PDF: {paper.arxiv_id}")
 
@@ -886,7 +1142,7 @@ class DailyArxivManager:
                             if chunk:
                                 out_file.write(chunk)
 
-                    # 检查文件是否为空或太小（可能下载失败）
+                    # 检查文件是否下载成功（基本检查：文件存在且不为空）
                     if os.path.exists(pdf_path):
                         file_size = os.path.getsize(pdf_path)
                         if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
@@ -921,7 +1177,7 @@ class DailyArxivManager:
                     with open(pdf_path, "wb") as out_file:
                         out_file.write(response.read())
 
-                # 检查文件是否为空或太小（可能下载失败）
+                # 检查文件是否下载成功（基本检查：文件存在且不为空）
                 if os.path.exists(pdf_path):
                     file_size = os.path.getsize(pdf_path)
                     if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
