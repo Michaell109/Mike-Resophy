@@ -218,7 +218,7 @@ mkdir ai_server
 huggingface-cli download opendatalab/MinerU2.5-2509-1.2B --local-dir ai_server/MinerU2.5-2509-1.2B
 
 # or donwload from modelscope (for chinese users)
-pip install modelscope
+uv add modelscope
 modelscope download opendatalab/MinerU2.5-2509-1.2B --local_dir ai_server/MinerU2.5-2509-1.2B
 ```
 
