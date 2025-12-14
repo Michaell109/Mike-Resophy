@@ -39,10 +39,9 @@
 
 [English](README.md) | [简体中文](docs/README_en.md) | [安装文档](docs/installation_zh.md) | [快速开始](docs/quick_start_zh.md)
 
-<span style="color:rgb(154, 46, 222);">*Resophy 所有代码和文档都通过 AI 生成，人工校验*
-Code：Cusor + Sonnet 4.5 / Opus 4.5 / Auto
-README: Cusor, Nano Banana Pro, NotebookLM, GPT5.1
-</span>
+<span style="color:rgb(154, 46, 222);">*Resophy 所有代码和文档都通过 AI 生成，人工校验*</span>
+<span style="color:rgb(154, 46, 222);">Code：Cusor + Sonnet 4.5 / Opus 4.5 / Auto</span>
+<span style="color:rgb(154, 46, 222);">README: Cusor, Nano Banana Pro, NotebookLM, GPT5.1</span>
 
 </div>
 
