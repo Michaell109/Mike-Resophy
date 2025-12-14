@@ -7343,10 +7343,24 @@ async function handleRdfFile(file) {
         const result = await response.json();
         
         if (result.success) {
+            // 如果有恢复导入的信息，显示提示
+            if (result.already_imported > 0) {
+                showMessage(
+                    `检测到 ${result.already_imported} 篇论文已导入，将从第 ${result.already_imported + 1} 篇开始继续导入`,
+                    'info'
+                );
+            }
+            
             // 开始监听导入进度
             startImportProgressStream(result.task_id);
         } else {
-            throw new Error(result.error || '导入失败');
+            // 如果所有论文都已导入，显示特殊提示
+            if (result.already_imported && result.original_total && result.already_imported === result.original_total) {
+                showMessage('所有论文都已导入，无需重复导入', 'info');
+                resetImport();
+            } else {
+                throw new Error(result.error || '导入失败');
+            }
         }
     } catch (error) {
         console.error('导入失败:', error);
@@ -7394,16 +7408,28 @@ let lastRefreshTime = 0;
 const REFRESH_INTERVAL = 3000; // 每3秒刷新一次论文列表
 
 function handleImportProgress(data) {
-    const { status, progress, current, total, message, success_count, failed_count, skipped_count, duplicate_count, others_count } = data;
+    const { status, progress, current, total, message, success_count, failed_count, skipped_count, duplicate_count, others_count, original_total, already_imported_count } = data;
     
     if (status === 'parsing') {
         updateImportStatus('正在解析 RDF 文件...', 0, message || '获取论文信息中...');
     } else if (status === 'importing') {
         const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+        let statusText = `正在导入论文 (${current}/${total})...`;
+        let detailText = message || `处理中...`;
+        
+        // 如果有恢复导入的信息，显示在详情中
+        if (already_imported_count > 0 && original_total) {
+            const actualCurrent = already_imported_count + current;
+            statusText = `正在导入论文 (${actualCurrent}/${original_total})...`;
+            if (!message || !message.includes('已导入')) {
+                detailText = `已跳过 ${already_imported_count} 篇已导入的论文，${message || '处理中...'}`;
+            }
+        }
+        
         updateImportStatus(
-            `正在导入论文 (${current}/${total})...`,
+            statusText,
             percent,
-            message || `处理中...`
+            detailText
         );
         
         // 定期刷新论文列表（如果当前在主页）

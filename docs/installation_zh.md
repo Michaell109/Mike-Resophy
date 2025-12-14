@@ -1,10 +1,60 @@
 ## 安装
 
-### 1.1 安装 Resophy 主服务（本地端）
 
-Resophy 支持多种安装方式，推荐使用 `uv` 进行依赖管理。
+<div align=center>
+  <img src="../assets/installation.png" >
+  <div style="margin-top:8px; color: #555; font-size: 16px;">
+    Resophy 采用前后端分离的架构
+  </div>
+</div>
 
-**方式一：使用 uv 安装（推荐）**
+
+- [安装](#安装)
+    - [1. Resophy 架构概述](#1-resophy-架构概述)
+    - [1.1. Local 端（Resophy Core - 主服务）](#11-local-端resophy-core---主服务)
+    - [1.2. AI 端（可选 - AI 服务器）](#12-ai-端可选---ai-服务器)
+  - [2. 安装 Resophy Local 端](#2-安装-resophy-local-端)
+  - [3. 安装 Resophy AI 端（可选）](#3-安装-resophy-ai-端可选)
+    - [3.1 部署 MinerU](#31-部署-mineru)
+    - [3.2 配置 LLM 服务器](#32-配置-llm-服务器)
+
+
+#### 1. Resophy 架构概述
+
+Resophy 采用**双端分离架构**，包含两个独立的部署端：
+
+#### 1.1. Local 端（Resophy Core - 主服务）
+
+- **技术栈**：HTML + CSS + JavaScript + Python Flask
+- **功能**：包含 Resophy 的所有核心功能
+  - 论文管理（上传、分类、搜索）
+  - 文献管理（树形分类、全文搜索、元数据管理）
+  - 导入导出（Zotero 导入、JSON 导出）
+  - 阅读历史追踪
+  - 用户界面和交互
+- **部署要求**：可以部署在任何机器上（无需 GPU）
+- **依赖**：轻量级，不包含 AI 功能依赖
+- **启动方式**：`python app.py --host 0.0.0.0 --port 7890`
+
+#### 1.2. AI 端（可选 - AI 服务器）
+
+- **功能**：提供 AI 增强功能
+  - AI 翻译（PDF 双语翻译）
+  - AI 解读（深度论文分析）
+  - Daily arXiv（智能论文筛选）
+- **组件**：
+  - **LLM 服务器**：使用 lmdeploy 或 vllm 部署（推荐 Qwen3-4B-Instruct）
+  - **MinerU 服务器**：用于 PDF 到 Markdown 解析（MinerU2.5-2509-1.2B 模型）
+- **部署要求**：
+  - 需要 GPU 支持（CUDA）
+  - 可以部署在与 Local 端不同的机器上
+  - 通过 API 与 Local 端通信
+- **通信方式**：Local 端通过 HTTP API 调用 AI 端服务
+
+
+### 2. 安装 Resophy Local 端
+
+Resophy 使用 `uv` 进行依赖管理。
 
 在需要运行 Resophy 主服务的机器上，安装本地端版本（不包含 AI 服务器依赖）：
 
@@ -43,14 +93,13 @@ python app.py --papers-dir ./papers --host 0.0.0.0 --port 7890
 > - 在另一台机器上部署 AI 服务器（见 1.2 节），或
 > - 使用远程 AI API 服务（如 OpenAI、DeepSeek 等），在 Resophy 设置中配置 API 地址和密钥
 
-### 1.2 安装 AI 服务器端（可选）
+### 3. 安装 Resophy AI 端（可选）
 
 > **重要说明**：AI 服务器可以在与 Resophy 主服务不同的机器上部署。Resophy 主服务只需要这些 AI 服务器的 API 地址即可使用 AI 功能。你可以根据资源情况，将 AI 服务器部署在有 GPU 的机器上，而 Resophy 主服务可以部署在任何机器上。
 
 
 在需要部署 MinerU 和 LLM 服务器的机器上（推荐有 GPU 的机器），安装服务器端版本：
 
-**方式一：使用 uv 安装（推荐）**
 
 ```bash
 # 安装 uv（如果尚未安装）
@@ -76,7 +125,7 @@ Resophy 的 AI 功能（**AI 翻译**、**AI 解读**、**Daily arXiv**）依赖
 
 以下是详细的部署步骤：
 
-#### 1.2.1 部署 MinerU
+#### 3.1 部署 MinerU
 
 MinerU 用于将 PDF 文档解析为结构化的 Markdown 格式，是 AI 解读功能的基础。
 
@@ -107,7 +156,7 @@ MinerU 将会在 `http://0.0.0.0:6001` 启动一个 API 服务器，用于将 PD
 
 > **注意**：MinerU 服务器需要 GPU 支持。如果使用 CPU 推理，请参考 [MinerU 官方文档](https://github.com/opendatalab/MinerU?tab=readme-ov-file#local-deployment) 进行配置。
 
-#### 1.2.2 配置 LLM 服务器（vLLM 或者 lmdeploy）
+#### 3.2 配置 LLM 服务器
 
 Resophy 的 AI 功能需要访问 LLM API。你可以使用以下两种方式之一：
 
@@ -132,12 +181,14 @@ modelscope download Qwen/Qwen3-4B-Instruct-2507 --local_dir ai_server/Qwen3-4B-I
 
 ```bash
 # 单 GPU 部署示例（4B 模型）
-lmdeploy serve api_server ai_server/Qwen3-4B-Instruct-2507 \
+vllm serve ai_server/Qwen3-4B-Instruct-2507 \
   --api-key token-abc123 \
-  --server-name 0.0.0.0 \
-  --server-port 6002 \
+  --host 0.0.0.0 \
+  --port 6002 \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.7
 ```
 
 **方式二：使用远程 LLM API**
 
-如果你使用 OpenAI、DeepSeek 等远程 API 服务，可以直接在 Resophy 设置中配置 API 地址和密钥，无需本地部署。
+如果你使用 OpenAI、DeepSeek、OpenRouter 等远程 API 服务，可以直接在 Resophy 设置中配置 API 地址和密钥，无需本地部署

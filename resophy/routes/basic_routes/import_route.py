@@ -433,6 +433,46 @@ def register_import_routes(
                     pass
         return False
 
+    def _check_paper_already_imported(paper_data: Dict[str, Any]) -> bool:
+        """检查论文是否已经导入过（通过 arXiv ID 或标题）"""
+        # 1. 先尝试从 URL 提取 arXiv ID
+        url = paper_data.get("extra", {}).get("url") or paper_data.get("url", "")
+        arxiv_id = None
+        if "arxiv.org" in url.lower():
+            arxiv_id = _extract_arxiv_id_from_url(url)
+        
+        # 2. 如果有 arXiv ID，通过 paper_store 查找
+        if arxiv_id:
+            existing_entry = paper_store.get_by_arxiv_id(arxiv_id)
+            if existing_entry:
+                print(f"[Import] 论文已存在（通过 arXiv ID）: {arxiv_id}")
+                return True
+        
+        # 3. 如果没有 arXiv ID，尝试通过标题查找
+        title = paper_data.get("title", "").strip()
+        if title:
+            # 遍历所有论文，检查标题是否匹配
+            all_papers = paper_store.iter_all()
+            for paper in all_papers:
+                if paper.title and paper.title.strip().lower() == title.lower():
+                    print(f"[Import] 论文已存在（通过标题）: {title[:50]}")
+                    return True
+        
+        return False
+
+    def _filter_already_imported_papers(papers_data: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+        """过滤掉已导入的论文，返回未导入的论文列表和已导入的数量"""
+        remaining_papers = []
+        already_imported_count = 0
+        
+        for paper_data in papers_data:
+            if _check_paper_already_imported(paper_data):
+                already_imported_count += 1
+            else:
+                remaining_papers.append(paper_data)
+        
+        return remaining_papers, already_imported_count
+
     def _update_task_progress(task_id: str, **kwargs):
         """更新任务进度（线程安全）"""
         with import_tasks_lock:
@@ -848,6 +888,7 @@ def register_import_routes(
                     if existing_task and existing_task.get("status") not in [
                         "completed",
                         "error",
+                        "cancelled",
                     ]:
                         return (
                             jsonify(
@@ -860,6 +901,23 @@ def register_import_routes(
                             400,
                         )
 
+            # 检查并过滤已导入的论文（恢复导入功能）
+            remaining_papers, already_imported_count = _filter_already_imported_papers(papers_data)
+            
+            if not remaining_papers:
+                return jsonify({
+                    "success": False,
+                    "error": "所有论文都已导入",
+                    "already_imported": already_imported_count,
+                    "total": len(papers_data),
+                }), 400
+
+            # 如果有已导入的论文，记录信息
+            resume_message = ""
+            if already_imported_count > 0:
+                resume_message = f"检测到 {already_imported_count} 篇论文已导入，将从第 {already_imported_count + 1} 篇开始继续导入"
+                print(f"[Import] {resume_message}")
+
             # 创建导入任务
             task_id = str(uuid.uuid4())
             current_import_task_id = task_id
@@ -869,13 +927,15 @@ def register_import_routes(
                     "status": "starting",
                     "progress": 0,
                     "current": 0,
-                    "total": len(papers_data),
+                    "total": len(remaining_papers),
+                    "original_total": len(papers_data),  # 原始总数
+                    "already_imported_count": already_imported_count,  # 已导入数量
                     "success_count": 0,
                     "failed_count": 0,
                     "skipped_count": 0,
                     "duplicate_count": 0,
                     "others_count": 0,
-                    "message": "正在准备导入...",
+                    "message": resume_message or "正在准备导入...",
                     "start_time": datetime.now().isoformat(),
                     "last_update": datetime.now().isoformat(),
                     "cancelled": False,
@@ -884,16 +944,22 @@ def register_import_routes(
             # 启动后台导入任务（不使用 daemon=True，确保任务完成）
             thread = threading.Thread(
                 target=_import_papers_task,
-                args=(task_id, papers_data, target_category_id),
+                args=(task_id, remaining_papers, target_category_id),
             )
             thread.start()
+
+            message = f"开始导入 {len(remaining_papers)} 篇论文"
+            if already_imported_count > 0:
+                message += f"（已跳过 {already_imported_count} 篇已导入的论文）"
 
             return jsonify(
                 {
                     "success": True,
                     "task_id": task_id,
-                    "total_papers": len(papers_data),
-                    "message": f"开始导入 {len(papers_data)} 篇论文",
+                    "total_papers": len(remaining_papers),
+                    "original_total": len(papers_data),
+                    "already_imported": already_imported_count,
+                    "message": message,
                 }
             )
 
@@ -932,6 +998,8 @@ def register_import_routes(
                     "skipped_count": task.get("skipped_count", 0),
                     "duplicate_count": task.get("duplicate_count", 0),
                     "others_count": task.get("others_count", 0),
+                    "original_total": task.get("original_total", task.get("total", 0)),
+                    "already_imported_count": task.get("already_imported_count", 0),
                 }
             )
 
@@ -961,6 +1029,8 @@ def register_import_routes(
                         "skipped_count": task.get("skipped_count", 0),
                         "duplicate_count": task.get("duplicate_count", 0),
                         "others_count": task.get("others_count", 0),
+                        "original_total": task.get("original_total", task.get("total", 0)),
+                        "already_imported_count": task.get("already_imported_count", 0),
                     }
 
                 # 只有状态变化时才发送
