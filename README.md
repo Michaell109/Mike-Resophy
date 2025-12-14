@@ -6,26 +6,6 @@
 
 <p align="center">
 
-
-  <!-- Stars Badge -->
-  <img src="https://img.shields.io/github/stars/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Stars">
-
-  <!-- Forks Badge -->
-  <img src="https://img.shields.io/github/forks/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Forks">
-
-  <!-- Open Issues Badge -->
-  <a href="https://github.com/Mountchicken/Resophy/issues">
-    <img src="https://img.shields.io/github/issues-raw/Mountchicken/Resophy?color=D3C1D9" alt="Open Issues">
-  </a>
-
-  <!-- Issue Resolution Badge -->
-  <a href="https://github.com/Mountchicken/Resophy/issues">
-    <img src="https://img.shields.io/github/issues-closed-raw/Mountchicken/Resophy?color=32CD32" alt="Issue Resolution">
-  </a>
-
-  <!-- Pull Requests Badge -->
-  <img src="https://img.shields.io/github/issues-pr/Mountchicken/Resophy?color=FFFF00" alt="Pull Requests">
-
   <!-- Platform Support Badge (Windows, Mac, Linux) with Light Green -->
   <img src="https://img.shields.io/badge/Platform-Windows%2C%20Mac%2C%20Linux-D3C1D9" alt="Platform Support">
 
