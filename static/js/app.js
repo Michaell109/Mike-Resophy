@@ -490,9 +490,11 @@ fileInput.addEventListener('change', handleFileSelect);
 }
 
 // 加载分类数据
-async function loadCategories() {
+async function loadCategories(silent = false) {
     try {
-        showLoading(true);
+        if (!silent) {
+            showLoading(true);
+        }
         const response = await fetch('/api/categories');
         categories = await response.json();
         renderCategoryTree();
@@ -500,7 +502,9 @@ async function loadCategories() {
         console.error('加载分类失败:', error);
         showMessage('加载分类失败', 'error');
     } finally {
-        showLoading(false);
+        if (!silent) {
+            showLoading(false);
+        }
     }
 }
 
@@ -7124,16 +7128,19 @@ function startExportImportProgressStream(taskId) {
             if (data.status === 'completed' || data.status === 'error') {
                 exportImportEventSource.close();
                 
-                // 刷新分类树
-                loadCategories();
+                // 确保关闭加载状态
+                showLoading(false);
                 
-                // 3秒后重置 UI
-                setTimeout(() => {
-                    const dropZoneContent = document.getElementById('export-drop-zone-content');
-                    const progressContainer = document.getElementById('export-import-progress-container');
-                    if (dropZoneContent) dropZoneContent.style.display = 'flex';
-                    progressContainer.style.display = 'none';
-                }, 3000);
+                // 立即重置 UI，移除进度显示
+                const dropZoneContent = document.getElementById('export-drop-zone-content');
+                const progressContainer = document.getElementById('export-import-progress-container');
+                if (dropZoneContent) dropZoneContent.style.display = 'flex';
+                if (progressContainer) progressContainer.style.display = 'none';
+                
+                // 静默刷新分类树（不显示加载状态）
+                loadCategories(true).catch(err => {
+                    console.error('刷新分类树失败:', err);
+                });
             }
         } catch (e) {
             console.error('解析进度数据失败:', e);
@@ -7286,14 +7293,27 @@ async function checkExistingImportTask() {
             currentImportTaskId = data.task_id;
             startImportProgressStream(data.task_id);
         } else if (data.has_task && data.status === 'completed') {
-            // 任务已完成，显示结果
-            showImportResult(
-                data.success_count || 0,
-                data.failed_count || 0,
-                data.skipped_count || 0,
-                data.duplicate_count || 0,
-                data.others_count || 0
-            );
+            // 任务已完成，直接重置界面，不显示结果
+            importInProgress = false;
+            currentImportTaskId = null;
+            showLoading(false);
+            
+            const dropZoneContent = document.getElementById('drop-zone-content');
+            const progressContainer = document.getElementById('import-progress-container');
+            const importResult = document.getElementById('import-result');
+            
+            if (dropZoneContent) dropZoneContent.style.display = 'flex';
+            if (progressContainer) progressContainer.style.display = 'none';
+            if (importResult) importResult.style.display = 'none';
+            
+            // 显示成功消息
+            const msg = `导入完成！成功 ${data.success_count || 0} 篇`;
+            showMessage(msg, 'success');
+            
+            // 静默刷新分类树（不显示加载状态）
+            loadCategories(true).catch(err => {
+                console.error('刷新分类树失败:', err);
+            });
         }
     } catch (e) {
         console.log('检查导入任务状态失败:', e);
@@ -7502,8 +7522,10 @@ function handleImportProgress(data) {
         const fileInput = document.getElementById('rdf-file-input');
         if (fileInput) fileInput.value = '';
         
-        // 刷新分类树
-        loadCategories();
+        // 静默刷新分类树（不显示加载状态）
+        loadCategories(true).catch(err => {
+            console.error('刷新分类树失败:', err);
+        });
         
         // 如果当前在分类视图，刷新论文列表
         if (currentCategoryId) {
@@ -7582,34 +7604,27 @@ function updateImportStatus(statusText, percent, detail) {
     if (progressDetail) progressDetail.textContent = detail;
 }
 
-// 显示导入结果
+// 显示导入结果（已废弃，导入完成后直接重置界面，不显示结果）
 function showImportResult(successCount, failedCount, skippedCount, duplicateCount = 0, othersCount = 0) {
-    document.getElementById('import-progress-container').style.display = 'none';
-    document.getElementById('import-result').style.display = 'block';
+    // 不再显示结果界面，直接重置
+    importInProgress = false;
+    currentImportTaskId = null;
+    showLoading(false);
     
-    document.getElementById('import-success-count').textContent = successCount;
-    document.getElementById('import-failed-count').textContent = failedCount;
-    document.getElementById('import-skipped-count').textContent = skippedCount;
-    document.getElementById('import-duplicate-count').textContent = duplicateCount;
+    const dropZoneContent = document.getElementById('drop-zone-content');
+    const progressContainer = document.getElementById('import-progress-container');
+    const importResult = document.getElementById('import-result');
     
-    // 显示 Others 详情
-    const detailEl = document.getElementById('import-result-detail');
-    const othersCountEl = document.getElementById('import-others-count');
-    if (othersCount > 0 && detailEl && othersCountEl) {
-        othersCountEl.textContent = othersCount;
-        detailEl.style.display = 'block';
-    } else if (detailEl) {
-        detailEl.style.display = 'none';
-    }
+    if (dropZoneContent) dropZoneContent.style.display = 'flex';
+    if (progressContainer) progressContainer.style.display = 'none';
+    if (importResult) importResult.style.display = 'none';
     
+    // 显示成功消息
     let msg = `导入完成！成功 ${successCount} 篇`;
     if (failedCount > 0) msg += `，失败 ${failedCount} 篇`;
     if (skippedCount > 0) msg += `，跳过 ${skippedCount} 篇`;
     if (duplicateCount > 0) msg += `，重复 ${duplicateCount} 篇`;
     showMessage(msg, 'success');
-    
-    // 确保移除加载状态
-    showLoading(false);
 }
 
 // 重置导入界面
