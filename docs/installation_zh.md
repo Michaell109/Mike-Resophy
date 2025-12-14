@@ -58,23 +58,63 @@ Resophy 使用 `uv` 进行依赖管理。
 
 在需要运行 Resophy 主服务的机器上，安装本地端版本（不包含 AI 服务器依赖）：
 
+
+<details open>
+<summary><strong>Linux 端安装</strong></summary>
+
 ```bash
 # 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.zshrc # for macos
-
 # 克隆仓库
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
-
 # 创建虚拟环境（推荐）
 uv venv
-source .venv/bin/activate  # Linux/macOS
-# 或 Windows: .venv\Scripts\activate
-
+source .venv/bin/activate
 # 安装本地端版本（不包含 AI 服务器依赖）
 uv pip install -e ".[local]"
 ```
+
+</details>
+
+<details close>
+<summary><strong>Mac 端安装</strong></summary>
+
+```bash
+# 安装 uv（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc
+# 克隆仓库
+git clone https://github.com/Mountchicken/Resophy.git
+cd Resophy
+# 创建虚拟环境（推荐）
+uv venv
+source .venv/bin/activate
+# 安装本地端版本（不包含 AI 服务器依赖）
+uv pip install -e ".[local]"
+```
+
+</details>
+
+</details>
+
+<details close>
+<summary><strong>Windows 端安装</strong></summary>
+以 PowerShell 安装为例
+
+
+```bash
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# 请将下方 USERNAME 替换为用户名
+[System.Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\Users\USERNAME\.local\bin", [System.EnvironmentVariableTarget]::User)
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path', [System.EnvironmentVariableTarget]::User)
+uv --version
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.venv\Scripts\activate.ps1
+uv pip install -e ".[local]"
+```
+
+</details>
 
 **启动 Resophy 主服务**
 
@@ -100,23 +140,62 @@ python app.py --papers-dir ./papers --host 0.0.0.0 --port 7890
 
 在需要部署 MinerU 和 LLM 服务器的机器上（推荐有 GPU 的机器），安装服务器端版本：
 
+<details open>
+<summary><strong>Linux 端安装</strong></summary>
 
 ```bash
 # 安装 uv（如果尚未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.zshrc # for macos
-
 # 克隆仓库
 git clone https://github.com/Mountchicken/Resophy.git
 cd Resophy
-# 创建虚拟环境（如果是本地端和服务器端在同一台机器， 则跳过环境创建）
+# 创建虚拟环境（推荐）
 uv venv
-source .venv/bin/activate  # Linux/macOS
-# 或 Windows: .venv\Scripts\activate
-
-# 安装服务器端版本（包含 MinerU 和 LLM 服务器依赖）
+source .venv/bin/activate
+# 安装本地端版本（不包含 AI 服务器依赖）
 uv pip install -e ".[server]"
 ```
+
+</details>
+
+<details close>
+<summary><strong>Mac 端安装</strong></summary>
+
+```bash
+# 安装 uv（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.zshrc
+# 克隆仓库
+git clone https://github.com/Mountchicken/Resophy.git
+cd Resophy
+# 创建虚拟环境（推荐）
+uv venv
+source .venv/bin/activate
+# 安装本地端版本（不包含 AI 服务器依赖）
+uv pip install -e ".[server]"
+```
+
+</details>
+
+</details>
+
+<details close>
+<summary><strong>Windows 端安装</strong></summary>
+以 PowerShell 安装为例
+
+
+```bash
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# 请将下方 USERNAME 替换为用户名
+[System.Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\Users\USERNAME\.local\bin", [System.EnvironmentVariableTarget]::User)
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path', [System.EnvironmentVariableTarget]::User)
+uv --version
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.venv\Scripts\activate.ps1
+uv pip install -e ".[server]"
+```
+
+</details>
 
 Resophy 的 AI 功能（**AI 翻译**、**AI 解读**、**Daily arXiv**）依赖于以下服务：
 
