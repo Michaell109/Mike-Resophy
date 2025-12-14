@@ -49,7 +49,7 @@
 ----
 
 
-[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/25f15670-1259-4e87-88a9-2648dcd78272)
+[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/cca7222b-9620-47ab-9d90-ba24b457aa02)
 
 ----
 
