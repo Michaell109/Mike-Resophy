@@ -7397,11 +7397,11 @@ function startImportProgressStream(taskId) {
     
     currentImportTaskId = taskId;
     
-    // 显示取消按钮
-    const cancelBtn = document.getElementById('cancel-import-btn');
-    if (cancelBtn) {
-        cancelBtn.style.display = 'inline-block';
-    }
+    // 取消按钮已隐藏，不再显示
+    // const cancelBtn = document.getElementById('cancel-import-btn');
+    // if (cancelBtn) {
+    //     cancelBtn.style.display = 'inline-block';
+    // }
     
     importEventSource = new EventSource(`/api/import/zotero/progress/${taskId}`);
     
