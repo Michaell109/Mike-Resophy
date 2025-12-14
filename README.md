@@ -39,7 +39,7 @@
 
 [English](README.md) | [简体中文](docs/README_en.md) | [安装文档](docs/installation_zh.md) | [快速开始](docs/quick_start_zh.md)
 
-<span style="color:rgb(154, 46, 222);">***Resophy 所有代码都通过 AI 生成，人工校验***</span>
+<span style="color:rgb(154, 46, 222);">***Resophy 所有代码都采用 Cusor (Sonnet 4.5/Auto) 生成，人工校验的方式搭建***</span>
 
 </div>
 
@@ -72,8 +72,6 @@ Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它
 ----
 
 ## 目录
-
-
 - [Resophy](#resophy)
       - [核心功能](#核心功能)
   - [目录](#目录)
@@ -94,6 +92,8 @@ Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它
     - [📁 项目结构](#-项目结构)
     - [💡 示例：添加新功能](#-示例添加新功能)
   - [4. LICENSE](#4-license)
+
+----
 
 ## 1. 安装
 
@@ -129,6 +129,7 @@ Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将
   </table>
 </div>
 
+---- 
 
 ## 2. 快速上手
 
@@ -348,14 +349,15 @@ Daily arXiv 功能自动爬取最新 arXiv 论文，并使用 AI 进行智能分
 
 </details>
 
+----
+
 ## 3. 💻 Vibe Coding
 
 Resophy 采用 **Vibe Coding** 的开发理念，这意味着你可以通过自然语言与 AI Coding Agent 对话，轻松自定义和扩展功能。无需深入了解复杂的代码结构，只需描述你的需求，AI 就能帮你实现。
 
+[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/a7c218eb-f045-4b59-9076-fff93e5e4861)
+
 <div align="center">
-  <a href="https://github.com/user-attachments/assets/a7c218eb-f045-4b59-9076-fff93e5e4861">
-    <img src="assets/video_cover.png" alt="Vibe Coding 演示视频" style="max-width: 600px;">
-  </a>
   <div style="margin-top:8px; color: #555; font-size: 14px;">
     点击观看 Vibe Coding 演示视频
   </div>
@@ -478,6 +480,8 @@ Resophy/
 2. **测试建议**：添加新功能后，建议手动测试确保功能正常
 3. **兼容性**：如果修改了核心功能，注意检查是否影响现有功能
 4. **数据备份**：在添加可能影响数据的功能前，建议先备份 `papers/` 目录
+
+----
 
 ## 4. LICENSE
 Resophy 采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en) 开源许可证，请参考 [LICENSE](LICENSE) 文件。
