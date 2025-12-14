@@ -2578,6 +2578,60 @@ function setupContextMenu() {
     });
 }
 
+// 智能定位右键菜单，确保菜单完全可见
+function positionContextMenu(menuElement, pageX, pageY) {
+    // 先显示菜单以获取其尺寸
+    menuElement.style.display = 'block';
+    menuElement.style.visibility = 'hidden'; // 临时隐藏以计算尺寸
+    menuElement.style.left = '0px';
+    menuElement.style.top = '0px';
+    
+    const menuRect = menuElement.getBoundingClientRect();
+    const menuWidth = menuRect.width;
+    const menuHeight = menuRect.height;
+    
+    // 获取视口尺寸
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // 计算初始位置（相对于视口）
+    let left = pageX;
+    let top = pageY;
+    
+    // 检查右边界：如果菜单会超出右边界，向左偏移
+    if (left + menuWidth > viewportWidth) {
+        left = viewportWidth - menuWidth - 10; // 留10px边距
+        // 确保不会超出左边界
+        if (left < 10) {
+            left = 10;
+        }
+    }
+    
+    // 检查下边界：如果菜单会超出下边界，向上偏移
+    if (top + menuHeight > viewportHeight) {
+        top = viewportHeight - menuHeight - 10; // 留10px边距
+        // 确保不会超出上边界
+        if (top < 10) {
+            top = 10;
+        }
+    }
+    
+    // 检查左边界：如果菜单会超出左边界，向右偏移
+    if (left < 10) {
+        left = 10;
+    }
+    
+    // 检查上边界：如果菜单会超出上边界，向下偏移
+    if (top < 10) {
+        top = 10;
+    }
+    
+    // 应用计算后的位置
+    menuElement.style.left = left + 'px';
+    menuElement.style.top = top + 'px';
+    menuElement.style.visibility = 'visible'; // 显示菜单
+}
+
 // 显示右键菜单
 function showContextMenu(e, categoryId) {
     contextMenu.dataset.categoryId = categoryId;
@@ -2601,9 +2655,8 @@ function showContextMenu(e, categoryId) {
         option.classList.toggle('selected', option.dataset.color === currentColor);
     });
     
-    contextMenu.style.display = 'block';
-    contextMenu.style.left = e.pageX + 'px';
-    contextMenu.style.top = e.pageY + 'px';
+    // 使用智能定位
+    positionContextMenu(contextMenu, e.pageX, e.pageY);
 }
 
 // 切换目录置顶状态
@@ -2844,9 +2897,8 @@ function setupPaperContextMenu() {
 // 显示论文右键菜单
 function showPaperContextMenu(e, paperId) {
     paperContextMenu.dataset.paperId = paperId;
-    paperContextMenu.style.display = 'block';
-    paperContextMenu.style.left = e.pageX + 'px';
-    paperContextMenu.style.top = e.pageY + 'px';
+    // 使用智能定位
+    positionContextMenu(paperContextMenu, e.pageX, e.pageY);
 }
 
 // 查找分类
@@ -4200,8 +4252,6 @@ function showCategoryBatchContextMenu(e) {
     menu.className = 'context-menu category-batch-menu';
     menu.style.cssText = `
         position: fixed;
-        left: ${e.clientX}px;
-        top: ${e.clientY}px;
         z-index: 10000;
         background: white;
         border: 1px solid #ddd;
@@ -4241,7 +4291,12 @@ function showCategoryBatchContextMenu(e) {
     };
     setTimeout(() => document.addEventListener('click', closeMenu), 0);
     
+    // 先添加到 DOM，然后使用智能定位
     document.body.appendChild(menu);
+    // 使用智能定位（注意：批量菜单使用 clientX/clientY，需要转换为 pageX/pageY）
+    const pageX = e.pageX || (e.clientX + window.scrollX);
+    const pageY = e.pageY || (e.clientY + window.scrollY);
+    positionContextMenu(menu, pageX, pageY);
 }
 
 // 确认删除选中的多个目录
