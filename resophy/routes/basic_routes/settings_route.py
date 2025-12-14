@@ -330,6 +330,25 @@ INPUT: <MARKDOWN>"""
             merged_settings.update(old_settings)  # 先应用旧设置
             merged_settings.update(data)  # 再应用新设置（覆盖）
 
+            # 检查 LLM 配置是否发生变化
+            llm_config_changed = False
+            if was_llm_configured and is_llm_configured:
+                # 配置完整，检查是否发生变化
+                old_model = old_settings.get("llmModel", "").strip()
+                old_base_url = old_settings.get("llmBaseUrl", "").strip()
+                old_api_key = old_settings.get("llmApiKey", "").strip()
+                
+                new_model = merged_settings.get("llmModel", "").strip()
+                new_base_url = merged_settings.get("llmBaseUrl", "").strip()
+                new_api_key = merged_settings.get("llmApiKey", "").strip()
+                
+                # 如果任何一个配置项发生变化，认为配置已更改
+                if (old_model != new_model or 
+                    old_base_url != new_base_url or 
+                    old_api_key != new_api_key):
+                    llm_config_changed = True
+                    print(f"[Settings] 检测到 LLM 配置已更改")
+
             # 保存合并后的配置
             print(f"[Settings] 保存 Agentic 设置到: {agentic_settings_file}")
             print(f"[Settings] 配置内容: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}...")
@@ -337,13 +356,51 @@ INPUT: <MARKDOWN>"""
                 json.dump(merged_settings, fp, ensure_ascii=False, indent=2)
             print(f"[Settings] ✅ 设置已保存")
 
-            # 如果之前未配置完整，现在配置完整了，尝试启动 Daily arXiv
-            if not was_llm_configured and is_llm_configured and start_daily_arxiv_callback:
+            # 如果 LLM 配置完整且发生变化，或者从未配置变为已配置，触发 Daily arXiv 抓取
+            if is_llm_configured and (llm_config_changed or not was_llm_configured):
                 try:
-                    start_daily_arxiv_callback()
-                    print("[Settings] LLM 配置已完整，已尝试启动 Daily arXiv 调度器")
+                    from resophy.tools.basic_tools.daily_arxiv import get_manager
+                    import threading
+                    # 获取 Daily arXiv 设置文件路径（从 agentic_settings_file 推断）
+                    papers_dir = os.path.dirname(agentic_settings_file)
+                    daily_arxiv_settings_file = os.path.join(
+                        papers_dir, "daily_arxiv_settings.json"
+                    )
+                    temp_papers_dir = os.path.join(
+                        papers_dir, ".daily_arxiv_temp"
+                    )
+                    # 获取 manager 实例（单例模式，会返回同一个实例）
+                    manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+                    
+                    # 清除失败状态
+                    if hasattr(manager, "_llm_api_failed"):
+                        manager._llm_api_failed = False
+                        manager._llm_api_error_message = ""
+                        print("[Settings] 已清除 Daily arXiv 的失败状态")
+                    
+                    # 启动调度器（如果未运行）
+                    if not manager._scheduler_running:
+                        if start_daily_arxiv_callback:
+                            start_daily_arxiv_callback()
+                        else:
+                            manager.start_scheduler()
+                        print("[Settings] LLM 配置已保存，已启动 Daily arXiv 调度器（调度器会自动触发一次抓取）")
+                    else:
+                        # 调度器已在运行，手动触发一次抓取
+                        def trigger_fetch():
+                            try:
+                                manager._do_scheduled_fetch()
+                                print("[Settings] LLM 配置已保存，已触发一次 Daily arXiv 抓取")
+                            except Exception as e:
+                                print(f"[Settings] 触发 Daily arXiv 抓取失败: {e}")
+                        
+                        # 在后台线程中触发抓取，避免阻塞保存响应
+                        thread = threading.Thread(target=trigger_fetch, daemon=True)
+                        thread.start()
+                        print("[Settings] LLM 配置已保存，已在后台触发 Daily arXiv 抓取")
                 except Exception as e:
-                    print(f"[Settings] 启动 Daily arXiv 调度器失败: {e}")
+                    # 如果触发抓取时出错，不影响保存结果
+                    print(f"[Settings] 触发 Daily arXiv 抓取时出错（不影响保存）: {e}")
 
             return jsonify({"success": True})
         except Exception as exc:
@@ -428,6 +485,48 @@ INPUT: <MARKDOWN>"""
                     reply = response.choices[0].message.content.strip()
                     # 检查是否包含 "Yes"（不区分大小写）
                     if "yes" in reply.lower():
+                        # 测试成功，清除 Daily arXiv 的失败状态并触发抓取
+                        try:
+                            from resophy.tools.basic_tools.daily_arxiv import get_manager
+                            import threading
+                            # 获取 Daily arXiv 设置文件路径（从 agentic_settings_file 推断）
+                            # agentic_settings_file 和 daily_arxiv_settings_file 在同一目录下
+                            papers_dir = os.path.dirname(agentic_settings_file)
+                            daily_arxiv_settings_file = os.path.join(
+                                papers_dir, "daily_arxiv_settings.json"
+                            )
+                            temp_papers_dir = os.path.join(
+                                papers_dir, ".daily_arxiv_temp"
+                            )
+                            # 获取 manager 实例（单例模式，会返回同一个实例）
+                            manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+                            # 清除失败状态
+                            if hasattr(manager, "_llm_api_failed"):
+                                manager._llm_api_failed = False
+                                manager._llm_api_error_message = ""
+                                print("[Settings] LLM API 测试成功，已清除 Daily arXiv 的失败状态")
+                            
+                            # 启动调度器（如果未运行）
+                            if not manager._scheduler_running:
+                                manager.start_scheduler()
+                                print("[Settings] LLM API 测试成功，已启动 Daily arXiv 调度器（调度器会自动触发一次抓取）")
+                            else:
+                                # 调度器已在运行，手动触发一次抓取
+                                def trigger_fetch():
+                                    try:
+                                        manager._do_scheduled_fetch()
+                                        print("[Settings] LLM API 测试成功，已触发一次 Daily arXiv 抓取")
+                                    except Exception as e:
+                                        print(f"[Settings] 触发 Daily arXiv 抓取失败: {e}")
+                                
+                                # 在后台线程中触发抓取，避免阻塞测试响应
+                                thread = threading.Thread(target=trigger_fetch, daemon=True)
+                                thread.start()
+                                print("[Settings] LLM API 测试成功，已在后台触发 Daily arXiv 抓取")
+                        except Exception as e:
+                            # 如果处理失败状态时出错，不影响测试结果
+                            print(f"[Settings] 处理 Daily arXiv 失败状态时出错（不影响测试）: {e}")
+                        
                         return jsonify(
                             {
                                 "success": True,

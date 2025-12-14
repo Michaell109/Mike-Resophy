@@ -114,12 +114,49 @@ def register_daily_arxiv_routes(
             llm_config = get_llm_config()
             is_configured = is_llm_configured()
 
-            # 检查 LLM API 是否失败（从 manager 获取状态）
+            # 如果配置完整，重新测试一次 LLM API，而不是直接返回历史状态
+            # 这样可以避免在设置中修复配置后，仍然显示历史失败状态的问题
             llm_api_failed = False
             llm_api_error_message = ""
-            if hasattr(manager, "_llm_api_failed"):
-                llm_api_failed = manager._llm_api_failed
-                llm_api_error_message = manager._llm_api_error_message or ""
+
+            if is_configured:
+                # 配置完整，重新测试 LLM API
+                from resophy.tools.api_test_utils import test_llm_api
+
+                llm_model = llm_config.get("llmModel", "").strip()
+                llm_base_url = llm_config.get("llmBaseUrl", "").strip()
+                llm_api_key = llm_config.get("llmApiKey", "").strip()
+
+                if llm_model and llm_base_url and llm_api_key:
+                    try:
+                        success, error_msg = test_llm_api(
+                            llm_model, llm_base_url, llm_api_key
+                        )
+                        if not success:
+                            # 测试失败，更新 manager 状态
+                            manager._llm_api_failed = True
+                            manager._llm_api_error_message = error_msg
+                            llm_api_failed = True
+                            llm_api_error_message = error_msg
+                        else:
+                            # 测试成功，清除失败状态
+                            manager._llm_api_failed = False
+                            manager._llm_api_error_message = ""
+                            llm_api_failed = False
+                            llm_api_error_message = ""
+                    except Exception as e:
+                        # 测试异常，更新状态
+                        manager._llm_api_failed = True
+                        manager._llm_api_error_message = str(e)
+                        llm_api_failed = True
+                        llm_api_error_message = str(e)
+            else:
+                # 配置不完整，检查历史状态（但不显示错误，因为配置本身就不完整）
+                if hasattr(manager, "_llm_api_failed"):
+                    # 即使有历史失败状态，如果配置不完整，也不显示错误
+                    # 因为用户可能正在配置中
+                    llm_api_failed = False
+                    llm_api_error_message = ""
 
             return jsonify(
                 {
