@@ -1,7 +1,7 @@
 <div align="center" xmlns="http://www.w3.org/1999/html">
 <!-- logo -->
 <p align="center">
-  <img src="assets/cover.png" width="500px" style="vertical-align:middle;">
+  <img src="https://github.com/user-attachments/assets/d6472d7d-fce6-4c86-814e-2d490255e85a" width="500px" style="vertical-align:middle;">
 </p>
 
 <p align="center">
