@@ -419,3 +419,95 @@ def register_category_routes(
             import traceback
             traceback.print_exc()
             return jsonify({"error": f"导出失败: {str(exc)}"}), 500
+
+    @app.route("/api/categories/<category_id>/copy-arxiv-urls", methods=["GET"])
+    def api_copy_category_arxiv_urls(category_id: str):
+        """
+        获取分类及其所有子分类下所有论文的 arXiv URL
+        
+        返回格式：title：URL，title：URL
+        """
+        try:
+            categories = get_categories()
+            category_node = find_category_node(categories, category_id)
+            
+            if not category_node:
+                return jsonify({"error": "Category not found"}), 404
+            
+            # 递归收集所有论文
+            def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
+                """递归收集分类及其子分类下的所有论文"""
+                papers = []
+                
+                # 获取当前分类的论文
+                node_path = get_category_path(categories, node["id"])
+                if node_path:
+                    node_papers = get_papers_in_category(node["id"], node_path)
+                    papers.extend(node_papers)
+                
+                # 递归处理子分类
+                for child in node.get("children", []):
+                    papers.extend(collect_papers_recursive(child))
+                
+                return papers
+            
+            all_papers = collect_papers_recursive(category_node)
+            
+            if not all_papers:
+                return jsonify({"error": "该分类下没有论文"}), 404
+            
+            # 收集所有有 arXiv URL 的论文
+            arxiv_entries = []
+            for paper in all_papers:
+                # paper 可能是 Paper 对象或字典
+                arxiv_url = None
+                arxiv_id = None
+                title = ""
+                
+                if hasattr(paper, 'arxiv_url'):
+                    arxiv_url = paper.arxiv_url
+                    arxiv_id = getattr(paper, 'arxiv_id', None)
+                    title = paper.title or paper.filename or ""
+                elif isinstance(paper, dict):
+                    arxiv_url = paper.get("arxiv_url")
+                    arxiv_id = paper.get("arxiv_id")
+                    title = paper.get("title") or paper.get("filename") or ""
+                else:
+                    continue
+                
+                # 如果没有 arxiv_url 但有 arxiv_id，根据 arxiv_id 构建 URL
+                if not arxiv_url or not arxiv_url.strip():
+                    if arxiv_id and arxiv_id.strip():
+                        arxiv_url = f"https://arxiv.org/abs/{arxiv_id.strip()}"
+                    else:
+                        continue  # 既没有 arxiv_url 也没有 arxiv_id，跳过
+                
+                # 处理有 arXiv URL 的论文
+                if arxiv_url and arxiv_url.strip():
+                    arxiv_entries.append({
+                        "title": title.strip() if title else "未命名论文",
+                        "url": arxiv_url.strip()
+                    })
+            
+            if not arxiv_entries:
+                return jsonify({"error": "该分类下的论文都没有 arXiv URL"}), 404
+            
+            # 格式化为 "title：URL\n\ntitle：URL" 格式（不同论文之间用两个换行符分隔）
+            formatted_text = "\n\n".join([f"{entry['title']}：{entry['url']}" for entry in arxiv_entries])
+            
+            print(f"[复制 arXiv URL] 分类: {category_node.get('name', 'export')}, 总论文数: {len(all_papers)}, 有 arXiv URL 的论文数: {len(arxiv_entries)}")
+            if len(all_papers) > len(arxiv_entries):
+                skipped_count = len(all_papers) - len(arxiv_entries)
+                print(f"[复制 arXiv URL] 警告: 跳过了 {skipped_count} 篇没有 arXiv URL/ID 的论文")
+            
+            return jsonify({
+                "success": True,
+                "text": formatted_text,
+                "count": len(arxiv_entries)
+            })
+            
+        except Exception as exc:
+            print(f"获取 arXiv URL 失败: {exc}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": str(exc)}), 500

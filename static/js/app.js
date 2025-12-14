@@ -2450,6 +2450,49 @@ async function exportCategoryBibtex(categoryId) {
     }
 }
 
+async function copyCategoryArxivUrls(categoryId) {
+    try {
+        showMessage('正在获取 arXiv URL...', 'info', 2000);
+        
+        const response = await fetch(`/api/categories/${categoryId}/copy-arxiv-urls`, {
+            method: 'GET'
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+            showMessage(`获取失败: ${result.error || '未知错误'}`, 'error');
+            return;
+        }
+        
+        // 复制到剪贴板
+        const text = result.text;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showMessage(`已复制 ${result.count} 个 arXiv URL 到剪贴板`, 'success');
+        } else {
+            // 降级方案：使用传统的复制方法
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showMessage(`已复制 ${result.count} 个 arXiv URL 到剪贴板`, 'success');
+            } catch (err) {
+                showMessage('复制失败，请手动复制', 'error');
+                console.error('复制失败:', err);
+            }
+            document.body.removeChild(textarea);
+        }
+    } catch (error) {
+        console.error('复制 arXiv URL 失败:', error);
+        showMessage('复制失败，请稍后重试', 'error');
+    }
+}
+
 async function deleteCategory(categoryId) {
     try {
         const response = await fetch(`/api/categories/${categoryId}`, {
@@ -2514,6 +2557,12 @@ function setupContextMenu() {
     document.getElementById('export-bibtex').addEventListener('click', () => {
         const categoryId = contextMenu.dataset.categoryId;
         exportCategoryBibtex(categoryId);
+        contextMenu.style.display = 'none';
+    });
+
+    document.getElementById('copy-arxiv-urls').addEventListener('click', () => {
+        const categoryId = contextMenu.dataset.categoryId;
+        copyCategoryArxivUrls(categoryId);
         contextMenu.style.display = 'none';
     });
 
