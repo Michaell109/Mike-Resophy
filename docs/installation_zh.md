@@ -2,7 +2,7 @@
 
 
 <div align=center>
-  <img src="../assets/installation.png" >
+  <img src="https://github.com/user-attachments/assets/73d25cfa-5791-4b54-a131-d816f51afebb" >
   <div style="margin-top:8px; color: #555; font-size: 16px;">
     Resophy 采用前后端分离的架构
   </div>

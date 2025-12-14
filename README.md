@@ -46,7 +46,7 @@
 ----
 
 
-[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/13bfb7ab-a9b6-4f09-86c2-c513a6a8f221)
+[![Video Name](https://github.com/user-attachments/assets/bced2c0f-0d4c-4c5d-a264-47bfc533ca31)](https://github.com/user-attachments/assets/13bfb7ab-a9b6-4f09-86c2-c513a6a8f221)
 
 ----
 
@@ -64,7 +64,7 @@ Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它
 <div align="center" xmlns="http://www.w3.org/1999/html">
 <!-- logo -->
 <p align="center">
-  <img src="assets/introduction.png"  style="vertical-align:middle;">
+  <img src="https://github.com/user-attachments/assets/76507160-fbbe-44cd-bd0f-8905fdd3611c"  style="vertical-align:middle;">
 </p>
 </div>
 
@@ -98,7 +98,7 @@ Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它
 ## 1. 安装
 
 <div align=center>
-  <img src="assets/installation.png">
+  <img src="https://github.com/user-attachments/assets/73d25cfa-5791-4b54-a131-d816f51afebb">
   <div style="margin-top:8px; color: #555; font-size: 16px;">
     Resophy 采用前后端分离的架构
   </div>
@@ -139,7 +139,7 @@ Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将
 ### 2.1 ⚙️ 第一步，进行初始配置
 
 <div align=center>
-  <img src="assets/_1_settings.png">
+  <img src="https://github.com/user-attachments/assets/6cc2292a-d3df-45d2-8bda-15f9edd13189">
   <div style="margin-top:8px; color: #555; font-size: 16px;">
     第一步，设置参数以及从 Zotero 进行论文迁移
   </div>
@@ -355,7 +355,7 @@ Daily arXiv 功能自动爬取最新 arXiv 论文，并使用 AI 进行智能分
 
 Resophy 采用 **Vibe Coding** 的开发理念，这意味着你可以通过自然语言与 AI Coding Agent 对话，轻松自定义和扩展功能。无需深入了解复杂的代码结构，只需描述你的需求，AI 就能帮你实现。
 
-[![Video Name](assets/video_cover.png)](https://github.com/user-attachments/assets/a7c218eb-f045-4b59-9076-fff93e5e4861)
+[![Video Name](https://github.com/user-attachments/assets/bced2c0f-0d4c-4c5d-a264-47bfc533ca31)](https://github.com/user-attachments/assets/a7c218eb-f045-4b59-9076-fff93e5e4861)
 
 <div align="center">
   <div style="margin-top:8px; color: #555; font-size: 14px;">
