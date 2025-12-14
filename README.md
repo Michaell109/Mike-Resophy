@@ -39,9 +39,7 @@
 
 [English](README.md) | [简体中文](docs/README_en.md) | [安装文档](docs/installation_zh.md) | [快速开始](docs/quick_start_zh.md)
 
-<span style="color:rgb(154, 46, 222);">***Resophy 所有代码和文档都通过 AI 生成，人工校验 |***</span>
-<span style="color:rgb(154, 46, 222);">***Code：Cusor + Sonnet 4.5 / Opus 4.5 / Auto |***</span>
-<span style="color:rgb(154, 46, 222);">***README: Cusor, Nano Banana Pro, NotebookLM, GPT5.1***</span>
+<span style="color:rgb(154, 46, 222);">***Resophy 所有代码都通过 AI 生成，人工校验***</span>
 
 </div>
 
@@ -351,5 +349,10 @@ Daily arXiv 功能自动爬取最新 arXiv 论文，并使用 AI 进行智能分
 </details>
 
 ## 3. Vibe Coding
+
+
+
+
+
 ## 4. LICENSE
 Resophy 采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en) 开源许可证，请参考 [LICENSE](LICENSE) 文件。
