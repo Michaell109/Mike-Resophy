@@ -8582,7 +8582,7 @@ async function viewAnalysisResult(paperId, event) {
             return match;
         });
 
-        // 渲染 markdown
+        // 渲染 markdown（保护公式片段，避免被 marked 改写）
         if (typeof marked !== 'undefined') {
             marked.setOptions({
                 breaks: true,
@@ -8599,7 +8599,21 @@ async function viewAnalysisResult(paperId, event) {
 
         let htmlContent = '';
         if (typeof marked !== 'undefined') {
-            htmlContent = marked.parse(markdownContent);
+            const preserved = [];
+            const mdPreserved = markdownContent
+                .replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
+                    const id = preserved.length;
+                    preserved.push(match);
+                    return `@@MJX_BLOCK_${id}@@`;
+                })
+                .replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
+                    const id = preserved.length;
+                    preserved.push(match);
+                    return `@@MJX_INLINE_${id}@@`;
+                });
+            htmlContent = marked.parse(mdPreserved).replace(/@@MJX_(BLOCK|INLINE)_(\d+)@@/g, function(_, __, idx) {
+                return preserved[Number(idx)];
+            });
         } else {
             htmlContent = `<pre style="white-space: pre-wrap;">${escapeHtml(markdownContent)}</pre>`;
         }
@@ -8622,6 +8636,30 @@ async function viewAnalysisResult(paperId, event) {
         // 应用样式（若需要）
         if (typeof applyMarkdownStyles === 'function') {
             applyMarkdownStyles();
+        }
+
+        // 数学公式排版（MathJax）
+        const el = paperInfoEl.querySelector('.paper-info-content');
+        if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
+            MathJax.startup.promise.then(() => {
+                if (MathJax.typesetPromise) {
+                    MathJax.typesetPromise([el]);
+                } else if (MathJax.typeset) {
+                    MathJax.typeset([el]);
+                }
+            });
+        } else if (window.MathJax) {
+            if (MathJax.typesetPromise) {
+                MathJax.typesetPromise([el]);
+            } else if (MathJax.typeset) {
+                MathJax.typeset([el]);
+            }
+        } else {
+            setTimeout(() => {
+                if (window.MathJax && MathJax.typesetPromise) {
+                    MathJax.typesetPromise([el]);
+                }
+            }, 500);
         }
     } catch (e) {
         console.error('获取结果失败:', e);

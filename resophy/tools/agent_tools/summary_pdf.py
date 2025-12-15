@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import threading
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List
@@ -214,7 +215,7 @@ INPUT: <MARKDOWN>"""
         )
 
         result_content = chat_completion.choices[0].message.content
-
+        result_content = re.sub(r"<think>[\s\S]*?</think>", "", result_content, flags=re.IGNORECASE)
         result_file = os.path.join(pdf_output_dir, "result.md")
         with open(result_file, "w", encoding="utf-8") as f:
             f.write(result_content)
