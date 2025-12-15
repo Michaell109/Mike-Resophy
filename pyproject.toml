@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "一个完全开源、面向 Vibe Coding 的现代论文阅读与管理平台"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "CC BY-NC 4.0"}
 authors = [
     {name = "Resophy Team"}
 ]
