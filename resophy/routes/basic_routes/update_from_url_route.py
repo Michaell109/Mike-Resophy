@@ -56,21 +56,31 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 
 def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
-    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-    try:
-        print(f"正在从 arXiv 下载 PDF: {pdf_url}")
-        response = requests.get(pdf_url, timeout=30, stream=True)
-        response.raise_for_status()
-        content_type = response.headers.get("Content-Type", "")
-        if "pdf" not in content_type.lower():
-            print(f"警告: Content-Type 不是 PDF: {content_type}")
-        pdf_content = response.content
-        filename = f"{arxiv_id}.pdf"
-        print(f"成功下载 PDF, 大小: {len(pdf_content)} bytes")
-        return pdf_content, filename
-    except requests.exceptions.RequestException as exc:
-        print(f"下载 arXiv PDF 失败: {exc}")
-        return None
+    """下载 arXiv PDF（优先使用 export.arxiv.org）"""
+    # 优先尝试 export.arxiv.org
+    pdf_urls = [
+        f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
+        f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+    ]
+
+    for pdf_url in pdf_urls:
+        try:
+            print(f"正在从 arXiv 下载 PDF: {pdf_url}")
+            response = requests.get(pdf_url, timeout=30, stream=True)
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "")
+            if "pdf" not in content_type.lower():
+                print(f"警告: Content-Type 不是 PDF: {content_type}")
+            pdf_content = response.content
+            filename = f"{arxiv_id}.pdf"
+            print(f"成功下载 PDF, 大小: {len(pdf_content)} bytes")
+            return pdf_content, filename
+        except requests.exceptions.RequestException as exc:
+            print(f"从 {pdf_url} 下载失败: {exc}")
+            continue
+
+    print(f"所有 URL 都下载失败")
+    return None
 
 
 def _clean_filename(text: Optional[str]) -> Optional[str]:
