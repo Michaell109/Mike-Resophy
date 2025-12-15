@@ -1347,10 +1347,12 @@ class DailyArxivManager:
         print(f"[DailyArxiv] 清理过期论文，保留最近 {retention_days} 个有论文的日期...")
 
         if not os.path.exists(self.base_dir):
+            print(f"[DailyArxiv] 基础目录不存在: {self.base_dir}")
             return
 
-        # 获取所有有论文的日期
+        # 获取所有有论文的日期（已按降序排序，最新的在前）
         available_dates = self.get_available_dates()
+        print(f"[DailyArxiv] 当前有论文的日期列表: {available_dates}")
 
         if len(available_dates) <= retention_days:
             print(
@@ -1360,16 +1362,33 @@ class DailyArxivManager:
 
         # 保留最近 retention_days 个日期，删除更早的
         dates_to_keep = set(available_dates[:retention_days])
+        dates_to_delete = [d for d in available_dates if d not in dates_to_keep]
+        
+        print(f"[DailyArxiv] 将保留以下 {len(dates_to_keep)} 个日期: {sorted(dates_to_keep, reverse=True)}")
+        print(f"[DailyArxiv] 将删除以下 {len(dates_to_delete)} 个过期日期: {sorted(dates_to_delete, reverse=True)}")
 
+        deleted_count = 0
         for name in os.listdir(self.base_dir):
             path = os.path.join(self.base_dir, name)
+            # 检查是否是日期目录（格式：YYYY-MM-DD，有两个连字符）
             if os.path.isdir(path) and name.count("-") == 2:
                 if name not in dates_to_keep:
                     print(f"[DailyArxiv] 删除过期目录: {name}")
                     try:
                         shutil.rmtree(path)
+                        deleted_count += 1
                     except Exception as e:
                         print(f"[DailyArxiv] 删除失败: {e}")
+        
+        print(f"[DailyArxiv] 清理完成，共删除 {deleted_count} 个过期日期目录")
+        
+        # 验证清理结果
+        remaining_dates = self.get_available_dates()
+        remaining_count = len(remaining_dates)
+        print(f"[DailyArxiv] 清理后剩余 {remaining_count} 个有论文的日期: {remaining_dates}")
+        
+        if remaining_count > retention_days:
+            print(f"[DailyArxiv] ⚠️ 警告：清理后仍有 {remaining_count} 个日期，超过保留数量 {retention_days}")
 
     def start_scheduler(self):
         """启动调度器"""
@@ -1494,14 +1513,10 @@ class DailyArxivManager:
 
         print(f"[DailyArxiv] 开始定时抓取: {categories}")
 
-        # 清理过期论文
-        self.cleanup_old_papers(retention_days)
-
-        # 检查已有论文的日期数量
+        # 1. 先检查当前有几天的论文
         available_dates = self.get_available_dates()
         dates_with_papers = len(available_dates)
-
-        print(f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期")
+        print(f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期: {available_dates}")
 
         # 获取最近 N 个工作日（N = retention_days）
         recent_weekdays = self._get_recent_weekdays(retention_days)
@@ -1509,15 +1524,15 @@ class DailyArxivManager:
         today_date = datetime.strptime(today, "%Y-%m-%d").date()
         is_today_weekday = today_date.weekday() < 5
 
-        # 策略：按日期从新到旧依次抓取，确保每个日期完整后再处理下一个
+        # 2. 确定需要抓取的日期
         dates_to_fetch = []
 
-        # 1. 如果今天是工作日，总是优先抓取今天（无论是否已有论文，确保完整）
+        # 2.1 如果今天是工作日，总是优先抓取今天（无论是否已有论文，确保完整）
         if is_today_weekday:
             dates_to_fetch.append(today)
             print(f"[DailyArxiv] 优先抓取今天 ({today}) 的论文，确保完整")
 
-        # 2. 按日期从新到旧，依次处理每个工作日
+        # 2.2 按日期从新到旧，依次处理每个工作日
         # 对于最近的日期（最近3个工作日内），即使已有论文，也继续抓取（可能不完整）
         # 对于较旧的日期，如果已有论文，则跳过（认为已完整）
         for date_str in recent_weekdays:
@@ -1541,7 +1556,7 @@ class DailyArxivManager:
         # 去重并排序（最新的在前，确保按顺序抓取）
         dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
 
-        # 3. 如果已有论文的日期数量少于保留天数，补充缺失的日期
+        # 2.3 如果已有论文的日期数量少于保留天数，补充缺失的日期
         if dates_with_papers < retention_days:
             missing_dates = []
             for date_str in recent_weekdays:
@@ -1553,6 +1568,16 @@ class DailyArxivManager:
             dates_to_fetch.extend(missing_dates[:needed_count])
             dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
 
+        # 3. 如果当前论文天数大于设置，先清理多余的（在抓取前清理，避免抓取后超过限制）
+        if dates_with_papers > retention_days:
+            print(f"[DailyArxiv] 当前有 {dates_with_papers} 个有论文的日期，超过保留数量 {retention_days}，先清理多余的...")
+            self.cleanup_old_papers(retention_days)
+            # 清理后重新获取日期列表
+            available_dates = self.get_available_dates()
+            dates_with_papers = len(available_dates)
+            print(f"[DailyArxiv] 清理后剩余 {dates_with_papers} 个有论文的日期: {available_dates}")
+
+        # 4. 执行抓取
         if dates_to_fetch:
             print(f"[DailyArxiv] 将按顺序抓取以下日期: {dates_to_fetch}")
 
@@ -1569,6 +1594,19 @@ class DailyArxivManager:
                     time.sleep(2)
         else:
             print(f"[DailyArxiv] 所有需要的日期都已完整，无需补充")
+
+        # 5. 抓取完成后，再次清理，确保只保留 N 天（这是关键步骤）
+        print(f"[DailyArxiv] 抓取完成，执行最终清理，确保只保留 {retention_days} 天论文...")
+        self.cleanup_old_papers(retention_days)
+        
+        # 验证清理结果
+        final_dates = self.get_available_dates()
+        final_count = len(final_dates)
+        print(f"[DailyArxiv] 最终保留 {final_count} 个有论文的日期: {final_dates}")
+        if final_count > retention_days:
+            print(f"[DailyArxiv] ⚠️ 警告：清理后仍有 {final_count} 个日期，超过保留数量 {retention_days}，可能存在清理逻辑问题")
+        else:
+            print(f"[DailyArxiv] ✅ 清理完成，当前论文天数 ({final_count}) 符合设置 ({retention_days})")
 
         print("[DailyArxiv] 定时抓取完成")
 

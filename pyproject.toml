@@ -25,17 +25,22 @@ dependencies = [
     "PyPDF2==3.0.1",
     "PyMuPDF==1.25.2",
     "arxiv>=2.3.0",
-    "openai==2.7.1",
+    "openai>=1.70.0,<2",
     "requests>=2.32.3",
     "rdflib==7.5.0",
     "Pillow==11.3.0",
+    "mineru==2.5.3",
+    "BabelDOC==0.5.13",
+    "mineru_vl_utils==0.1.16"
 ]
 
 [project.optional-dependencies]
 local = []  # 基础功能已包含在 dependencies 中
 server = [
-    "mineru[core,vllm]>=2.6.5",
-    "lmdeploy>=0.10.0",
+    "mineru[vlm]==2.5.3",
+    "mineru[pipeline]==2.5.3",
+    "mineru[api]==2.5.3",
+    "mineru[vllm]==2.5.3",
     "huggingface-hub>=0.20.0",
     "modelscope>=1.17.0",
 ]
