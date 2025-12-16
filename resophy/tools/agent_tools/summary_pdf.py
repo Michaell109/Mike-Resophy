@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import threading
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List
@@ -187,6 +187,18 @@ INPUT: <MARKDOWN>"""
         with open(md_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
 
+        # 1. 移除 # References 后的所有内容（大小写不敏感）
+        references_pattern = re.compile(
+            r"^#\s+references?\s*$", re.IGNORECASE | re.MULTILINE
+        )
+        match = references_pattern.search(markdown_content)
+        if match:
+            markdown_content = markdown_content[: match.start()]
+            with log_lock:
+                log_lines.append(
+                    f"已移除 References 部分（从第 {match.start()} 个字符开始）"
+                )
+
         from openai import OpenAI
 
         client = OpenAI(
@@ -202,6 +214,64 @@ INPUT: <MARKDOWN>"""
         except Exception as e:  # noqa: BLE001
             raise Exception(f"获取模型列表失败: {str(e)}") from e
 
+        # 2. 尝试获取模型的最大长度（仅在成功获取时才进行截断）
+        max_input_tokens = None
+        try:
+            # 尝试从模型信息中获取 context_length / max_model_len / max_tokens
+            model_info = None
+            for m in models.data:
+                if m.id == model:
+                    model_info = m
+                    break
+
+            if model_info:
+                # 不同 API 提供商的字段名可能不同
+                if hasattr(model_info, "context_length"):
+                    max_input_tokens = model_info.context_length
+                elif hasattr(model_info, "max_model_len"):
+                    max_input_tokens = model_info.max_model_len
+                elif hasattr(model_info, "max_tokens"):
+                    max_input_tokens = model_info.max_tokens
+        except Exception as e:  # noqa: BLE001
+            with log_lock:
+                log_lines.append(f"无法从模型信息获取最大长度: {e}，将跳过截断逻辑")
+
+        # 只有在成功获取到 max_input_tokens 时才进行截断；否则完全不截断
+        if max_input_tokens is not None:
+            # 计算最大文本字符数（token 数 * 3，粗略估算：1 token ≈ 3-4 字符，保守取 3）
+            max_text_chars = max_input_tokens * 3
+
+            # 估算 system_prompt 的字符数（不包含 <MARKDOWN> 占位符）
+            system_prompt_without_placeholder = system_prompt.replace("<MARKDOWN>", "")
+            system_prompt_chars = len(system_prompt_without_placeholder)
+
+            # 计算 markdown 内容的最大允许字符数
+            max_markdown_chars = (
+                max_text_chars - system_prompt_chars - 100
+            )  # 留 100 字符的缓冲
+
+            original_markdown_length = len(markdown_content)
+            if original_markdown_length > max_markdown_chars:
+                # 截断 markdown 内容
+                markdown_content = markdown_content[:max_markdown_chars]
+                with log_lock:
+                    log_lines.append(
+                        f"Markdown 内容过长（{original_markdown_length} 字符），已截断至 {max_markdown_chars} 字符"
+                    )
+                    log_lines.append(
+                        f"模型最大输入 token: {max_input_tokens}，估算最大文本字符数: {max_text_chars}"
+                    )
+            else:
+                with log_lock:
+                    log_lines.append(
+                        f"Markdown 内容长度: {original_markdown_length} 字符，在限制范围内（最大: {max_markdown_chars} 字符）"
+                    )
+        else:
+            with log_lock:
+                log_lines.append(
+                    "未能从模型信息获取最大长度，将不对 Markdown 内容进行截断（可能存在超长风险）"
+                )
+
         prompt = system_prompt.replace("<MARKDOWN>", markdown_content)
         messages = [{"role": "user", "content": prompt}]
 
@@ -215,7 +285,9 @@ INPUT: <MARKDOWN>"""
         )
 
         result_content = chat_completion.choices[0].message.content
-        result_content = re.sub(r"<think>[\s\S]*?</think>", "", result_content, flags=re.IGNORECASE)
+        result_content = re.sub(
+            r"<think>[\s\S]*?</think>", "", result_content, flags=re.IGNORECASE
+        )
         result_file = os.path.join(pdf_output_dir, "result.md")
         with open(result_file, "w", encoding="utf-8") as f:
             f.write(result_content)
