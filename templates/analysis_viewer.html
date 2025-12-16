@@ -9,6 +9,19 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [["$", "$"], ["\\(", "\\)"]],
+                displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+            },
+            options: {
+                skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+                processHtmlClass: "markdown-viewer"
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <style>
         * { 
             box-sizing: border-box; 
@@ -359,10 +372,45 @@
                         return code;
                     }
                 });
-                const html = marked.parse(mdText);
-                document.getElementById('md').innerHTML = html;
+                const preserved = [];
+                const mdPreserved = mdText.replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
+                    const id = preserved.length;
+                    preserved.push(match);
+                    return `@@MJX_BLOCK_${id}@@`;
+                }).replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
+                    const id = preserved.length;
+                    preserved.push(match);
+                    return `@@MJX_INLINE_${id}@@`;
+                });
+                let html = marked.parse(mdPreserved);
+                html = html.replace(/@@MJX_(BLOCK|INLINE)_(\d+)@@/g, function(_, __, idx) {
+                    return preserved[Number(idx)];
+                });
+                const el = document.getElementById('md');
+                el.innerHTML = html;
                 if (typeof hljs !== 'undefined') {
                     document.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                }
+                if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
+                    MathJax.startup.promise.then(() => {
+                        if (MathJax.typesetPromise) {
+                            MathJax.typesetPromise([el]);
+                        } else if (MathJax.typeset) {
+                            MathJax.typeset([el]);
+                        }
+                    });
+                } else if (window.MathJax) {
+                    if (MathJax.typesetPromise) {
+                        MathJax.typesetPromise([el]);
+                    } else if (MathJax.typeset) {
+                        MathJax.typeset([el]);
+                    }
+                } else {
+                    setTimeout(() => {
+                        if (window.MathJax && MathJax.typesetPromise) {
+                            MathJax.typesetPromise([el]);
+                        }
+                    }, 500);
                 }
             } else {
                 document.getElementById('md').innerHTML = `<pre style="white-space: pre-wrap;">${mdText}</pre>`;
