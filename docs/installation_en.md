@@ -265,8 +265,6 @@ vllm serve ai_server/Qwen3-4B-Instruct-2507 \
   --api-key token-abc123 \
   --host 0.0.0.0 \
   --port 6002 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.7
 ```
 
 **Method 2: Use Remote LLM API**
