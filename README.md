@@ -6,6 +6,26 @@
 
 <p align="center">
 
+
+  <!-- Stars Badge -->
+  <img src="https://img.shields.io/github/stars/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Stars">
+
+  <!-- Forks Badge -->
+  <img src="https://img.shields.io/github/forks/Mountchicken/Resophy?style=social&color=D3C1D9" alt="Forks">
+
+  <!-- Open Issues Badge -->
+  <a href="https://github.com/Mountchicken/Resophy/issues">
+    <img src="https://img.shields.io/github/issues-raw/Mountchicken/Resophy?color=D3C1D9" alt="Open Issues">
+  </a>
+
+  <!-- Issue Resolution Badge -->
+  <a href="https://github.com/Mountchicken/Resophy/issues">
+    <img src="https://img.shields.io/github/issues-closed-raw/Mountchicken/Resophy?color=32CD32" alt="Issue Resolution">
+  </a>
+
+  <!-- Pull Requests Badge -->
+  <img src="https://img.shields.io/github/issues-pr/Mountchicken/Resophy?color=FFFF00" alt="Pull Requests">
+
   <!-- Platform Support Badge (Windows, Mac, Linux) with Light Green -->
   <img src="https://img.shields.io/badge/Platform-Windows%2C%20Mac%2C%20Linux-D3C1D9" alt="Platform Support">
 
@@ -16,8 +36,7 @@
 </p>
 
 
-
-[English](README.md) | [简体中文](docs/README_en.md) | [安装文档](docs/installation_zh.md) | [快速开始](docs/quick_start_zh.md)
+[English](docs/README_en.md) | [简体中文](README.md) | [安装文档](docs/installation_zh.md)
 
 <span style="color:rgb(154, 46, 222);">***Resophy 所有代码都采用 Cusor (Sonnet 4.5/Auto) 生成，人工校验的方式搭建***</span>
 
