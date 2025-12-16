@@ -37,7 +37,7 @@
 
 
 
-[English](README_en.md) | [简体中文](../README.md) | [Installation Guide](installation_en.md) | [Quick Start](quick_start_zh.md)
+[English](README_en.md) | [简体中文](../README.md) | [Installation Guide](installation_en.md)
 
 <span style="color:rgb(154, 46, 222);">***All Resophy code is built using Cursor (Sonnet 4.5/Auto) generation with manual verification***</span>
 
