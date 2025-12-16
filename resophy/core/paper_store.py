@@ -98,7 +98,7 @@ class PaperStore:
             return self._papers.get(paper_id)
 
     def get_by_arxiv_id(self, arxiv_id: str) -> Optional[PaperEntry]:
-        """根据 arXiv ID 查找论文"""
+        """according to arXiv ID Find papers"""
         with self._lock:
             for entry in self._papers.values():
                 if entry.paper.arxiv_id == arxiv_id:

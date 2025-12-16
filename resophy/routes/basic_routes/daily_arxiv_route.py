@@ -1,7 +1,7 @@
 """
-Daily arXiv 路由模块
+Daily arXiv routing module
 
-提供 Daily arXiv 功能的 API 接口
+supply Daily arXiv functional API interface
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def register_daily_arxiv_routes(
     agentic_settings_file: str = None,
 ) -> None:
     """
-    注册 Daily arXiv 相关路由
+    register Daily arXiv Related routes
     """
 
     def _fetch_bibtex_background(
@@ -53,9 +53,9 @@ def register_daily_arxiv_routes(
         category_id: str,
         category_path: List[str],
     ):
-        """后台获取 BibTeX 并更新论文"""
+        """Background acquisition BibTeX and update the paper"""
         try:
-            print(f"[后台 BibTeX] 开始获取 BibTeX: {title[:50]}...")
+            print(f"[Backstage BibTeX] Start getting BibTeX: {title[:50]}...")
             bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
 
             if bibtex:
@@ -66,21 +66,21 @@ def register_daily_arxiv_routes(
                         paper, category_id=category_id, category_path=category_path
                     )
                     save_paper_metadata(file_path, paper)
-                    print(f"[后台 BibTeX] ✅ BibTeX 已更新: {paper_id}")
+                    print(f"[Backstage BibTeX] ✅ BibTeX updated: {paper_id}")
                 else:
-                    print(f"[后台 BibTeX] ❌ 找不到论文: {paper_id}")
+                    print(f"[Backstage BibTeX] ❌ Paper not found: {paper_id}")
             else:
-                print(f"[后台 BibTeX] ❌ 未获取到 BibTeX")
+                print(f"[Backstage BibTeX] ❌ Not obtained BibTeX")
         except Exception as exc:
-            print(f"[后台 BibTeX] ❌ 获取 BibTeX 失败: {exc}")
+            print(f"[Backstage BibTeX] ❌ get BibTeX fail: {exc}")
 
-    # 确保临时目录存在
+    # Make sure the temporary directory exists
     os.makedirs(temp_papers_dir, exist_ok=True)
 
-    # 获取管理器实例（单例模式，如果已在 app.py 中创建则返回同一个实例）
+    # Get the manager instance (singleton mode, if already in app.py If created in, the same instance will be returned)
     manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
 
-    # 设置 LLM 配置回调（如果还没有设置）
+    # set up LLM Configure callbacks (if not set up already)
     def get_llm_config():
         if agentic_settings_file:
             try:
@@ -90,13 +90,13 @@ def register_daily_arxiv_routes(
                 pass
         return {}
 
-    # 只有在回调还没有设置时才设置（避免覆盖 app.py 中的设置）
+    # Only set if the callback is not already set (avoids overriding app.py settings in)
     if manager._get_llm_config is None:
         manager.set_llm_config_callback(get_llm_config)
 
-    # 检查 LLM 配置是否完整
+    # examine LLM Is the configuration complete?
     def is_llm_configured() -> bool:
-        """检查 LLM 配置是否完整"""
+        """examine LLM Is the configuration complete?"""
         llm_config = get_llm_config()
         return bool(
             llm_config.get("llmBaseUrl")
@@ -109,18 +109,18 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/check-llm-config", methods=["GET"])
     def api_check_llm_config():
-        """检查 LLM 配置是否完整"""
+        """examine LLM Is the configuration complete?"""
         try:
             llm_config = get_llm_config()
             is_configured = is_llm_configured()
 
-            # 如果配置完整，重新测试一次 LLM API，而不是直接返回历史状态
-            # 这样可以避免在设置中修复配置后，仍然显示历史失败状态的问题
+            # If the configuration is complete, retest LLM API, instead of returning the historical status directly
+            # This can avoid the problem of historical failure status still being displayed after the configuration is repaired in the settings.
             llm_api_failed = False
             llm_api_error_message = ""
 
             if is_configured:
-                # 配置完整，重新测试 LLM API
+                # Configuration is complete, retest LLM API
                 from resophy.tools.api_test_utils import test_llm_api
 
                 llm_model = llm_config.get("llmModel", "").strip()
@@ -133,28 +133,28 @@ def register_daily_arxiv_routes(
                             llm_model, llm_base_url, llm_api_key
                         )
                         if not success:
-                            # 测试失败，更新 manager 状态
+                            # Test failed, update manager state
                             manager._llm_api_failed = True
                             manager._llm_api_error_message = error_msg
                             llm_api_failed = True
                             llm_api_error_message = error_msg
                         else:
-                            # 测试成功，清除失败状态
+                            # Test successful, clear failure status
                             manager._llm_api_failed = False
                             manager._llm_api_error_message = ""
                             llm_api_failed = False
                             llm_api_error_message = ""
                     except Exception as e:
-                        # 测试异常，更新状态
+                        # Test exception, update status
                         manager._llm_api_failed = True
                         manager._llm_api_error_message = str(e)
                         llm_api_failed = True
                         llm_api_error_message = str(e)
             else:
-                # 配置不完整，检查历史状态（但不显示错误，因为配置本身就不完整）
+                # Configuration is incomplete, check historical status (but do not show errors because the configuration itself is incomplete)
                 if hasattr(manager, "_llm_api_failed"):
-                    # 即使有历史失败状态，如果配置不完整，也不显示错误
-                    # 因为用户可能正在配置中
+                    # Even if there is a historical failure status, if the configuration is incomplete, no error will be displayed
+                    # Because the user may be configuring
                     llm_api_failed = False
                     llm_api_error_message = ""
 
@@ -174,7 +174,7 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/settings/daily-arxiv", methods=["GET", "POST"])
     def api_daily_arxiv_settings():
-        """获取或设置 Daily arXiv 配置"""
+        """Get or set Daily arXiv Configuration"""
         if request.method == "GET":
             try:
                 with open(daily_arxiv_settings_file, "r", encoding="utf-8") as fp:
@@ -182,20 +182,20 @@ def register_daily_arxiv_routes(
             except FileNotFoundError:
                 settings = {}
             except Exception as exc:
-                print(f"读取 Daily arXiv 设置失败: {exc}")
+                print(f"read Daily arXiv Setup failed: {exc}")
                 settings = {}
-            # 合并默认设置，但对于 categories，如果设置文件中为空则使用默认值
+            # Merge default settings, but for categories, if the settings file is empty, the default value will be used
             merged = default_daily_arxiv_settings.copy()
             for key, value in settings.items():
                 if key == "categories":
-                    # 只有当用户设置的 categories 非空时才覆盖
+                    # Only if user sets categories Overwrite when not empty
                     if value and len(value) > 0:
                         merged[key] = value
                 else:
                     merged[key] = value
             return jsonify(merged)
 
-        # POST: 保存设置
+        # POST: Save settings
         data = request.json or {}
         try:
             with open(daily_arxiv_settings_file, "w", encoding="utf-8") as fp:
@@ -209,7 +209,7 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/dates", methods=["GET"])
     def api_get_available_dates():
-        """获取有论文的日期列表"""
+        """Get a list of dates with papers"""
         try:
             dates = manager.get_available_dates()
             today = get_today_arxiv_date()
@@ -228,16 +228,16 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/papers/<date_str>", methods=["GET"])
     def api_get_papers_for_date(date_str: str):
-        """获取某日期的论文"""
+        """Get papers of a certain date"""
         try:
             category = request.args.get("category")
             papers = manager.get_papers_for_date(date_str, category)
 
-            # 为每篇论文添加 paper_id（如果已在库中）
+            # Add for each paper paper_id(if already in the library)
             for paper in papers:
                 arxiv_id = paper.get("arxiv_id")
                 if arxiv_id:
-                    # 从 paper_store 中查找论文
+                    # from paper_store Find papers in
                     entry = paper_store.get_by_arxiv_id(arxiv_id)
                     if entry:
                         paper["paper_id"] = entry.paper.id
@@ -258,15 +258,15 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/fetch", methods=["POST"])
     def api_fetch_daily_arxiv():
-        """手动触发抓取论文（自动抓取指定日期的所有论文）"""
+        """Manually trigger the crawling of papers (automatically crawl all papers on a specified date)"""
         try:
-            # 检查 LLM 配置
+            # examine LLM Configuration
             if not is_llm_configured():
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                            "error": "Please configure it in settings first LLM API（Model、Base URL、API Key）",
                         }
                     ),
                     400,
@@ -278,16 +278,16 @@ def register_daily_arxiv_routes(
             force = data.get("force", False)
 
             if not category:
-                return jsonify({"success": False, "error": "请指定 arXiv 分区"}), 400
+                return jsonify({"success": False, "error": "Please specify arXiv Partition"}), 400
 
-            # 在后台线程中执行抓取
+            # Execute the crawl in a background thread
             def do_fetch():
                 manager.fetch_papers(
                     category,
                     date_str=date_str,
                     force=force,
                 )
-                # 抓取完成后清除缩略图缓存
+                # Clear thumbnail cache after scraping is complete
                 with _thumbnail_cache_lock:
                     cache_key = f"{date_str}_{category}"
                     _thumbnail_cache.pop(cache_key, None)
@@ -298,14 +298,14 @@ def register_daily_arxiv_routes(
             return jsonify(
                 {
                     "success": True,
-                    "message": f"开始抓取 {category} 论文",
+                    "message": f"Start crawling {category} paper",
                     "category": category,
                     "date": date_str,
                 }
             )
 
         except Exception as exc:
-            print(f"获取 Daily arXiv 论文失败: {exc}")
+            print(f"get Daily arXiv Thesis failed: {exc}")
             import traceback
 
             traceback.print_exc()
@@ -316,7 +316,7 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/progress/<category>", methods=["GET"])
     def api_get_fetch_progress(category: str):
-        """获取抓取进度"""
+        """Get crawling progress"""
         try:
             progress = manager.get_progress(category)
             return jsonify(
@@ -333,15 +333,15 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/fetch-all", methods=["POST"])
     def api_fetch_all_categories():
-        """抓取所有配置的分区（自动抓取今天所有论文）"""
+        """Crawl all configured partitions (automatically crawl all papers today)"""
         try:
-            # 检查 LLM 配置
+            # examine LLM Configuration
             if not is_llm_configured():
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": "请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                            "error": "Please configure it in settings first LLM API（Model、Base URL、API Key）",
                         }
                     ),
                     400,
@@ -351,15 +351,15 @@ def register_daily_arxiv_routes(
             force = data.get("force", False)
             date_str = data.get(
                 "date", get_today_arxiv_date()
-            )  # 如果指定了日期则使用，否则使用今天的日期
+            )  # Use if a date is specified, otherwise use today's date
 
             settings = manager.get_settings()
             categories = settings.get("categories", [])
 
             if not categories:
-                return jsonify({"success": False, "error": "未配置分区"}), 400
+                return jsonify({"success": False, "error": "No partition configured"}), 400
 
-            # 在后台线程中执行抓取
+            # Execute the crawl in a background thread
             def do_fetch_all():
                 for cat in categories:
                     manager.fetch_papers(
@@ -367,7 +367,7 @@ def register_daily_arxiv_routes(
                         date_str=date_str,
                         force=force,
                     )
-                # 抓取完成后清除所有缩略图缓存
+                # Clear all thumbnail caches after crawling is complete
                 with _thumbnail_cache_lock:
                     _thumbnail_cache.clear()
 
@@ -377,7 +377,7 @@ def register_daily_arxiv_routes(
             return jsonify(
                 {
                     "success": True,
-                    "message": f"开始抓取 {len(categories)} 个分区",
+                    "message": f"Start crawling {len(categories)} partitions",
                     "categories": categories,
                     "date": date_str,
                 }
@@ -391,37 +391,37 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/add-to-library", methods=["POST"])
     def api_add_arxiv_to_library():
-        """将 arXiv 论文添加到文库"""
+        """Will arXiv Add paper to library"""
         try:
             data = request.json or {}
             arxiv_id = data.get("arxiv_id")
             category_id = data.get("category_id")
             date_str = data.get("date", get_today_arxiv_date())
             fetch_category = data.get("fetch_category")
-            use_temp_dir = data.get("use_temp_dir", False)  # 是否使用待读列表临时目录
+            use_temp_dir = data.get("use_temp_dir", False)  # Whether to use the temporary directory of the to-be-read list
 
             if not arxiv_id:
-                return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
+                return jsonify({"success": False, "error": "Lack arxiv_id"}), 400
 
-            # 如果使用 temp 目录，直接使用 temp 目录路径
+            # If using temp Directory, use directly temp directory path
             if use_temp_dir:
                 folder_path = reading_list_temp_dir
                 category_path = ["Root", "_ReadingListTemp"]
-                category_id = "reading_list_temp"  # 使用特殊 ID
+                category_id = "reading_list_temp"  # Use special ID
             else:
                 if not category_id:
-                    return jsonify({"success": False, "error": "请选择目标分类"}), 400
+                    return jsonify({"success": False, "error": "Please select target category"}), 400
 
-                # 获取分类路径
+                # Get classification path
                 categories = get_categories()
                 category_path = get_category_path(categories, category_id)
                 if not category_path:
-                    return jsonify({"success": False, "error": "分类不存在"}), 404
+                    return jsonify({"success": False, "error": "Category does not exist"}), 404
 
-                # 创建分类文件夹
+                # Create category folders
                 folder_path = create_category_folder(category_path[1:])
 
-            # 从存储中获取论文信息
+            # Get paper information from storage
             paper_info = None
             papers = manager.get_papers_for_date(date_str, fetch_category)
             for p in papers:
@@ -430,9 +430,9 @@ def register_daily_arxiv_routes(
                     break
 
             if not paper_info:
-                return jsonify({"success": False, "error": "论文信息未找到"}), 404
+                return jsonify({"success": False, "error": "Paper information not found"}), 404
 
-            # 构造安全文件名
+            # Construct safe file names
             safe_title = paper_info.get("title", arxiv_id)
             for char in ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]:
                 safe_title = safe_title.replace(char, "")
@@ -441,9 +441,9 @@ def register_daily_arxiv_routes(
             pdf_filename = f"{safe_title}.pdf"
             target_path = os.path.join(folder_path, pdf_filename)
 
-            # 检查是否已存在：如果已存在，则复用已有的 Paper，而不是报错
+            # Check if it already exists: if it already exists, reuse the existing one Paper, instead of reporting an error
             if os.path.exists(target_path):
-                # 尝试在 paper_store 中找到对应的论文（通过 arxiv_id 或 file_path）
+                # try at paper_store Find the corresponding paper in (via arxiv_id or file_path）
                 existing_paper = None
                 try:
                     all_papers = paper_store.iter_all()
@@ -455,25 +455,25 @@ def register_daily_arxiv_routes(
                             existing_paper = p
                             break
                 except Exception as e:
-                    print(f"查找已有论文失败: {e}")
+                    print(f"Failed to find existing papers: {e}")
 
                 if existing_paper:
-                    # 确保该论文在指定分类下注册
+                    # Make sure the paper is registered under the specified category
                     paper_store.upsert(
                         existing_paper,
                         category_id=category_id,
                         category_path=category_path,
                     )
 
-                    # 如果使用 temp 目录，添加到待读列表
+                    # If using temp Table of contents, add to to-read list
                     if use_temp_dir:
                         try:
-                            # 加载待读列表
+                            # Load to-read list
                             with open(reading_list_file, "r", encoding="utf-8") as f:
                                 reading_list_data = json.load(f)
                             paper_ids = reading_list_data.get("papers", [])
 
-                            # 如果论文 ID 不在列表中，添加它
+                            # If the paper ID Not in the list, add it
                             if existing_paper.id not in paper_ids:
                                 paper_ids.append(existing_paper.id)
                                 with open(
@@ -486,40 +486,40 @@ def register_daily_arxiv_routes(
                                         indent=2,
                                     )
                         except Exception as e:
-                            print(f"添加到待读列表失败: {e}")
+                            print(f"Failed to add to to-read list: {e}")
 
                     return jsonify(
                         {
                             "success": True,
                             "paper_id": existing_paper.id,
                             "file_path": existing_paper.file_path,
-                            "message": f"该论文已存在于 {'/'.join(category_path[1:])}",
+                            "message": f"This paper already exists in {'/'.join(category_path[1:])}",
                         }
                     )
 
-                # 找不到对应 Paper，则保持原有报错逻辑
+                # No corresponding found Paper, then the original error reporting logic is maintained.
                 return (
-                    jsonify({"success": False, "error": "该论文已存在于目标分类中"}),
+                    jsonify({"success": False, "error": "This paper already exists in the target category"}),
                     400,
                 )
 
-            # 复制或下载 PDF
+            # Copy or download PDF
             source_pdf = paper_info.get("local_pdf_path")
             if source_pdf and os.path.exists(source_pdf):
                 import shutil
 
                 shutil.copy2(source_pdf, target_path)
             else:
-                # 下载
+                # download
                 import urllib.request
 
                 pdf_url = (
                     paper_info.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}.pdf"
                 )
-                print(f"[DailyArxiv] 下载论文到文库: {arxiv_id} -> {target_path}")
+                print(f"[DailyArxiv] Download the paper to the library: {arxiv_id} -> {target_path}")
                 urllib.request.urlretrieve(pdf_url, target_path)
 
-            # 创建论文元数据
+            # Create article metadata
             import uuid
 
             paper = Paper(
@@ -539,25 +539,25 @@ def register_daily_arxiv_routes(
                 upload_source="daily_arxiv",
             )
 
-            # 保存元数据
+            # Save metadata
             save_paper_metadata(target_path, paper)
 
-            # 注册到 paper_store
+            # Register to paper_store
             paper_store.upsert(
                 paper,
                 category_id=category_id,
                 category_path=category_path,
             )
 
-            # 如果使用 temp 目录，添加到待读列表
+            # If using temp Table of contents, add to to-read list
             if use_temp_dir:
                 try:
-                    # 加载待读列表
+                    # Load to-read list
                     with open(reading_list_file, "r", encoding="utf-8") as f:
                         reading_list_data = json.load(f)
                     paper_ids = reading_list_data.get("papers", [])
 
-                    # 如果论文 ID 不在列表中，添加它
+                    # If the paper ID Not in the list, add it
                     if paper.id not in paper_ids:
                         paper_ids.append(paper.id)
                         with open(reading_list_file, "w", encoding="utf-8") as f:
@@ -565,16 +565,16 @@ def register_daily_arxiv_routes(
                                 {"papers": paper_ids}, f, ensure_ascii=False, indent=2
                             )
                 except Exception as e:
-                    print(f"添加到待读列表失败: {e}")
+                    print(f"Failed to add to to-read list: {e}")
 
-            # 【后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）】
+            # 【Background acquisition BibTeX(priority DBLP, use after failure arXiv）】
             if paper.title:
                 thread = threading.Thread(
                     target=_fetch_bibtex_background,
                     args=(
                         paper.id,
                         paper.title,
-                        paper.authors or "",  # authors 可以为空
+                        paper.authors or "",  # authors Can be empty
                         arxiv_id,
                         target_path,
                         category_id,
@@ -583,20 +583,20 @@ def register_daily_arxiv_routes(
                     daemon=True,
                 )
                 thread.start()
-                print(f"[DailyArxiv] 论文已添加，BibTeX 后台获取中...")
+                print(f"[DailyArxiv] Paper has been added,BibTeX Getting in the background...")
 
             return jsonify(
                 {
                     "success": True,
                     "paper_id": paper.id,
                     "file_path": target_path,
-                    "message": f"已添加到 {'/'.join(category_path[1:])}",
-                    "is_temp": use_temp_dir,  # 标记是否在 temp 目录
+                    "message": f"has been added to {'/'.join(category_path[1:])}",
+                    "is_temp": use_temp_dir,  # Is the mark in temp Table of contents
                 }
             )
 
         except Exception as exc:
-            print(f"添加论文到文库失败: {exc}")
+            print(f"Failed to add paper to library: {exc}")
             import traceback
 
             traceback.print_exc()
@@ -607,7 +607,7 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/extract-affiliations", methods=["POST"])
     def api_extract_affiliations():
-        """手动提取论文机构信息、homepage 和 github"""
+        """Manually extract paper institution information,homepage and github"""
         try:
             data = request.json or {}
             arxiv_id = data.get("arxiv_id")
@@ -615,9 +615,9 @@ def register_daily_arxiv_routes(
             fetch_category = data.get("fetch_category")
 
             if not arxiv_id:
-                return jsonify({"success": False, "error": "缺少 arxiv_id"}), 400
+                return jsonify({"success": False, "error": "Lack arxiv_id"}), 400
 
-            # 从 Agentic Settings 获取 LLM 配置
+            # from Agentic Settings get LLM Configuration
             llm_config = get_llm_config()
             openai_base_url = llm_config.get("llmBaseUrl")
             openai_api_key = llm_config.get("llmApiKey")
@@ -627,13 +627,13 @@ def register_daily_arxiv_routes(
                     jsonify(
                         {
                             "success": False,
-                            "error": "请先在设置中配置 Agentic Settings 的 LLM API",
+                            "error": "Please configure it in settings first Agentic Settings of LLM API",
                         }
                     ),
                     400,
                 )
 
-            # 获取论文信息
+            # Get paper information
             papers = manager.get_papers_for_date(date_str, fetch_category)
             paper_info = None
             for p in papers:
@@ -642,18 +642,18 @@ def register_daily_arxiv_routes(
                     break
 
             if not paper_info:
-                return jsonify({"success": False, "error": "论文信息未找到"}), 404
+                return jsonify({"success": False, "error": "Paper information not found"}), 404
 
-            # 获取PDF路径
+            # getPDFpath
             pdf_path = paper_info.get("local_pdf_path")
             if not pdf_path or not os.path.exists(pdf_path):
-                return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+                return jsonify({"success": False, "error": "PDFFile does not exist"}), 404
 
-            # 获取自定义 prompt
+            # Get custom prompt
             settings = manager.get_settings()
             affiliation_prompt = settings.get("affiliationPrompt")
 
-            # 提取机构、homepage 和 github
+            # extraction mechanism,homepage and github
             extraction_result = extract_affiliations_with_llm(
                 extract_pdf_first_page_text(pdf_path) or "",
                 openai_base_url,
@@ -664,23 +664,23 @@ def register_daily_arxiv_routes(
 
             if not extraction_result:
                 return (
-                    jsonify({"success": False, "error": "提取失败，无法获取结果"}),
+                    jsonify({"success": False, "error": "Extraction failed, results cannot be obtained"}),
                     500,
                 )
 
-            # 更新论文信息
+            # Update paper information
             paper_info["affiliations"] = extraction_result.get("affiliations", [])
             paper_info["countries"] = extraction_result.get("countries", [])
             paper_info["homepage"] = extraction_result.get("homepage")
             paper_info["github"] = extraction_result.get("github")
             paper_info["affiliations_extracted"] = True
 
-            # 保存更新后的论文信息
+            # Save updated paper information
             safe_id = arxiv_id.replace("/", "_").replace(":", "_")
             if fetch_category:
                 paper_cat_dir = manager.get_category_dir(date_str, fetch_category)
             else:
-                # 如果没有指定分区，尝试从论文信息中获取
+                # If no partition is specified, try to get it from the paper information
                 paper_cat_dir = os.path.dirname(pdf_path)
 
             json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
@@ -699,53 +699,53 @@ def register_daily_arxiv_routes(
             )
 
         except Exception as exc:
-            print(f"提取机构信息失败: {exc}")
+            print(f"Failed to extract organization information: {exc}")
             import traceback
 
             traceback.print_exc()
-            return jsonify({"success": False, "error": f"提取失败: {str(exc)}"}), 500
+            return jsonify({"success": False, "error": f"Failed to extract: {str(exc)}"}), 500
 
     # ========================================
     # Get Thumbnail
     # ========================================
-    # 缓存：日期+分区 -> 论文列表的映射
+    # Cache: date+Partition -> Mapping of paper lists
     _thumbnail_cache = {}
     _thumbnail_cache_lock = threading.Lock()
 
     @app.route("/api/daily-arxiv/clear-thumbnail-cache", methods=["POST"])
     def api_clear_thumbnail_cache():
-        """清除缩略图缓存（当重新抓取论文时调用）"""
+        """Clear thumbnail cache (called when recrawling the paper)"""
         try:
             with _thumbnail_cache_lock:
                 _thumbnail_cache.clear()
-            return jsonify({"success": True, "message": "缓存已清除"})
+            return jsonify({"success": True, "message": "cache cleared"})
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/api/daily-arxiv/thumbnail/<date_str>/<category>/<arxiv_id>")
     def api_get_thumbnail(date_str: str, category: str, arxiv_id: str):
-        """获取论文缩略图（带缓存优化）"""
+        """Get paper thumbnails (with cache optimization)"""
         try:
-            # URL解码
+            # URLdecoding
             from urllib.parse import unquote
 
             category = unquote(category)
             arxiv_id = unquote(arxiv_id)
 
-            # 使用缓存避免重复读取论文列表
+            # Use caching to avoid repeated reading of the paper list
             cache_key = f"{date_str}_{category}"
 
             with _thumbnail_cache_lock:
                 if cache_key not in _thumbnail_cache:
-                    # 第一次请求：读取并缓存论文列表
+                    # First request: read and cache the paper list
                     papers = manager.get_papers_for_date(date_str, category)
-                    # 构建 arxiv_id -> paper 的映射
+                    # build arxiv_id -> paper mapping
                     _thumbnail_cache[cache_key] = {
                         p.get("arxiv_id"): p for p in papers if p.get("arxiv_id")
                     }
-                    # 限制缓存大小，只保留最近20个日期+分区的数据
+                    # Limit cache size to keep only the most recent20dates+partitioned data
                     if len(_thumbnail_cache) > 20:
-                        # 删除最早的条目
+                        # Delete the oldest entry
                         oldest_key = next(iter(_thumbnail_cache))
                         del _thumbnail_cache[oldest_key]
 
@@ -753,11 +753,11 @@ def register_daily_arxiv_routes(
 
             paper = paper_map.get(arxiv_id)
 
-            # 如果缓存中找不到论文，重新读取文件系统（可能在爬取过程中新增了论文）
+            # If the paper is not found in the cache, re-read the file system (there may be new papers added during the crawling process)
             if not paper:
-                print(f"[DailyArxiv] 缓存中未找到论文 {arxiv_id}，重新读取文件系统...")
+                print(f"[DailyArxiv] Paper not found in cache {arxiv_id}, reread the file system...")
                 papers = manager.get_papers_for_date(date_str, category)
-                # 更新缓存
+                # Update cache
                 with _thumbnail_cache_lock:
                     paper_map = {
                         p.get("arxiv_id"): p for p in papers if p.get("arxiv_id")
@@ -766,32 +766,32 @@ def register_daily_arxiv_routes(
 
                 paper = paper_map.get(arxiv_id)
                 if not paper:
-                    return jsonify({"success": False, "error": "论文未找到"}), 404
+                    return jsonify({"success": False, "error": "Paper not found"}), 404
 
             thumbnail_path = paper.get("thumbnail_path")
             if not thumbnail_path:
-                return jsonify({"success": False, "error": "缩略图不存在"}), 404
+                return jsonify({"success": False, "error": "Thumbnail does not exist"}), 404
 
-            # 确保路径是绝对路径
+            # Make sure the path is absolute
             if not os.path.isabs(thumbnail_path):
                 thumbnail_path = os.path.abspath(thumbnail_path)
 
             if not os.path.exists(thumbnail_path):
-                return jsonify({"success": False, "error": "缩略图文件不存在"}), 404
+                return jsonify({"success": False, "error": "Thumbnail file does not exist"}), 404
 
-            # 添加缓存头，让浏览器缓存图片（7天）
+            # Add a cache header to let the browser cache the image (7sky)
             response = send_file(
                 thumbnail_path, mimetype="image/jpeg", as_attachment=False
             )
             response.headers["Cache-Control"] = (
-                "public, max-age=604800"  # 7天 = 7*24*60*60
+                "public, max-age=604800"  # 7sky = 7*24*60*60
             )
             response.headers["ETag"] = (
-                f'"{arxiv_id}-{date_str}"'  # 使用 arxiv_id 和日期作为 ETag
+                f'"{arxiv_id}-{date_str}"'  # use arxiv_id and date as ETag
             )
             return response
         except Exception as exc:
-            print(f"获取缩略图失败: {exc}")
+            print(f"Failed to get thumbnail: {exc}")
             import traceback
 
             traceback.print_exc()
@@ -802,7 +802,7 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/cleanup", methods=["POST"])
     def api_cleanup_old_papers():
-        """清理过期论文"""
+        """Clean up expired papers"""
         try:
             data = request.json or {}
             retention_days = data.get("retention_days")
@@ -814,7 +814,7 @@ def register_daily_arxiv_routes(
             manager.cleanup_old_papers(retention_days)
 
             return jsonify(
-                {"success": True, "message": f"已清理 {retention_days} 天前的论文"}
+                {"success": True, "message": f"Cleaned {retention_days} Papers written a few days ago"}
             )
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
@@ -824,14 +824,14 @@ def register_daily_arxiv_routes(
     # ========================================
     @app.route("/api/daily-arxiv/scheduler/start", methods=["POST"])
     def api_start_scheduler():
-        """手动启动调度器"""
+        """Manually start the scheduler"""
         try:
             if not is_llm_configured():
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": "LLM 配置不完整，请先在设置中配置 LLM API（Model、Base URL、API Key）",
+                            "error": "LLM The configuration is incomplete, please configure it in the settings first LLM API（Model、Base URL、API Key）",
                         }
                     ),
                     400,
@@ -841,17 +841,17 @@ def register_daily_arxiv_routes(
                 return jsonify(
                     {
                         "success": True,
-                        "message": "调度器已在运行",
+                        "message": "Scheduler is already running",
                         "is_running": True,
                     }
                 )
 
             manager.start_scheduler()
-            print("[DailyArxiv] 调度器已手动启动")
+            print("[DailyArxiv] Scheduler has been started manually")
             return jsonify(
                 {
                     "success": True,
-                    "message": "调度器已启动",
+                    "message": "Scheduler started",
                     "is_running": True,
                 }
             )

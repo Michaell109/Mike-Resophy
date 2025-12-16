@@ -173,7 +173,6 @@ uv venv
 source .venv/bin/activate
 # Install server end version (includes AI server dependencies)
 uv pip install -e ".[server]"
-uv pip install -e ".[server]"
 ```
 
 </details>

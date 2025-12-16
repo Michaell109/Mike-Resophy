@@ -35,8 +35,8 @@ def translate_paper_task(
     openai_api_key: str,
     deps: TranslationDependencies,
 ) -> None:
-    """后台翻译任务"""
-    start_time = datetime.now()  # 记录开始时间
+    """Background translation tasks"""
+    start_time = datetime.now()  # Recording start time
     with deps.translation_tasks_lock:
         task_info = deps.translation_tasks[task_id]
         task_info["status"] = "running"
@@ -45,7 +45,7 @@ def translate_paper_task(
         process = None
 
     def read_output(pipe, label):
-        """实时读取子进程输出"""
+        """Read subprocess output in real time"""
         try:
             for line in iter(pipe.readline, ""):
                 if line:
@@ -54,7 +54,7 @@ def translate_paper_task(
                     with log_lock:
                         log_lines.append(f"[{label}] {line}")
         except Exception as e:  # noqa: BLE001
-            print(f"读取输出时出错: {e}")
+            print(f"Error while reading output: {e}")
         finally:
             pipe.close()
 
@@ -74,8 +74,8 @@ def translate_paper_task(
             pdf_filename,
         ]
 
-        print(f"执行翻译命令: {' '.join(cmd)}")
-        print(f"工作目录: {pdf_dir}")
+        print(f"Execute translation command: {' '.join(cmd)}")
+        print(f"working directory: {pdf_dir}")
 
         process = subprocess.Popen(
             cmd,
@@ -115,7 +115,7 @@ def translate_paper_task(
                     if os.path.exists(mono_file):
                         os.remove(mono_file)
 
-                    # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+                    # First try from paper_store Find papers in (supports _ReadingListTemp Table of contents)
                     entry = paper_store.get_entry(paper_id)
                     if entry:
                         paper = entry.paper
@@ -124,7 +124,7 @@ def translate_paper_task(
                         if target_path:
                             deps.save_paper_metadata(target_path, paper)
                     else:
-                        # 如果 paper_store 中找不到，使用递归搜索分类树
+                        # if paper_store Not found in , use recursive search of classification tree
                         categories = deps.get_categories()
 
                         def search_and_update_paper(node):
@@ -155,12 +155,12 @@ def translate_paper_task(
                         with open(log_file, "w", encoding="utf-8") as f:
                             f.write("\n".join(log_lines))
                     except Exception as e:  # noqa: BLE001
-                        print(f"保存日志文件失败: {e}")
+                        print(f"Failed to save log file: {e}")
 
                     end_time = datetime.now()
                     translation_duration = int((end_time - start_time).total_seconds())
 
-                    # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+                    # First try from paper_store Find papers in (supports _ReadingListTemp Table of contents)
                     entry = paper_store.get_entry(paper_id)
                     if entry:
                         paper = entry.paper
@@ -172,7 +172,7 @@ def translate_paper_task(
                         if path and os.path.exists(path):
                             deps.save_paper_metadata(path, paper)
                     else:
-                        # 如果 paper_store 中找不到，使用递归搜索分类树
+                        # if paper_store Not found in , use recursive search of classification tree
                         categories = deps.get_categories()
 
                         def search_and_update_time(node):
@@ -211,13 +211,13 @@ def translate_paper_task(
                     deps.translation_tasks[task_id]["status"] = "failed"
                     deps.translation_tasks[task_id]["result"] = {
                         "success": False,
-                        "error": "翻译文件未生成",
+                        "error": "Translation file not generated",
                     }
             else:
                 deps.translation_tasks[task_id]["status"] = "failed"
                 deps.translation_tasks[task_id]["result"] = {
                     "success": False,
-                    "error": f"翻译失败 (退出码: {return_code})",
+                    "error": f"Translation failed (exit code: {return_code})",
                 }
 
     except subprocess.TimeoutExpired:
@@ -225,12 +225,12 @@ def translate_paper_task(
             deps.translation_tasks[task_id]["status"] = "failed"
             deps.translation_tasks[task_id]["result"] = {
                 "success": False,
-                "error": "翻译超时",
+                "error": "Translation timeout",
             }
         if process:
             process.kill()
     except Exception as e:  # noqa: BLE001
-        print(f"翻译过程出错: {str(e)}")
+        print(f"An error occurred during translation: {str(e)}")
         import traceback
 
         traceback.print_exc()
@@ -238,7 +238,7 @@ def translate_paper_task(
             deps.translation_tasks[task_id]["status"] = "failed"
             deps.translation_tasks[task_id]["result"] = {
                 "success": False,
-                "error": f"翻译失败: {str(e)}",
+                "error": f"Translation failed: {str(e)}",
             }
         if process:
             process.kill()

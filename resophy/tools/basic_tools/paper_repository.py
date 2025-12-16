@@ -24,9 +24,9 @@ def save_paper_metadata(pdf_path: str, paper_data) -> None:
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-        # 移除成功保存的日志输出，减少控制台噪音（只在错误时输出）
+        # Remove successfully saved log output to reduce console noise (only output on errors)
     except Exception as exc:
-        print(f"保存论文元数据失败: {exc}")
+        print(f"Failed to save article metadata: {exc}")
 
 
 def load_paper_metadata(pdf_path: str) -> Optional[Paper]:
@@ -36,7 +36,7 @@ def load_paper_metadata(pdf_path: str) -> Optional[Paper]:
             with open(json_path, "r", encoding="utf-8") as f:
                 return Paper.from_dict(json.load(f))
     except Exception as exc:
-        print(f"加载论文元数据失败: {exc}")
+        print(f"Failed to load article metadata: {exc}")
     return None
 
 
@@ -45,11 +45,11 @@ def delete_paper_files(pdf_path: str) -> None:
 
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
-        print(f"已删除PDF文件: {pdf_path}")
+        print(f"DeletedPDFdocument: {pdf_path}")
 
     if os.path.exists(json_path):
         os.remove(json_path)
-        print(f"已删除JSON文件: {json_path}")
+        print(f"DeletedJSONdocument: {json_path}")
 
     base_name = os.path.splitext(os.path.basename(pdf_path))[0]
     pdf_dir = os.path.dirname(pdf_path)
@@ -59,9 +59,9 @@ def delete_paper_files(pdf_path: str) -> None:
         try:
             if os.path.exists(f):
                 os.remove(f)
-                print(f"已删除中文翻译PDF: {f}")
+                print(f"Chinese translation removedPDF: {f}")
         except Exception as exc:
-            print(f"删除中文翻译PDF失败: {f}, {exc}")
+            print(f"Remove Chinese translationPDFfail: {f}, {exc}")
 
     outputs_dir = os.path.join(pdf_dir, "outputs")
     if os.path.exists(outputs_dir):
@@ -69,11 +69,11 @@ def delete_paper_files(pdf_path: str) -> None:
             item_path = os.path.join(outputs_dir, item)
             if os.path.isdir(item_path) and base_name in item:
                 shutil.rmtree(item_path)
-                print(f"已删除AI解读输出目录: {item_path}")
+                print(f"DeletedAIInterpret the output directory: {item_path}")
         try:
             if not os.listdir(outputs_dir):
                 os.rmdir(outputs_dir)
-                print(f"已删除空的outputs目录: {outputs_dir}")
+                print(f"Empty deletedoutputsTable of contents: {outputs_dir}")
         except Exception:
             pass
 
@@ -145,18 +145,18 @@ def scan_papers_in_directory(
 
 
 def refresh_paper_status(paper: Paper) -> None:
-    """检查文件系统并更新论文的翻译和解读状态"""
+    """Check the file system and update the translation and interpretation status of the paper"""
     if not paper.file_path or not os.path.exists(paper.file_path):
         return
     
     pdf_dir = os.path.dirname(paper.file_path)
     base_name = os.path.splitext(os.path.basename(paper.file_path))[0]
     
-    # 检查翻译文件
+    # Check translation files
     dual_file = os.path.join(pdf_dir, f"{base_name}.zh.dual.pdf")
     paper.mark_chinese_version(dual_file if os.path.exists(dual_file) else None)
     
-    # 检查解读结果
+    # Check interpretation results
     outputs_dir = os.path.join(pdf_dir, "outputs")
     analysis_result_path = None
     if os.path.exists(outputs_dir):
@@ -179,12 +179,12 @@ def get_papers_in_category(
         return []
     if paper_store.is_category_initialized(category_id):
         papers = paper_store.list_by_category(category_id)
-        # 刷新每个论文的状态（检查文件系统）
+        # Refresh status of each paper (check file system)
         for paper in papers:
             old_has_chinese = paper.has_chinese_version
             old_has_analysis = paper.has_analysis_result
             refresh_paper_status(paper)
-            # 如果状态有变化，保存到 JSON 文件
+            # If the status changes, save to JSON document
             if (paper.has_chinese_version != old_has_chinese or 
                 paper.has_analysis_result != old_has_analysis):
                 if paper.file_path and os.path.exists(paper.file_path):

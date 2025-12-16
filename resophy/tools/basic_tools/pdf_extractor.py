@@ -23,30 +23,30 @@ def preprocess_pdf_text(text: str) -> str:
 
 def extract_title_by_fontsize(pdf_path: str) -> Optional[str]:
     """
-    通过字体大小提取标题（增强版，带位置过滤）
+    Extract titles by font size (enhanced version with position filtering)
 
-    优先过滤掉 arXiv 侧边栏和页眉页脚的噪声文本，
-    然后从剩余文本中找最大字号的作为标题。
+    Filter out first arXiv Noisy text in sidebar and header footer,
+    Then find the largest font size from the remaining text as the title.
 
     Args:
-        pdf_path: PDF 文件路径
+        pdf_path: PDF file path
 
     Returns:
-        提取的标题，如果失败返回 None
+        The extracted title, returned if failed None
     """
     try:
         doc = fitz.open(pdf_path)
         if len(doc) == 0:
             return None
 
-        page = doc[0]  # 只看第一页
+        page = doc[0]  # Only look at the first page
         rect = page.rect
         page_width = rect.width
         page_height = rect.height
 
         blocks = page.get_text("dict")["blocks"]
 
-        # 收集所有的文本片段 (size, text, bbox)
+        # Collect all text fragments (size, text, bbox)
         all_spans = []
         for block in blocks:
             if "lines" not in block:
@@ -56,44 +56,44 @@ def extract_title_by_fontsize(pdf_path: str) -> Optional[str]:
                     text = span["text"].strip()
                     if not text:
                         continue
-                    # 保存: (字体大小, 文本内容, 边界框)
+                    # keep: (font size, text content, bounding box)
                     all_spans.append((span["size"], text, span["bbox"]))
 
-        # 按字体大小从大到小排序，如果大小相同按垂直位置排序
+        # Sort by font size from largest to smallest, if the sizes are the same sort by vertical position
         all_spans.sort(key=lambda x: (-x[0], x[2][1]))
 
         if not all_spans:
             doc.close()
             return None
 
-        # 寻找真正的标题（过滤噪声）
+        # Find the real title (filter the noise)
         title_candidates = []
         target_size = 0
 
         for size, text, bbox in all_spans:
-            # 1. 内容过滤
+            # 1. Content filtering
             if re.search(r"arxiv:\d{4}\.\d+", text, re.IGNORECASE):
                 continue
-            if len(text) < 5:  # 标题一般不会短于5个字符
+            if len(text) < 5:  # Titles are generally no shorter than5characters
                 continue
-            if re.match(r"^[\d\s\.\-]+$", text):  # 纯数字/符号
+            if re.match(r"^[\d\s\.\-]+$", text):  # pure numbers/symbol
                 continue
             if text.lower() in ["arxiv", "preprint", "abstract", "introduction"]:
                 continue
 
-            # 2. 位置过滤
-            # arXiv 左侧边栏通常在页面宽度的 15% 以内，过滤掉
+            # 2. Location filtering
+            # arXiv The left sidebar is usually within the page width 15% Within, filter out
             if bbox[2] < page_width * 0.15:
                 continue
 
-            # 3. 确定标题
+            # 3. Determine the title
             if target_size == 0:
                 target_size = size
                 title_candidates.append(text)
-            # 字体一样大（处理多行标题）
+            # Same font size (handling multi-line titles)
             elif abs(size - target_size) < 0.5:
                 title_candidates.append(text)
-            # 字体明显变小，标题部分结束
+            # The font size becomes noticeably smaller and the title section ends
             else:
                 break
 
@@ -102,23 +102,23 @@ def extract_title_by_fontsize(pdf_path: str) -> Optional[str]:
         if not title_candidates:
             return None
 
-        # 拼接并清理标题
+        # Splice and clean titles
         title = " ".join(title_candidates)
         title = re.sub(r"\s+", " ", title).strip()
 
-        # 长度检查
+        # length check
         if 10 < len(title) < 500:
             return title
 
         return None
 
     except Exception as exc:
-        print(f"通过字体大小提取标题失败: {exc}")
+        print(f"Failed to extract title by font size: {exc}")
         return None
 
 
 def extract_title_from_text(text: str) -> Optional[str]:
-    """旧的文本提取方法，作为降级方案"""
+    """Old text extraction method as a downgrade solution"""
     lines = text.strip().split("\n")
     for line in lines[:10]:
         line = line.strip()
@@ -210,9 +210,9 @@ def extract_abstract_from_text(text: str) -> Optional[str]:
     stop_markers = (
         r"keywords|index\s*terms|subject[s]?|introduction|background|materials\s+and\s+methods|"
         r"methods|results|conclusions|references|acknowledg(e)?ments|1\.|i\.|ii\.|iii\."
-        r"|关键词|引言|背景|方法|結果|结论|参考文献"
+        r"|Keywords|Introduction|Background|Methods|Results|Conclusion|References"
     )
-    start_markers = r"abstract|summary|摘要|概要"
+    start_markers = r"abstract|summary|Abstract|Summary"
     pattern = rf"(?is)\b(?:{start_markers})\b\s*[:\.\-]?\s*(.+?)(?=\n\s*(?:{stop_markers})\b|\n\n\s*[A-Z][A-Za-z ]+\b|\Z)"
     match = re.search(pattern, normalized)
     if match:
@@ -227,13 +227,13 @@ def extract_abstract_from_text(text: str) -> Optional[str]:
         line_stripped = line.strip()
         if not abstract_started:
             if re.match(
-                r"(?i)^(abstract|summary|摘要|概要)\b\s*[:\-\.]?\s*$", line_stripped
+                r"(?i)^(abstract|summary|Abstract|Summary)\b\s*[:\-\.]?\s*$", line_stripped
             ) or re.match(
-                r"(?i)^(abstract|summary|摘要|概要)\b\s*[:\-\.]?",
+                r"(?i)^(abstract|summary|Abstract|Summary)\b\s*[:\-\.]?",
                 line_stripped,
             ):
                 after = re.sub(
-                    r"(?i)^(abstract|summary|摘要|概要)\b\s*[:\-\.]?\s*",
+                    r"(?i)^(abstract|summary|Abstract|Summary)\b\s*[:\-\.]?\s*",
                     "",
                     line_stripped,
                 )
@@ -256,7 +256,7 @@ def extract_abstract_from_text(text: str) -> Optional[str]:
         if (
             120 <= len(p) <= 5000
             and not re.match(
-                r"(?i)^(keywords|index\s*terms|introduction|references|acknowledg(e)?ments|参考文献|引言|关键词)",
+                r"(?i)^(keywords|index\s*terms|introduction|references|acknowledg(e)?ments|References|Introduction|Keywords)",
                 p,
             )
             and p.count(".") >= 2

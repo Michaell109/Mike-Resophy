@@ -1,11 +1,11 @@
 """
-Daily arXiv 爬虫模块
+Daily arXiv Crawler module
 
-提供每日 arXiv 论文获取功能，支持:
-- 自动化定时抓取
-- 按日期/分区组织论文
-- 进度追踪
-- 过期论文清理
+Provided daily arXiv Paper acquisition function, support:
+- Automated scheduled capture
+- by date/Partition organization essay
+- progress tracking
+- Cleaning up expired papers
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import arxiv
 
-# 机构提取的系统提示词
+# System prompt words extracted by the organization
 AFFILIATION_EXTRACTION_PROMPT = """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and github repo url if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
 
 Output the result directly in JSON format, and make sure it is valid JSON. For example:
@@ -36,103 +36,103 @@ Notes:
 Now the input is:
 """
 
-# 摘要总结和关键词提取的系统提示词
-SUMMARY_EXTRACTION_PROMPT = """我会给你一篇 AI 文章的英文摘要，你需要简要的总结这篇文章在解决怎样的问题，是如何解决的，然后在最后提供关于这篇文章的 文章的类型的 3个 英文关键词，这个类型不需要细分，要按照大类划分，比如 Image Generation，Object Detection，3D Reconstruction 这种，以如下的 JSON 格式输出:
+# System prompt words for summary summary and keyword extraction
+SUMMARY_EXTRACTION_PROMPT = """I will give you one AI English abstract of the article. You need to briefly summarize what problem this article solves and how it solves it, and then provide some information about the article at the end. type of article 3indivual English keywords, this type does not need to be subdivided, but should be divided into major categories, such as Image Generation，Object Detection，3D Reconstruction This kind is as follows JSON format output:
 
-{"summary": "这篇文章主要解决...的问题。作者提出...方法，通过...实现了...", "keywords": ["Keyword1", "Keyword2", "Keyword3"]}
+{"summary": "This article mainly solves...problem. The author proposes...method, through...Realized...", "keywords": ["Keyword1", "Keyword2", "Keyword3"]}
 
-注意：
-1. summary 用中文简洁描述，控制在 100-200 字
-2. keywords 用英文，提供 3 个最能代表文章的类型的关键词
-3. 直接输出 JSON，不要有任何其他解释
+Notice:
+1. summary Use Chinese concise description, control within 100-200 Character
+2. keywords In English, provided 3 keywords that best represent the type of article
+3. direct output JSON, without any other explanation
 
-现在输入的摘要是:
+The summary entered now is:
 """
 
 
 def get_arxiv_announce_date(submitted: datetime = None) -> datetime:
     """
-    获取 arXiv 公布日期（基于北京时间逻辑）
+    get arXiv Announcement date (based on Beijing time logic)
 
-    arXiv 公布时间规则：
-    - 美国东部时间 14:00（周一到周五）公布前一天 14:00 UTC 之前提交的论文
-    - 周末不公布，周五提交的论文在下周一公布
+    arXiv Publication time rules:
+    - Eastern Time 14:00(Monday to Friday) One day before announcement 14:00 UTC Previously submitted papers
+    - No publication will be made on weekends. Papers submitted on Friday will be published on the following Monday.
 
-    时区转换：
-    - 夏令时（3月第二个周日 - 11月第一个周日）：美国东部时间 14:00 = UTC 18:00 = 北京时间次日 02:00
-    - 冬令时（其他时间）：美国东部时间 14:00 = UTC 19:00 = 北京时间次日 03:00
+    Time zone conversion:
+    - Daylight Saving Time (3second sunday of month - 11Error 500 (Server Error)!!1500.That’s an error.There was an error. Please try again later.That’s all we know. 14:00 = UTC 18:00 = The next day Beijing time 02:00
+    - Winter Time (other times): Eastern Time 14:00 = UTC 19:00 = The next day Beijing time 03:00
 
-    北京时间的论文归属：
-    - 夏令时：前一天 UTC 18:00 到当天 UTC 18:00 之间提交的论文，归属到北京时间当天
-    - 冬令时：前一天 UTC 19:00 到当天 UTC 19:00 之间提交的论文，归属到北京时间当天
+    Attribution of the paper in Beijing Time:
+    - Daylight Saving Time: the day before UTC 18:00 Until the same day UTC 18:00 Papers submitted during the period will be attributed to the same day Beijing time
+    - Winter time: the day before UTC 19:00 Until the same day UTC 19:00 Papers submitted during the period will be attributed to the same day Beijing time
 
     Args:
-        submitted: 论文提交时间（UTC），如果为 None 则使用当前时间
+        submitted: Paper submission time (UTC), if None then use the current time
 
     Returns:
-        论文在 arXiv 上的公布日期（北京时间日期）
+        The paper is in arXiv Announcement date (Beijing time and date)
     """
     if submitted is None:
         submitted = datetime.utcnow()
 
-    # 如果传入的时间是带时区的（offset-aware），转换为 UTC naive datetime
+    # If the incoming time is with time zone (offset-aware), converted to UTC naive datetime
     if submitted.tzinfo is not None:
         submitted = submitted.replace(tzinfo=None)
 
-    # 判断是否为夏令时（美国东部时间）
-    # 夏令时：3月第二个周日 02:00 到 11月第一个周日 02:00
+    # Determine whether it is daylight saving time (Eastern Time)
+    # Daylight Saving Time:3second sunday of month 02:00 arrive 11first sunday of month 02:00
     def is_dst(dt):
-        """判断给定的 UTC 时间对应的美国东部时间是否为夏令时"""
+        """judge given UTC Whether the corresponding US Eastern Time is Daylight Saving Time"""
         year = dt.year
-        # 3月第二个周日
+        # 3second sunday of month
         march = datetime(year, 3, 1)
         dst_start = march + timedelta(days=(13 - march.weekday()) % 7)
         while dst_start.day < 8:
             dst_start += timedelta(days=7)
-        # 11月第一个周日
+        # 11first sunday of month
         november = datetime(year, 11, 1)
         dst_end = november + timedelta(days=(6 - november.weekday()) % 7)
         return dst_start <= dt < dst_end
 
-    # 确定发布时间的 UTC 小时（夏令时 18:00，冬令时 19:00）
+    # determined release time UTC hours (daylight saving time 18:00, winter time 19:00）
     publish_hour = 18 if is_dst(submitted) else 19
 
-    # arXiv 的发布逻辑（基于北京时间）：
-    # 前一天 publish_hour 到当天 publish_hour 之间提交的论文，在发布窗口结束时对应的北京时间日期发布
+    # arXiv Release logic (based on Beijing time):
+    # the day before publish_hour Until the same day publish_hour Papers submitted during the period will be published on the corresponding Beijing time and date at the end of the publishing window.
     #
-    # 例如：冬令时（publish_hour = 19）
-    #   12月2日 19:00 UTC 到 12月3日 19:00 UTC 之间提交的论文
-    #   窗口结束时间：12月3日 19:00 UTC = 北京时间 12月4日 03:00
-    #   → 归属到北京时间 12月4日
+    # For example: winter time (publish_hour = 19）
+    #   12moon2day 19:00 UTC arrive 12moon3day 19:00 UTC papers submitted between
+    #   Window end time:12moon3day 19:00 UTC = Beijing time 12moon4day 03:00
+    #   → Attribution to Beijing time 12moon4day
     #
-    # 再例如：夏令时（publish_hour = 18）
-    #   5月2日 18:00 UTC 到 5月3日 18:00 UTC 之间提交的论文
-    #   窗口结束时间：5月3日 18:00 UTC = 北京时间 5月4日 02:00
-    #   → 归属到北京时间 5月4日
+    # Another example: Daylight Saving Time (publish_hour = 18）
+    #   5moon2day 18:00 UTC arrive 5moon3day 18:00 UTC papers submitted between
+    #   Window end time:5moon3day 18:00 UTC = Beijing time 5moon4day 02:00
+    #   → Attribution to Beijing time 5moon4day
 
-    # 计算发布窗口结束时间对应的北京时间日期
+    # Calculate the Beijing time and date corresponding to the end time of the release window
     utc_date = submitted.date()
 
     if submitted.hour >= publish_hour:
-        # 提交时间在当天的发布时间点之后
-        # 发布窗口结束时间是：次日的 publish_hour
-        # 例如：12月2日 20:00 UTC → 窗口结束时间是 12月3日 19:00 UTC
+        # Submission time is after the publishing time of the day
+        # The release window ends: the next day publish_hour
+        # For example:12moon2day 20:00 UTC → The window end time is 12moon3day 19:00 UTC
         window_end_utc = datetime.combine(
             utc_date + timedelta(days=1), datetime.min.time()
         ) + timedelta(hours=publish_hour)
     else:
-        # 提交时间在当天的发布时间点之前
-        # 发布窗口结束时间是：当天的 publish_hour
-        # 例如：12月2日 10:00 UTC → 窗口结束时间是 12月2日 19:00 UTC
+        # Submission time is before the publishing time of the day
+        # The publishing window end time is: today's publish_hour
+        # For example:12moon2day 10:00 UTC → The window end time is 12moon2day 19:00 UTC
         window_end_utc = datetime.combine(utc_date, datetime.min.time()) + timedelta(
             hours=publish_hour
         )
 
-    # 将窗口结束时间转换为北京时间，得到论文归属日期
+    # Convert the window end time to Beijing time and get the paper attribution date
     window_end_beijing = window_end_utc + timedelta(hours=8)
     announce_date = window_end_beijing.date()
 
-    # 调整周末：周六和周日的论文推迟到周一
+    # Adjustment to weekends: Saturday and Sunday papers postponed to Monday
     weekday = announce_date.weekday()
     if weekday == 5:  # Saturday -> Monday
         announce_date = announce_date + timedelta(days=2)
@@ -144,53 +144,53 @@ def get_arxiv_announce_date(submitted: datetime = None) -> datetime:
 
 def get_today_arxiv_date() -> str:
     """
-    获取今日日期字符串 (YYYY-MM-DD)
-    使用本地时间
+    Get today's date string (YYYY-MM-DD)
+    Use local time
     """
     return datetime.now().strftime("%Y-%m-%d")
 
 
 @dataclass
 class ArxivPaper:
-    """arXiv 论文数据类"""
+    """arXiv Paper data class"""
 
     arxiv_id: str
     title: str
     authors: str
     abstract: str
-    published: datetime  # 首次提交时间
-    updated: datetime  # 最新版本时间
-    announced: datetime  # 公布日期（在 arXiv 列表显示的日期）
+    published: datetime  # First submission time
+    updated: datetime  # Latest version time
+    announced: datetime  # Publication date (in arXiv date displayed in the list)
     pdf_url: str
     categories: List[str]
     primary_category: str
     comment: Optional[str] = None
     journal_ref: Optional[str] = None
 
-    # 本地状态
+    # local status
     local_pdf_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
 
-    # 机构信息
+    # Institutional information
     affiliations: List[str] = field(default_factory=list)
-    countries: List[str] = field(default_factory=list)  # 国家列表，与 affiliations 对应
+    countries: List[str] = field(default_factory=list)  # list of countries, with affiliations correspond
     affiliations_extracted: bool = False
 
-    # 项目链接
+    # Project link
     homepage: Optional[str] = None
     github: Optional[str] = None
 
-    # LLM 提取的摘要和关键词
-    summary: Optional[str] = None  # 中文简要总结
-    keywords: List[str] = field(default_factory=list)  # 英文关键词
+    # LLM Extracted abstracts and keywords
+    summary: Optional[str] = None  # Brief summary in Chinese
+    keywords: List[str] = field(default_factory=list)  # English keywords
     summary_extracted: bool = False
 
-    # 抓取信息
-    fetch_category: Optional[str] = None  # 从哪个分区抓取的
-    fetch_date: Optional[str] = None  # 抓取日期 (YYYY-MM-DD)
+    # Grab information
+    fetch_category: Optional[str] = None  # Which partition was grabbed from?
+    fetch_date: Optional[str] = None  # Fetch date (YYYY-MM-DD)
 
-    # PDF 下载状态
-    pdf_downloaded: bool = False  # PDF 是否已成功下载
+    # PDF Download status
+    pdf_downloaded: bool = False  # PDF Has the download been successful?
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -223,7 +223,7 @@ class ArxivPaper:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ArxivPaper":
-        """从字典创建"""
+        """Create from dictionary"""
 
         def parse_datetime(s):
             if not s:
@@ -267,20 +267,20 @@ class ArxivPaper:
     def from_arxiv_result(
         cls, result: arxiv.Result, fetch_category: str = None
     ) -> "ArxivPaper":
-        """从 arxiv 库的 Result 对象创建"""
-        # 提取 arXiv ID
+        """from arxiv library Result Object creation"""
+        # extract arXiv ID
         arxiv_id = result.entry_id.split("/abs/")[-1]
 
-        # 格式化作者
+        # Format author
         authors = ", ".join(author.name for author in result.authors)
 
-        # 获取分类
+        # Get category
         categories = list(result.categories) if result.categories else []
         primary_category = result.primary_category or (
             categories[0] if categories else ""
         )
 
-        # 计算公布日期
+        # Calculate publication date
         announced = get_arxiv_announce_date(result.published)
 
         return cls(
@@ -304,7 +304,7 @@ class ArxivPaper:
 
 
 class FetchProgress:
-    """抓取进度追踪"""
+    """Crawl progress tracking"""
 
     def __init__(self):
         self.total = 0
@@ -312,8 +312,8 @@ class FetchProgress:
         self.status = "idle"  # idle, fetching, processing, done, error
         self.message = ""
         self.current_paper = None
-        self.current_paper_start_time = None  # 当前论文开始处理的时间戳
-        self.current_paper_pdf_path = None  # 当前正在下载的 PDF 文件路径
+        self.current_paper_start_time = None  # The timestamp when the current paper started processing
+        self.current_paper_pdf_path = None  # Currently downloading PDF file path
         self.papers = []
         self.lock = threading.Lock()
 
@@ -322,7 +322,7 @@ class FetchProgress:
             self.total = total
             self.current = 0
             self.status = "fetching"
-            self.message = "正在获取论文列表..."
+            self.message = "Retrieving paper list..."
             self.current_paper = None
             self.current_paper_start_time = None
             self.current_paper_pdf_path = None
@@ -333,32 +333,32 @@ class FetchProgress:
             self.total = total
             self.current = 0
             self.status = "processing"
-            self.message = f"正在处理 0/{total} 篇论文"
+            self.message = f"Processing 0/{total} papers"
             self.current_paper_start_time = None
             self.current_paper_pdf_path = None
 
     def update(self, current: int, paper_title: str = None, pdf_path: str = None):
         with self.lock:
             self.current = current
-            # 如果论文标题改变，记录新的开始时间
+            # If the paper title changes, record the new start time
             if paper_title and paper_title != self.current_paper:
                 self.current_paper = paper_title
                 self.current_paper_start_time = time.time()
-                self.current_paper_pdf_path = pdf_path  # 设置 PDF 路径
+                self.current_paper_pdf_path = pdf_path  # set up PDF path
             elif not paper_title:
                 self.current_paper = None
                 self.current_paper_start_time = None
                 self.current_paper_pdf_path = None
-            # 如果只是更新 PDF 路径（下载过程中），即使标题相同也要更新
+            # If only update PDF Path (during download), updated even if the title is the same
             if pdf_path and self.current_paper:
                 self.current_paper_pdf_path = pdf_path
-            self.message = f"正在处理 {current}/{self.total} 篇论文"
+            self.message = f"Processing {current}/{self.total} papers"
 
     def add_paper(self, paper_dict: Dict):
         with self.lock:
             self.papers.append(paper_dict)
 
-    def set_done(self, message: str = "完成"):
+    def set_done(self, message: str = "Finish"):
         with self.lock:
             self.status = "done"
             self.message = message
@@ -376,12 +376,12 @@ class FetchProgress:
 
     def to_dict(self) -> Dict:
         with self.lock:
-            # 计算当前论文已用时间（秒）
+            # Calculate the elapsed time of the current paper (seconds)
             elapsed_seconds = 0
             if self.current_paper_start_time:
                 elapsed_seconds = int(time.time() - self.current_paper_start_time)
 
-            # 计算当前下载的 PDF 文件大小（字节）
+            # Calculate the currently downloaded PDF File size (bytes)
             current_paper_pdf_size = 0
             if self.current_paper_pdf_path and os.path.exists(
                 self.current_paper_pdf_path
@@ -399,30 +399,30 @@ class FetchProgress:
                 "status": self.status,
                 "message": self.message,
                 "current_paper": self.current_paper,
-                "current_paper_elapsed_seconds": elapsed_seconds,  # 当前论文已用时间（秒）
-                "current_paper_pdf_size": current_paper_pdf_size,  # 当前下载的 PDF 文件大小（字节）
+                "current_paper_elapsed_seconds": elapsed_seconds,  # Current paper elapsed time (seconds)
+                "current_paper_pdf_size": current_paper_pdf_size,  # currently downloaded PDF File size (bytes)
                 "papers": list(self.papers),
             }
 
 
 class DailyArxivManager:
     """
-    Daily arXiv 管理器
+    Daily arXiv Manager
 
-    负责：
-    - 按日期/分区组织论文文件
-    - 自动化定时抓取
-    - 进度追踪
-    - 过期论文清理
+    Responsible:
+    - by date/Organize thesis files into partitions
+    - Automated scheduled capture
+    - progress tracking
+    - Cleaning up expired papers
     """
 
     def __init__(self, base_dir: str, settings_file: str):
         """
-        初始化
+        initialization
 
         Args:
-            base_dir: 基础目录，如 papers/.daily_arxiv_temp
-            settings_file: 设置文件路径
+            base_dir: Basic directory, such as papers/.daily_arxiv_temp
+            settings_file: Set file path
         """
         self.base_dir = base_dir
         self.settings_file = settings_file
@@ -430,55 +430,55 @@ class DailyArxivManager:
 
         os.makedirs(base_dir, exist_ok=True)
 
-        # arXiv 客户端
+        # arXiv client
         self.client = arxiv.Client(
             page_size=50,
             delay_seconds=3.0,
             num_retries=3,
         )
 
-        # 进度追踪（按分区）
+        # Progress tracking (by partition)
         self.progress: Dict[str, FetchProgress] = {}
 
-        # 调度器
+        # scheduler
         self._scheduler_thread = None
         self._scheduler_running = False
         self._last_fetch_time: Dict[str, datetime] = {}
 
-        # LLM 配置回调
+        # LLM Configure callback
         self._get_llm_config: Optional[Callable[[], Dict]] = None
 
-        # LLM API 状态追踪（用于前端显示）
+        # LLM API Status tracking (for front-end display)
         self._llm_api_failed: bool = False
         self._llm_api_error_message: str = ""
 
-        # 加载已有元数据
+        # Load existing metadata
         self._load_metadata()
 
     def set_llm_config_callback(self, callback: Callable[[], Dict]):
-        """设置获取 LLM 配置的回调函数"""
+        """set get LLM Configured callback function"""
         self._get_llm_config = callback
 
     def _load_metadata(self):
-        """加载元数据"""
+        """Load metadata"""
         self._metadata = {}
         if os.path.exists(self.metadata_file):
             try:
                 with open(self.metadata_file, "r", encoding="utf-8") as f:
                     self._metadata = json.load(f)
             except Exception as e:
-                print(f"[DailyArxiv] 加载元数据失败: {e}")
+                print(f"[DailyArxiv] Loading metadata failed: {e}")
 
     def _save_metadata(self):
-        """保存元数据"""
+        """Save metadata"""
         try:
             with open(self.metadata_file, "w", encoding="utf-8") as f:
                 json.dump(self._metadata, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[DailyArxiv] 保存元数据失败: {e}")
+            print(f"[DailyArxiv] Failed to save metadata: {e}")
 
     def get_settings(self) -> Dict:
-        """获取设置"""
+        """Get settings"""
         try:
             with open(self.settings_file, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -486,23 +486,23 @@ class DailyArxivManager:
             return {}
 
     def get_date_dir(self, date_str: str) -> str:
-        """获取日期目录路径"""
+        """Get date directory path"""
         return os.path.join(self.base_dir, date_str)
 
     def get_category_dir(self, date_str: str, category: str) -> str:
-        """获取分区目录路径"""
+        """Get partition directory path"""
         return os.path.join(self.base_dir, date_str, category.replace(".", "_"))
 
     def get_download_status_file(self, date_str: str, category: str) -> str:
-        """获取下载状态文件路径"""
+        """Get download status file path"""
         cat_dir = self.get_category_dir(date_str, category)
         return os.path.join(cat_dir, "download_status.json")
 
     def _load_download_status(self, date_str: str, category: str) -> Dict[str, str]:
-        """加载下载状态
+        """Load download status
 
         Returns:
-            {arxiv_id: status} 字典，status 为 "downloading" 或 "completed"
+            {arxiv_id: status} dictionary,status for "downloading" or "completed"
         """
         status_file = self.get_download_status_file(date_str, category)
         if os.path.exists(status_file):
@@ -510,39 +510,39 @@ class DailyArxivManager:
                 with open(status_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"[DailyArxiv] 加载下载状态失败: {e}")
+                print(f"[DailyArxiv] Failed to load download status: {e}")
                 return {}
         return {}
 
     def _save_download_status(
         self, date_str: str, category: str, status_dict: Dict[str, str]
     ):
-        """保存下载状态"""
+        """Save download status"""
         status_file = self.get_download_status_file(date_str, category)
         try:
-            # 确保目录存在
+            # Make sure the directory exists
             os.makedirs(os.path.dirname(status_file), exist_ok=True)
             with open(status_file, "w", encoding="utf-8") as f:
                 json.dump(status_dict, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[DailyArxiv] 保存下载状态失败: {e}")
+            print(f"[DailyArxiv] Failed to save download status: {e}")
 
     def _mark_downloading(self, date_str: str, category: str, arxiv_id: str):
-        """标记论文为下载中"""
+        """Mark the paper as downloading"""
         status = self._load_download_status(date_str, category)
         status[arxiv_id] = "downloading"
         self._save_download_status(date_str, category, status)
 
     def _mark_download_completed(self, date_str: str, category: str, arxiv_id: str):
-        """标记论文为下载完成"""
+        """Mark the paper as download complete"""
         status = self._load_download_status(date_str, category)
         status[arxiv_id] = "completed"
         self._save_download_status(date_str, category, status)
 
     def _cleanup_incomplete_downloads(self, date_str: str, category: str):
-        """清理未完成的下载（服务器重启后调用）
+        """Clean up unfinished downloads (called after server restart)
 
-        删除所有标记为 "downloading" 的论文文件和相关数据
+        Delete all tagged "downloading" thesis files and related data
         """
         status = self._load_download_status(date_str, category)
         cat_dir = self.get_category_dir(date_str, category)
@@ -553,19 +553,19 @@ class DailyArxivManager:
         incomplete_count = 0
         for arxiv_id, download_status in list(status.items()):
             if download_status == "downloading":
-                print(f"[DailyArxiv] 检测到未完成的下载: {arxiv_id}，清理相关文件...")
+                print(f"[DailyArxiv] Incomplete download detected: {arxiv_id}, clean related files...")
                 safe_id = arxiv_id.replace("/", "_").replace(":", "_")
 
-                # 删除 PDF 文件
+                # delete PDF document
                 pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
                 if os.path.exists(pdf_path):
                     try:
                         os.remove(pdf_path)
-                        print(f"[DailyArxiv] 已删除不完整的 PDF: {pdf_path}")
+                        print(f"[DailyArxiv] Incomplete deleted PDF: {pdf_path}")
                     except Exception as e:
-                        print(f"[DailyArxiv] 删除 PDF 失败: {e}")
+                        print(f"[DailyArxiv] delete PDF fail: {e}")
 
-                # 删除缩略图
+                # Delete thumbnail
                 thumbnail_path = os.path.join(cat_dir, f"{safe_id}_thumbnail.jpg")
                 if os.path.exists(thumbnail_path):
                     try:
@@ -573,30 +573,30 @@ class DailyArxivManager:
                     except:
                         pass
 
-                # 删除 JSON 元数据文件
+                # delete JSON metadata file
                 json_path = os.path.join(cat_dir, f"{safe_id}.json")
                 if os.path.exists(json_path):
                     try:
                         os.remove(json_path)
-                        print(f"[DailyArxiv] 已删除不完整的元数据: {json_path}")
+                        print(f"[DailyArxiv] Incomplete metadata removed: {json_path}")
                     except Exception as e:
-                        print(f"[DailyArxiv] 删除元数据失败: {e}")
+                        print(f"[DailyArxiv] Deletion of metadata failed: {e}")
 
-                # 从状态中移除
+                # Remove from status
                 del status[arxiv_id]
                 incomplete_count += 1
 
         if incomplete_count > 0:
-            # 保存更新后的状态
+            # Save updated status
             self._save_download_status(date_str, category, status)
-            print(f"[DailyArxiv] 清理完成，共清理 {incomplete_count} 个未完成的下载")
+            print(f"[DailyArxiv] Cleanup completed, total cleanup {incomplete_count} incomplete downloads")
 
     def get_available_dates(self) -> List[str]:
         """
-        获取有论文的日期列表
+        Get a list of dates with papers
 
         Returns:
-            日期列表（降序，最新在前）
+            List of dates (descending order, newest first)
         """
         dates = []
         if not os.path.exists(self.base_dir):
@@ -605,12 +605,12 @@ class DailyArxivManager:
         for name in os.listdir(self.base_dir):
             path = os.path.join(self.base_dir, name)
             if os.path.isdir(path) and name.count("-") == 2:
-                # 检查是否有论文
+                # Check if there is a paper
                 has_papers = False
                 for cat_dir in os.listdir(path):
                     cat_path = os.path.join(path, cat_dir)
                     if os.path.isdir(cat_path):
-                        # 检查是否有 JSON 文件
+                        # Check if there is JSON document
                         for f in os.listdir(cat_path):
                             if f.endswith(".json"):
                                 has_papers = True
@@ -626,14 +626,14 @@ class DailyArxivManager:
 
     def get_papers_for_date(self, date_str: str, category: str = None) -> List[Dict]:
         """
-        获取某日期的论文
+        Get papers of a certain date
 
         Args:
-            date_str: 日期字符串 (YYYY-MM-DD)
-            category: 分区（可选，不指定则返回所有分区）
+            date_str: date string (YYYY-MM-DD)
+            category: Partition (optional, if not specified, all partitions will be returned)
 
         Returns:
-            论文字典列表
+            Thesis dictionary list
         """
         papers = []
         date_dir = self.get_date_dir(date_str)
@@ -641,7 +641,7 @@ class DailyArxivManager:
         if not os.path.exists(date_dir):
             return papers
 
-        # 确定要读取的分区目录
+        # Determine the partition directory to be read
         if category:
             cat_dirs = [self.get_category_dir(date_str, category)]
         else:
@@ -655,8 +655,8 @@ class DailyArxivManager:
             if not os.path.exists(cat_dir):
                 continue
 
-            # 获取该分区的下载状态
-            # 从目录路径中提取分区名称
+            # Get the download status of this partition
+            # Extract partition name from directory path
             cat_name = os.path.basename(cat_dir)
             download_status = self._load_download_status(date_str, cat_name)
 
@@ -667,23 +667,23 @@ class DailyArxivManager:
                         with open(json_path, "r", encoding="utf-8") as f:
                             paper_data = json.load(f)
 
-                            # 检查论文的下载状态
+                            # Check the download status of your paper
                             arxiv_id = paper_data.get("arxiv_id")
                             if arxiv_id:
                                 paper_status = download_status.get(arxiv_id)
-                                # 如果论文状态是 downloading，跳过（不返回给前端）
+                                # If the paper status is downloading, skip (not returned to the front end)
                                 if paper_status == "downloading":
                                     continue
 
-                            # 检查论文是否有完整的元数据（至少要有 PDF 文件）
+                            # Check that the paper has complete metadata (at least PDF document)
                             local_pdf_path = paper_data.get("local_pdf_path")
                             if local_pdf_path:
-                                # 如果 JSON 中有 PDF 路径，检查文件是否存在
+                                # if JSON There is PDF Path, check if the file exists
                                 if not os.path.exists(local_pdf_path):
-                                    # PDF 文件不存在，跳过（可能是未完成的下载）
+                                    # PDF File does not exist, skipped (possibly incomplete download)
                                     continue
                             else:
-                                # 如果 JSON 中没有 PDF 路径，尝试从文件名推断
+                                # if JSON None PDF path, trying to infer from the filename
                                 safe_id = (
                                     arxiv_id.replace("/", "_").replace(":", "_")
                                     if arxiv_id
@@ -691,17 +691,17 @@ class DailyArxivManager:
                                 )
                                 pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
                                 if not os.path.exists(pdf_path):
-                                    # 没有 PDF 文件，跳过（可能是未完成的下载）
+                                    # No PDF File, skipped (possibly an incomplete download)
                                     continue
 
                             papers.append(paper_data)
                     except Exception as e:
-                        print(f"[DailyArxiv] 读取论文失败 {json_path}: {e}")
+                        print(f"[DailyArxiv] Failed to read the paper {json_path}: {e}")
 
         return papers
 
     def get_progress(self, category: str) -> Dict:
-        """获取分区的抓取进度"""
+        """Get the crawling progress of a partition"""
         if category not in self.progress:
             self.progress[category] = FetchProgress()
         return self.progress[category].to_dict()
@@ -713,30 +713,30 @@ class DailyArxivManager:
         force: bool = False,
     ) -> List[Dict]:
         """
-        抓取论文（自动抓取今天所有的论文）
+        Fetch papers (automatically fetch all papers today)
 
         Args:
-            category: arXiv 分区
-            date_str: 目标日期（默认今天），只抓取该日期的论文
-            force: 强制重新抓取
+            category: arXiv Partition
+            date_str: Target date (default today), only crawl papers on this date
+            force: Force re-crawl
 
         Returns:
-            论文列表（按论文的实际公布日期存储）
+            Paper list (stored by the actual publication date of the paper)
         """
         if date_str is None:
             date_str = get_today_arxiv_date()
 
-        # 初始化进度
+        # Initialization progress
         if category not in self.progress:
             self.progress[category] = FetchProgress()
         progress = self.progress[category]
-        progress.reset(0)  # 总数未知，稍后更新
+        progress.reset(0)  # The total number is unknown, will be updated later
 
         try:
-            # 获取论文，直到找到今天日期之前的论文为止
-            print(f"[DailyArxiv] 正在获取 {category} 分区 {date_str} 的所有论文...")
+            # Get papers until you find papers before today's date
+            print(f"[DailyArxiv] Getting {category} Partition {date_str} All papers of...")
 
-            # 一次性获取足够多的论文（最多500篇），然后筛选目标日期的论文
+            # Get enough papers at once (up to500articles) and then filter for papers with target date
             max_fetch = 500
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
 
@@ -749,53 +749,53 @@ class DailyArxivManager:
 
             all_results = []
             checked_count = 0
-            consecutive_older_count = 0  # 连续找到更早日期的论文数量
-            min_check_count = 100  # 至少检查的论文数量
-            max_consecutive_older = 20  # 连续找到更早日期论文的最大数量，超过则停止
+            consecutive_older_count = 0  # Number of papers with earlier dates found consecutively
+            min_check_count = 100  # Minimum number of papers examined
+            max_consecutive_older = 20  # Maximum number of older papers found consecutively, stopping if exceeded
 
             for result in self.client.results(search):
                 checked_count += 1
 
-                # 检查论文日期
+                # Check paper date
                 paper_tmp = ArxivPaper.from_arxiv_result(
                     result, fetch_category=category
                 )
                 paper_date = paper_tmp.announced.date() if paper_tmp.announced else None
 
                 if paper_date and paper_date == target_date:
-                    # 是目标日期的论文，添加到结果中
+                    # is the target date paper, added to the results
                     all_results.append(result)
-                    consecutive_older_count = 0  # 重置连续更早日期计数
+                    consecutive_older_count = 0  # Reset consecutive earlier date count
                 elif paper_date and paper_date < target_date:
-                    # 找到了比目标日期更早的论文
+                    # Papers older than target date found
                     consecutive_older_count += 1
-                    # 只有在至少检查了一定数量的论文，且连续找到多篇更早日期的论文时，才停止
+                    # Only stop when at least a certain number of papers have been examined and multiple papers of earlier dates are found in a row
                     if (
                         checked_count >= min_check_count
                         and consecutive_older_count >= max_consecutive_older
                     ):
                         print(
-                            f"[DailyArxiv] 已检查 {checked_count} 篇论文，连续找到 {consecutive_older_count} 篇更早日期的论文（{paper_date} < {target_date}），停止抓取"
+                            f"[DailyArxiv] checked {checked_count} papers, found consecutively {consecutive_older_count} an earlier paper ({paper_date} < {target_date}), stop crawling"
                         )
                         break
-                # 如果是未来日期的论文，跳过（通常不会出现）
+                # If it's a paper with a future date, skip it (usually it won't show up)
 
-                # 定期输出进度
+                # Periodically output progress
                 if checked_count % 50 == 0:
                     print(
-                        f"[DailyArxiv] 已检查 {checked_count} 篇论文，找到 {len(all_results)} 篇目标日期的论文"
+                        f"[DailyArxiv] checked {checked_count} papers, found {len(all_results)} target date papers"
                     )
 
             results = all_results
             print(
-                f"[DailyArxiv] 检查了 {checked_count} 篇论文，找到 {len(results)} 篇 {date_str} 的 {category} 论文"
+                f"[DailyArxiv] checked {checked_count} papers, found {len(results)} Chapter {date_str} of {category} paper"
             )
 
             if not results:
-                progress.set_done("没有找到论文")
+                progress.set_done("No paper found")
                 return []
 
-            # 先统计论文的实际公布日期分布
+            # First, count the actual publication date distribution of papers.
             date_counts = {}
             for result in results:
                 paper_tmp = ArxivPaper.from_arxiv_result(
@@ -808,17 +808,17 @@ class DailyArxivManager:
                 )
                 date_counts[announce_date] = date_counts.get(announce_date, 0) + 1
 
-            # 打印日期分布
+            # Print date distribution
             date_info = ", ".join(
-                [f"{d}: {c}篇" for d, c in sorted(date_counts.items(), reverse=True)]
+                [f"{d}: {c}Chapter" for d, c in sorted(date_counts.items(), reverse=True)]
             )
-            print(f"[DailyArxiv] 论文公布日期分布: {date_info}")
+            print(f"[DailyArxiv] Distribution of paper publication dates: {date_info}")
 
-            # 设置处理进度
+            # Set processing progress
             progress.set_processing(len(results))
 
-            # 清理未完成的下载（服务器重启后）
-            # 收集所有需要清理的日期
+            # Clean up unfinished downloads (after server restart)
+            # Collect all dates that need to be cleaned
             dates_to_clean = set()
             for result in results:
                 paper_tmp = ArxivPaper.from_arxiv_result(
@@ -831,30 +831,30 @@ class DailyArxivManager:
                 )
                 dates_to_clean.add(paper_announce_date)
 
-            # 清理每个日期的未完成下载
+            # Clean up outstanding downloads per date
             for clean_date in dates_to_clean:
                 self._cleanup_incomplete_downloads(clean_date, category)
 
-            # 获取 LLM 配置
+            # get LLM Configuration
             llm_config = {}
             if self._get_llm_config:
                 llm_config = self._get_llm_config()
 
-            # 获取自定义 prompt
+            # Get custom prompt
             settings = self.get_settings()
             affiliation_prompt = settings.get("affiliationPrompt")
             summary_prompt = settings.get("summaryPrompt")
             keyword_list = settings.get("keywordList", [])
             max_keywords = settings.get("maxKeywords", 1)
 
-            # 将关键词列表和最多关键词数插入到 prompt 中
+            # Insert the keyword list and maximum number of keywords into prompt middle
             if summary_prompt:
                 if keyword_list:
                     keyword_list_str = ", ".join(keyword_list)
                     summary_prompt = summary_prompt.replace(
                         "{keyword_list}", keyword_list_str
                     )
-                # 替换最多关键词数占位符
+                # Replace the maximum number of keywords placeholder
                 summary_prompt = summary_prompt.replace(
                     "{max_keywords}", str(max_keywords)
                 )
@@ -862,15 +862,15 @@ class DailyArxivManager:
             papers = []
             skipped_count = 0
 
-            print(f"[DailyArxiv] 开始处理 {len(results)} 篇论文...")
+            print(f"[DailyArxiv] Start processing {len(results)} papers...")
             for i, result in enumerate(results):
                 try:
-                    print(f"[DailyArxiv] 处理第 {i+1}/{len(results)} 篇论文...")
+                    print(f"[DailyArxiv] processing section {i+1}/{len(results)} papers...")
                     paper = ArxivPaper.from_arxiv_result(
                         result, fetch_category=category
                     )
 
-                    # 使用论文的实际公布日期作为存储目录
+                    # Use the actual publication date of the paper as the storage directory
                     paper_announce_date = (
                         paper.announced.strftime("%Y-%m-%d")
                         if paper.announced
@@ -878,17 +878,17 @@ class DailyArxivManager:
                     )
                     paper.fetch_date = paper_announce_date
 
-                    # 获取该日期对应的目录
+                    # Get the directory corresponding to the date
                     paper_cat_dir = self.get_category_dir(paper_announce_date, category)
                     os.makedirs(paper_cat_dir, exist_ok=True)
 
-                    # 检查下载状态
+                    # Check download status
                     download_status = self._load_download_status(
                         paper_announce_date, category
                     )
                     paper_status = download_status.get(paper.arxiv_id)
 
-                    # 检查论文是否已存在且已完成下载
+                    # Check if the paper exists and has been downloaded
                     safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
                     json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
                     pdf_path = os.path.join(paper_cat_dir, f"{safe_id}.pdf")
@@ -899,12 +899,12 @@ class DailyArxivManager:
                         and os.path.exists(json_path)
                         and os.path.exists(pdf_path)
                     ):
-                        # 已存在且标记为已完成，检查是否需要生成缩略图
+                        # Already exists and marked as completed, check if thumbnails need to be generated
                         try:
                             with open(json_path, "r", encoding="utf-8") as f:
                                 existing_data = json.load(f)
 
-                            # 检查是否需要生成缩略图
+                            # Check if thumbnails need to be generated
                             if not existing_data.get("thumbnail_path"):
                                 thumbnail_path = self._generate_thumbnail(
                                     pdf_path, paper_cat_dir
@@ -913,47 +913,47 @@ class DailyArxivManager:
                                     existing_data["thumbnail_path"] = thumbnail_path
                                     self._save_paper(existing_data, paper_cat_dir)
 
-                            # PDF 已完整下载，跳过
+                            # PDF Completely downloaded, skip
                             skipped_count += 1
-                            progress.update(i + 1, f"[已存在] {paper.title[:40]}")
+                            progress.update(i + 1, f"[Already exists] {paper.title[:40]}")
                             print(
-                                f"[DailyArxiv] 跳过已完整下载的论文: {paper.arxiv_id}"
+                                f"[DailyArxiv] Skip fully downloaded papers: {paper.arxiv_id}"
                             )
                             continue
                         except Exception as e:
-                            print(f"[DailyArxiv] 检查已存在论文失败: {e}")
+                            print(f"[DailyArxiv] Failed to check for existing papers: {e}")
                             import traceback
 
                             traceback.print_exc()
-                            # 如果读取失败，继续执行下载流程
+                            # If the read fails, continue the download process
 
-                    # 更新进度（在开始下载前更新，这样前端可以立即看到当前论文）
-                    # 先设置 PDF 路径（即使文件还不存在，这样前端可以显示）
+                    # Update progress (update before starting the download so the frontend can see the current paper immediately)
+                    # Set up first PDF Path (even if the file doesn't exist yet so the frontend can display it)
                     progress.update(i + 1, paper.title[:50], pdf_path=pdf_path)
 
-                    # 标记为下载中
+                    # Mark as downloading
                     self._mark_downloading(
                         paper_announce_date, category, paper.arxiv_id
                     )
 
-                    # 下载 PDF 到正确的日期目录（在下载过程中会定期更新文件大小）
+                    # download PDF to the correct date directory (file size is updated periodically during download)
                     pdf_path = self._download_pdf(paper, paper_cat_dir, progress)
                     if pdf_path:
                         paper.local_pdf_path = pdf_path
-                        paper.pdf_downloaded = True  # 标记 PDF 已成功下载
-                        # 标记为下载完成
+                        paper.pdf_downloaded = True  # mark PDF Successfully downloaded
+                        # Mark download complete
                         self._mark_download_completed(
                             paper_announce_date, category, paper.arxiv_id
                         )
 
-                        # 生成缩略图（PDF第一页上半部分）
+                        # Generate thumbnails (PDFFirst half of the first page)
                         thumbnail_path = self._generate_thumbnail(
                             pdf_path, paper_cat_dir
                         )
                         if thumbnail_path:
                             paper.thumbnail_path = thumbnail_path
 
-                        # 提取机构、homepage 和 github（从 PDF 第一页）
+                        # extraction mechanism,homepage and github(from PDF First page)
                         if (
                             llm_config.get("llmBaseUrl")
                             and llm_config.get("llmApiKey")
@@ -974,7 +974,7 @@ class DailyArxivManager:
                             paper.github = extraction_result.get("github")
                             paper.affiliations_extracted = True
                     else:
-                        # PDF 下载失败，从状态中移除（下次会重新下载）
+                        # PDF Download failed, removed from status (will download again next time)
                         download_status = self._load_download_status(
                             paper_announce_date, category
                         )
@@ -985,11 +985,11 @@ class DailyArxivManager:
                             )
                         paper.pdf_downloaded = False
                         print(
-                            f"[DailyArxiv] PDF 下载失败，将在下次检查时重试: {paper.arxiv_id}"
+                            f"[DailyArxiv] PDF Download failed, will try again at next check: {paper.arxiv_id}"
                         )
 
-                    # 提取摘要和关键词（从 abstract）
-                    # 注意：即使 PDF 下载失败，也可以提取摘要和关键词
+                    # Extract abstracts and keywords (from abstract）
+                    # NOTE: Even if PDF Download failed, you can also extract abstracts and keywords
                     if (
                         llm_config.get("llmBaseUrl")
                         and llm_config.get("llmApiKey")
@@ -1007,39 +1007,39 @@ class DailyArxivManager:
                         paper.keywords = summary_result.get("keywords", [])
                         paper.summary_extracted = True
 
-                    # 保存论文元数据到正确的日期目录
-                    # 即使 PDF 下载失败，也保存元数据，以便下次重试
+                    # Save paper metadata to the correct date directory
+                    # even though PDF If the download fails, the metadata is also saved so that you can try again next time.
                     paper_dict = paper.to_dict()
                     self._save_paper(paper_dict, paper_cat_dir)
 
                     papers.append(paper_dict)
                     progress.add_paper(paper_dict)
                     print(
-                        f"[DailyArxiv] 完成处理第 {i+1}/{len(results)} 篇论文: {paper.arxiv_id}"
+                        f"[DailyArxiv] Complete processing {i+1}/{len(results)} papers: {paper.arxiv_id}"
                     )
 
                 except Exception as e:
-                    # 捕获单篇论文处理时的异常，避免影响后续论文
-                    print(f"[DailyArxiv] 处理第 {i+1}/{len(results)} 篇论文时出错: {e}")
+                    # Capture exceptions when processing a single paper to avoid affecting subsequent papers
+                    print(f"[DailyArxiv] processing section {i+1}/{len(results)} An error occurred while writing the paper: {e}")
                     print(
-                        f"[DailyArxiv] 论文 ID: {result.entry_id if hasattr(result, 'entry_id') else 'unknown'}"
+                        f"[DailyArxiv] paper ID: {result.entry_id if hasattr(result, 'entry_id') else 'unknown'}"
                     )
                     import traceback
 
                     traceback.print_exc()
-                    # 继续处理下一篇论文
+                    # Move on to the next paper
                     continue
 
-            msg = f"完成，新增 {len(papers)} 篇论文"
+            msg = f"Completed, added {len(papers)} papers"
             if skipped_count > 0:
-                msg += f"，跳过 {skipped_count} 篇已存在"
+                msg += f",jump over {skipped_count} Article already exists"
             progress.set_done(msg)
             self._last_fetch_time[category] = datetime.now()
 
             return papers
 
         except Exception as e:
-            print(f"[DailyArxiv] 抓取 {category} 论文失败: {e}")
+            print(f"[DailyArxiv] crawl {category} Thesis failed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -1047,10 +1047,10 @@ class DailyArxivManager:
             return []
 
     def _validate_pdf_integrity(self, pdf_path: str) -> bool:
-        """验证 PDF 文件完整性
+        """verify PDF file integrity
 
         Returns:
-            True 如果 PDF 文件完整且有效，False 否则
+            True if PDF The document is complete and valid,False otherwise
         """
         try:
             if not os.path.exists(pdf_path):
@@ -1060,112 +1060,112 @@ class DailyArxivManager:
             if file_size == 0 or file_size < 1024:
                 return False
 
-            # 检查 PDF 文件头（必须以 %PDF- 开头）
+            # examine PDF File header (must end with %PDF- beginning)
             with open(pdf_path, "rb") as f:
                 header = f.read(8)
                 if not header.startswith(b"%PDF-"):
-                    print(f"[DailyArxiv] PDF 文件头无效: {pdf_path}")
+                    print(f"[DailyArxiv] PDF Invalid file header: {pdf_path}")
                     return False
 
-            # 检查 PDF 文件尾（应该包含 %%EOF）
+            # examine PDF End of file (should contain %%EOF）
             with open(pdf_path, "rb") as f:
-                f.seek(max(0, file_size - 1024))  # 读取最后1KB
+                f.seek(max(0, file_size - 1024))  # read last1KB
                 tail = f.read()
                 if b"%%EOF" not in tail:
-                    print(f"[DailyArxiv] PDF 文件尾无效（缺少 %%EOF）: {pdf_path}")
+                    print(f"[DailyArxiv] PDF Invalid end of file (missing %%EOF）: {pdf_path}")
                     return False
 
-            # 尝试使用 PyMuPDF 打开文件验证完整性（最可靠的方法）
+            # Try using PyMuPDF Open file to verify integrity (most reliable method)
             try:
                 import fitz  # PyMuPDF
 
                 doc = fitz.open(pdf_path)
-                # 尝试访问第一页和最后一页
+                # Try accessing the first and last pages
                 if len(doc) == 0:
                     doc.close()
-                    print(f"[DailyArxiv] PDF 文件没有页面: {pdf_path}")
+                    print(f"[DailyArxiv] PDF File has no pages: {pdf_path}")
                     return False
-                # 尝试渲染第一页（验证文件完整性）
+                # Try rendering the first page (verify file integrity)
                 try:
                     page = doc[0]
-                    _ = page.get_pixmap()  # 尝试渲染页面
+                    _ = page.get_pixmap()  # Try rendering the page
                 except Exception as e:
                     doc.close()
-                    print(f"[DailyArxiv] PDF 文件无法渲染页面: {pdf_path}, 错误: {e}")
+                    print(f"[DailyArxiv] PDF File cannot render page: {pdf_path}, mistake: {e}")
                     return False
                 doc.close()
             except ImportError:
-                # 如果没有 PyMuPDF，尝试使用 PyPDF2
+                # if not PyMuPDF, try using PyPDF2
                 try:
                     import PyPDF2
 
                     with open(pdf_path, "rb") as f:
                         pdf_reader = PyPDF2.PdfReader(f)
                         if len(pdf_reader.pages) == 0:
-                            print(f"[DailyArxiv] PDF 文件没有页面 (PyPDF2): {pdf_path}")
+                            print(f"[DailyArxiv] PDF File has no pages (PyPDF2): {pdf_path}")
                             return False
-                        # 尝试访问第一页
+                        # Try to access the first page
                         _ = pdf_reader.pages[0]
                 except Exception as e:
                     print(
-                        f"[DailyArxiv] PDF 文件无法解析 (PyPDF2): {pdf_path}, 错误: {e}"
+                        f"[DailyArxiv] PDF File cannot be parsed (PyPDF2): {pdf_path}, mistake: {e}"
                     )
                     return False
             except Exception as e:
-                print(f"[DailyArxiv] PDF 文件验证失败: {pdf_path}, 错误: {e}")
+                print(f"[DailyArxiv] PDF File verification failed: {pdf_path}, mistake: {e}")
                 return False
 
             return True
         except Exception as e:
-            print(f"[DailyArxiv] 验证 PDF 完整性时出错: {pdf_path}, 错误: {e}")
+            print(f"[DailyArxiv] verify PDF Integrity error: {pdf_path}, mistake: {e}")
             return False
 
     def _download_pdf(
         self, paper: ArxivPaper, cat_dir: str, progress: FetchProgress = None
     ) -> Optional[str]:
-        """下载 PDF
+        """download PDF
 
-        使用 export.arxiv.org 来避免 IP 限制问题
+        use export.arxiv.org to avoid IP Limitation issue
 
         Args:
-            paper: 论文对象
-            cat_dir: 分类目录
-            progress: 进度追踪对象（可选），用于在下载过程中更新文件大小
+            paper: Thesis object
+            cat_dir: Categories
+            progress: Progress tracking object (optional) used to update the file size during the download process
         """
         try:
             safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
             pdf_filename = f"{safe_id}.pdf"
             pdf_path = os.path.join(cat_dir, pdf_filename)
 
-            # 如果文件已存在，删除它（因为已经标记为 downloading，说明之前的下载未完成）
+            # If the file already exists, delete it (because it has been marked downloading, indicating that the previous download was not completed)
             if os.path.exists(pdf_path):
                 try:
                     os.remove(pdf_path)
                     print(
-                        f"[DailyArxiv] 删除已存在的 PDF 文件，重新下载: {paper.arxiv_id}"
+                        f"[DailyArxiv] Delete existing PDF file, re-download: {paper.arxiv_id}"
                     )
                 except:
                     pass
 
-            print(f"[DailyArxiv] 下载 PDF: {paper.arxiv_id}")
+            print(f"[DailyArxiv] download PDF: {paper.arxiv_id}")
 
-            # 将 PDF URL 从 arxiv.org 转换为 export.arxiv.org（官方推荐的导出服务）
-            # 例如: https://arxiv.org/pdf/2512.04025v1 -> https://export.arxiv.org/pdf/2512.04025v1
+            # Will PDF URL from arxiv.org Convert to export.arxiv.org(Officially recommended export service)
+            # For example: https://arxiv.org/pdf/2512.04025v1 -> https://export.arxiv.org/pdf/2512.04025v1
             pdf_url = paper.pdf_url
             if "arxiv.org/pdf/" in pdf_url:
                 pdf_url = pdf_url.replace("arxiv.org/pdf/", "export.arxiv.org/pdf/")
             elif "arxiv.org/abs/" in pdf_url:
-                # 如果是 abs URL，也转换为 export
+                # in the case of abs URL, also converted to export
                 pdf_url = pdf_url.replace("arxiv.org/abs/", "export.arxiv.org/pdf/")
             else:
-                # 如果已经是 export.arxiv.org，保持不变
+                # if it is already export.arxiv.org, remain unchanged
                 pass
 
-            # 优先尝试使用 requests 库（如果可用），它通常能更好地处理反爬机制
+            # Try using it first requests library (if available), which usually handles the anti-crawling mechanism better
             try:
                 import requests
 
-                # 使用 requests 库，添加完整的浏览器请求头
+                # use requests Library, add complete browser request headers
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -1175,7 +1175,7 @@ class DailyArxivManager:
                     "Connection": "keep-alive",
                 }
 
-                # 下载 PDF（使用 export.arxiv.org，不需要先访问主页）
+                # download PDF(use export.arxiv.org, no need to visit the home page first)
                 response = requests.get(
                     pdf_url,
                     headers=headers,
@@ -1191,7 +1191,7 @@ class DailyArxivManager:
                             if chunk:
                                 out_file.write(chunk)
                                 chunk_count += 1
-                                # 每写入 10 个 chunk（约 80KB）更新一次进度
+                                # every write 10 indivual chunk(about 80KB) Update the progress once
                                 if progress and chunk_count % 10 == 0:
                                     progress.update(
                                         progress.current,
@@ -1199,12 +1199,12 @@ class DailyArxivManager:
                                         pdf_path=pdf_path,
                                     )
 
-                    # 检查文件是否下载成功（基本检查：文件存在且不为空）
+                    # Check if the file downloaded successfully (basic check: the file exists and is not empty)
                     if os.path.exists(pdf_path):
                         file_size = os.path.getsize(pdf_path)
-                        if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
+                        if file_size == 0 or file_size < 1024:  # less than1KBPossibly an error page
                             print(
-                                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}"
+                                f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
                             )
                             try:
                                 os.remove(pdf_path)
@@ -1212,20 +1212,20 @@ class DailyArxivManager:
                                 pass
                             return None
 
-                    # 最后更新一次进度，确保显示最终文件大小
+                    # Update the progress one last time to make sure the final file size is shown
                     if progress:
                         progress.update(
                             progress.current, progress.current_paper, pdf_path=pdf_path
                         )
 
-                    print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
+                    print(f"[DailyArxiv] PDF Download successful: {paper.arxiv_id}")
                     return pdf_path
                 else:
                     raise Exception(f"HTTP {response.status_code}: {response.reason}")
 
             except ImportError:
-                # 如果没有 requests 库，回退到 urllib
-                # 创建请求，添加 User-Agent
+                # if not requests library, fallback to urllib
+                # Create request, add User-Agent
                 req = urllib.request.Request(
                     pdf_url,
                     headers={
@@ -1235,23 +1235,23 @@ class DailyArxivManager:
                     },
                 )
 
-                # 下载文件（urllib 是一次性读取，无法在下载过程中更新进度）
+                # Download file (urllib It is a one-time read and the progress cannot be updated during the download process)
                 with urllib.request.urlopen(req, timeout=30) as response:
                     with open(pdf_path, "wb") as out_file:
                         out_file.write(response.read())
 
-                # 下载完成后更新进度（显示最终文件大小）
+                # Update progress after download completes (showing final file size)
                 if progress:
                     progress.update(
                         progress.current, progress.current_paper, pdf_path=pdf_path
                     )
 
-                # 检查文件是否下载成功（基本检查：文件存在且不为空）
+                # Check if the file downloaded successfully (basic check: the file exists and is not empty)
                 if os.path.exists(pdf_path):
                     file_size = os.path.getsize(pdf_path)
-                    if file_size == 0 or file_size < 1024:  # 小于1KB可能是错误页面
+                    if file_size == 0 or file_size < 1024:  # less than1KBPossibly an error page
                         print(
-                            f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，删除: {paper.arxiv_id}"
+                            f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
                         )
                         try:
                             os.remove(pdf_path)
@@ -1259,35 +1259,35 @@ class DailyArxivManager:
                             pass
                         return None
 
-                print(f"[DailyArxiv] PDF 下载成功: {paper.arxiv_id}")
+                print(f"[DailyArxiv] PDF Download successful: {paper.arxiv_id}")
                 return pdf_path
 
         except urllib.error.HTTPError as e:
             if e.code == 403:
                 print(
-                    f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): 403 Forbidden - 可能是服务器 IP 被限制或 PDF 尚未发布，将在下次检查时重试"
+                    f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): 403 Forbidden - maybe the server IP restricted or PDF Not published yet, will try again next time we check"
                 )
             else:
                 print(
-                    f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): HTTP Error {e.code}: {e.reason}"
+                    f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): HTTP Error {e.code}: {e.reason}"
                 )
             return None
         except Exception as e:
-            print(f"[DailyArxiv] 下载 PDF 失败 ({paper.arxiv_id}): {e}")
+            print(f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): {e}")
             return None
 
     def _generate_thumbnail(self, pdf_path: str, cat_dir: str) -> Optional[str]:
-        """生成PDF缩略图"""
+        """generatePDFthumbnail"""
         try:
-            # 检查文件是否存在且不为空
+            # Check if the file exists and is not empty
             if not os.path.exists(pdf_path):
-                print(f"[DailyArxiv] PDF 文件不存在: {pdf_path}")
+                print(f"[DailyArxiv] PDF File does not exist: {pdf_path}")
                 return None
 
             file_size = os.path.getsize(pdf_path)
             if file_size == 0 or file_size < 1024:
                 print(
-                    f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}"
+                    f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes), skip generating thumbnails: {pdf_path}"
                 )
                 return None
 
@@ -1295,14 +1295,14 @@ class DailyArxivManager:
             thumbnail_filename = f"{safe_id}_thumbnail.jpg"
             thumbnail_path = os.path.join(cat_dir, thumbnail_filename)
 
-            # 如果缩略图已存在，直接返回
+            # If the thumbnail already exists, return directly
             if os.path.exists(thumbnail_path):
                 return thumbnail_path
 
-            # 生成缩略图
+            # Generate thumbnails
             return generate_pdf_thumbnail(pdf_path, thumbnail_path, crop_ratio=0.5)
         except Exception as e:
-            print(f"[DailyArxiv] 生成缩略图失败: {e}")
+            print(f"[DailyArxiv] Failed to generate thumbnail: {e}")
             return None
 
     def _extract_affiliations(
@@ -1313,7 +1313,7 @@ class DailyArxivManager:
         model_name: str,
         prompt: str = None,
     ) -> Dict[str, Any]:
-        """提取机构信息、国家、homepage 和 github"""
+        """Extract institution information, country,homepage and github"""
         first_page_text = extract_pdf_first_page_text(pdf_path)
         if not first_page_text:
             return {
@@ -1333,7 +1333,7 @@ class DailyArxivManager:
         )
 
     def _save_paper(self, paper_dict: Dict, cat_dir: str):
-        """保存论文元数据"""
+        """Save article metadata"""
         arxiv_id = paper_dict.get("arxiv_id", "unknown")
         safe_id = arxiv_id.replace("/", "_").replace(":", "_")
         json_path = os.path.join(cat_dir, f"{safe_id}.json")
@@ -1342,73 +1342,73 @@ class DailyArxivManager:
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(paper_dict, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[DailyArxiv] 保存论文元数据失败: {e}")
+            print(f"[DailyArxiv] Failed to save article metadata: {e}")
 
     def cleanup_old_papers(self, retention_days: int = 7):
         """
-        清理过期论文
+        Clean up expired papers
 
-        保留最近 N 个有论文的日期（而不是 N 个自然日）
+        keep recent N a date with a paper (rather than N natural day)
 
         Args:
-            retention_days: 保留有论文的日期数量
+            retention_days: Number of dates for which papers are retained
         """
-        print(f"[DailyArxiv] 清理过期论文，保留最近 {retention_days} 个有论文的日期...")
+        print(f"[DailyArxiv] Clean up expired papers and keep the latest ones {retention_days} date with paper...")
 
         if not os.path.exists(self.base_dir):
-            print(f"[DailyArxiv] 基础目录不存在: {self.base_dir}")
+            print(f"[DailyArxiv] The base directory does not exist: {self.base_dir}")
             return
 
-        # 获取所有有论文的日期（已按降序排序，最新的在前）
+        # Get the dates of all papers (sorted in descending order, latest first)
         available_dates = self.get_available_dates()
-        print(f"[DailyArxiv] 当前有论文的日期列表: {available_dates}")
+        print(f"[DailyArxiv] List of dates for which papers are currently available: {available_dates}")
 
         if len(available_dates) <= retention_days:
             print(
-                f"[DailyArxiv] 当前有 {len(available_dates)} 个有论文的日期，少于或等于保留数量 {retention_days}，无需清理"
+                f"[DailyArxiv] Currently there are {len(available_dates)} dates with papers, less than or equal to the number reserved {retention_days}, no need to clean"
             )
             return
 
-        # 保留最近 retention_days 个日期，删除更早的
+        # keep recent retention_days dates, delete older ones
         dates_to_keep = set(available_dates[:retention_days])
         dates_to_delete = [d for d in available_dates if d not in dates_to_keep]
 
         print(
-            f"[DailyArxiv] 将保留以下 {len(dates_to_keep)} 个日期: {sorted(dates_to_keep, reverse=True)}"
+            f"[DailyArxiv] will retain the following {len(dates_to_keep)} dates: {sorted(dates_to_keep, reverse=True)}"
         )
         print(
-            f"[DailyArxiv] 将删除以下 {len(dates_to_delete)} 个过期日期: {sorted(dates_to_delete, reverse=True)}"
+            f"[DailyArxiv] The following will be deleted {len(dates_to_delete)} expiry date: {sorted(dates_to_delete, reverse=True)}"
         )
 
         deleted_count = 0
         for name in os.listdir(self.base_dir):
             path = os.path.join(self.base_dir, name)
-            # 检查是否是日期目录（格式：YYYY-MM-DD，有两个连字符）
+            # Check if it is a date directory (format:YYYY-MM-DD, with two hyphens)
             if os.path.isdir(path) and name.count("-") == 2:
                 if name not in dates_to_keep:
-                    print(f"[DailyArxiv] 删除过期目录: {name}")
+                    print(f"[DailyArxiv] Delete expired directory: {name}")
                     try:
                         shutil.rmtree(path)
                         deleted_count += 1
                     except Exception as e:
-                        print(f"[DailyArxiv] 删除失败: {e}")
+                        print(f"[DailyArxiv] Delete failed: {e}")
 
-        print(f"[DailyArxiv] 清理完成，共删除 {deleted_count} 个过期日期目录")
+        print(f"[DailyArxiv] Cleanup completed, deleted in total {deleted_count} Expiration date directory")
 
-        # 验证清理结果
+        # Verify cleanup results
         remaining_dates = self.get_available_dates()
         remaining_count = len(remaining_dates)
         print(
-            f"[DailyArxiv] 清理后剩余 {remaining_count} 个有论文的日期: {remaining_dates}"
+            f"[DailyArxiv] Remaining after cleaning {remaining_count} date with paper: {remaining_dates}"
         )
 
         if remaining_count > retention_days:
             print(
-                f"[DailyArxiv] ⚠️ 警告：清理后仍有 {remaining_count} 个日期，超过保留数量 {retention_days}"
+                f"[DailyArxiv] ⚠️ Warning: There are still {remaining_count} dates, exceeded reserved quantity {retention_days}"
             )
 
     def start_scheduler(self):
-        """启动调度器"""
+        """Start scheduler"""
         if self._scheduler_running:
             return
 
@@ -1417,74 +1417,74 @@ class DailyArxivManager:
             target=self._scheduler_loop, daemon=True
         )
         self._scheduler_thread.start()
-        print("[DailyArxiv] 调度器已启动")
+        print("[DailyArxiv] Scheduler started")
 
     def stop_scheduler(self):
-        """停止调度器"""
+        """Stop scheduler"""
         self._scheduler_running = False
         if self._scheduler_thread:
             self._scheduler_thread.join(timeout=5)
-        print("[DailyArxiv] 调度器已停止")
+        print("[DailyArxiv] Scheduler has stopped")
 
     def _scheduler_loop(self):
-        """调度器主循环"""
-        # 启动时立即执行一次
+        """scheduler main loop"""
+        # Execute once immediately on startup
         self._do_scheduled_fetch()
 
         while self._scheduler_running:
             settings = self.get_settings()
             interval_minutes = settings.get("checkIntervalMinutes", 10)
 
-            # 等待
+            # wait
             for _ in range(interval_minutes * 60):
                 if not self._scheduler_running:
                     return
                 time.sleep(1)
 
-            # 执行抓取
+            # Perform crawling
             self._do_scheduled_fetch()
 
     def _get_recent_weekdays(self, days: int) -> List[str]:
         """
-        获取最近 N 个工作日（周一到周五）的日期列表
+        Get the latest N List of dates for working days (Monday to Friday)
 
         Args:
-            days: 需要的工作日数量
+            days: Number of working days required
 
         Returns:
-            日期字符串列表（降序，最新在前）
+            List of date strings (descending order, newest first)
         """
         dates = []
         current = datetime.now().date()
         count = 0
 
-        # 从今天开始往前找工作日
+        # Find working days starting from today and looking forward
         while count < days:
             weekday = current.weekday()  # 0=Monday, 6=Sunday
-            # 如果是工作日（周一到周五）
+            # If it is a working day (Monday to Friday)
             if weekday < 5:
                 dates.append(current.strftime("%Y-%m-%d"))
                 count += 1
-            # 往前推一天
+            # Push forward one day
             current -= timedelta(days=1)
-            # 防止无限循环（最多往前找 30 天）
+            # Prevent infinite loops (looking up to the next 30 sky)
             if (datetime.now().date() - current).days > 30:
                 break
 
         return dates
 
     def _do_scheduled_fetch(self):
-        """执行计划抓取"""
+        """Execution plan capture"""
         settings = self.get_settings()
 
         categories = settings.get("categories", [])
         retention_days = settings.get("retentionDays", 7)
 
         if not categories:
-            print("[DailyArxiv] 未配置分区")
+            print("[DailyArxiv] No partition configured")
             return
 
-        # 在抓取前先测试 LLM API
+        # Test before crawling LLM API
         llm_config = {}
         if self._get_llm_config:
             llm_config = self._get_llm_config()
@@ -1495,174 +1495,174 @@ class DailyArxivManager:
 
         if not llm_model or not llm_base_url or not llm_api_key:
             print(
-                "[DailyArxiv] LLM API 未配置，跳过本次抓取。请在设置中配置 LLM API 后再试。"
+                "[DailyArxiv] LLM API Not configured, skip this crawl. Please configure in settings LLM API Try again later."
             )
             return
 
-        # 测试 LLM API 是否可用
+        # test LLM API Is it available
         try:
             from resophy.tools.api_test_utils import test_llm_api
 
-            print("[DailyArxiv] 正在测试 LLM API 连接...")
+            print("[DailyArxiv] Testing LLM API connect...")
             success, error_msg = test_llm_api(llm_model, llm_base_url, llm_api_key)
 
             if not success:
-                # 更新状态，记录失败信息
+                # Update status and record failure information
                 self._llm_api_failed = True
                 self._llm_api_error_message = error_msg
                 print(
-                    f"[DailyArxiv] LLM API 测试失败: {error_msg}，跳过本次抓取。等待下一个检查周期。"
+                    f"[DailyArxiv] LLM API test failed: {error_msg}, skip this crawl. Wait for the next inspection cycle."
                 )
                 return
 
-            # 测试成功，清除失败状态
+            # Test successful, clear failure status
             self._llm_api_failed = False
             self._llm_api_error_message = ""
-            print("[DailyArxiv] LLM API 测试成功，开始抓取论文...")
+            print("[DailyArxiv] LLM API The test is successful, start fetching papers...")
         except Exception as e:
-            # 更新状态，记录异常信息
+            # Update status and record exception information
             self._llm_api_failed = True
             self._llm_api_error_message = str(e)
             print(
-                f"[DailyArxiv] LLM API 测试异常: {e}，跳过本次抓取。等待下一个检查周期。"
+                f"[DailyArxiv] LLM API Test exception: {e}, skip this crawl. Wait for the next inspection cycle."
             )
             return
 
-        print(f"[DailyArxiv] 开始定时抓取: {categories}")
+        print(f"[DailyArxiv] Start scheduled crawling: {categories}")
 
-        # 1. 先检查当前有几天的论文
+        # 1. First check the current papers for several days
         available_dates = self.get_available_dates()
         dates_with_papers = len(available_dates)
         print(
-            f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期: {available_dates}"
+            f"[DailyArxiv] Currently there are {dates_with_papers} date with paper: {available_dates}"
         )
 
-        # 获取最近 N 个工作日（N = retention_days）
+        # Get the latest N working days (N = retention_days）
         recent_weekdays = self._get_recent_weekdays(retention_days)
         today = get_today_arxiv_date()
         today_date = datetime.strptime(today, "%Y-%m-%d").date()
         is_today_weekday = today_date.weekday() < 5
 
-        # 2. 确定需要抓取的日期
+        # 2. Determine the date you need to crawl
         dates_to_fetch = []
 
-        # 2.1 如果今天是工作日，总是优先抓取今天（无论是否已有论文，确保完整）
+        # 2.1 If today is a working day, today will always be crawled first (regardless of whether there are already papers, make sure they are complete)
         if is_today_weekday:
             dates_to_fetch.append(today)
-            print(f"[DailyArxiv] 优先抓取今天 ({today}) 的论文，确保完整")
+            print(f"[DailyArxiv] Prioritize crawling today ({today}) thesis, ensuring completeness")
 
-        # 2.2 按日期从新到旧，依次处理每个工作日
-        # 对于最近的日期（最近3个工作日内），即使已有论文，也继续抓取（可能不完整）
-        # 对于较旧的日期，如果已有论文，则跳过（认为已完整）
+        # 2.2 Process each working day in sequence from newest to oldest by date
+        # For the most recent date (most recent3within working days), even if there are already papers, continue to crawl (may be incomplete)
+        # For older dates, skip if paper already exists (considered complete)
         for date_str in recent_weekdays:
             if date_str == today:
-                continue  # 今天已经在上面处理了
+                continue  # Already dealt with it today
 
             date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
             days_ago = (datetime.now().date() - date_obj).days
 
-            # 如果该日期不在已有日期列表中，需要抓取
+            # If the date is not in the existing date list, it needs to be fetched
             if date_str not in available_dates:
                 dates_to_fetch.append(date_str)
-            # 如果该日期已有论文，但它是最近3个工作日内，可能不完整，继续抓取
+            # If a paper already exists for that date, but it is more recent3Within working days, it may not be complete, so continue to crawl.
             elif days_ago <= 3:
                 dates_to_fetch.append(date_str)
                 print(
-                    f"[DailyArxiv] 日期 {date_str} 已有论文但可能不完整（{days_ago} 天前），继续抓取以确保完整"
+                    f"[DailyArxiv] date {date_str} Papers exist but may be incomplete ({days_ago} days ago), continue crawling to ensure completeness"
                 )
-            # 较旧的日期如果已有论文，认为已完整，跳过
+            # If there is already a paper on an older date, it will be considered complete and skipped.
 
-        # 去重并排序（最新的在前，确保按顺序抓取）
+        # Deduplicate and sort (newest first, ensure fetching in order)
         dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
 
-        # 2.3 如果已有论文的日期数量少于保留天数，补充缺失的日期
+        # 2.3 If the number of dates for existing papers is less than the number of days retained, add the missing dates
         if dates_with_papers < retention_days:
             missing_dates = []
             for date_str in recent_weekdays:
                 if date_str not in available_dates and date_str not in dates_to_fetch:
                     missing_dates.append(date_str)
 
-            # 补充缺失的日期，直到达到 retention_days 个
+            # Supplement missing dates until reached retention_days indivual
             needed_count = retention_days - dates_with_papers
             dates_to_fetch.extend(missing_dates[:needed_count])
             dates_to_fetch = sorted(set(dates_to_fetch), reverse=True)
 
-        # 3. 如果当前论文天数大于设置，先清理多余的（在抓取前清理，避免抓取后超过限制）
+        # 3. If the current paper age is greater than the setting, clean up the excess first (clean up before crawling to avoid exceeding the limit after crawling)
         if dates_with_papers > retention_days:
             print(
-                f"[DailyArxiv] 当前有 {dates_with_papers} 个有论文的日期，超过保留数量 {retention_days}，先清理多余的..."
+                f"[DailyArxiv] Currently there are {dates_with_papers} Dates with papers exceeding reserved quantity {retention_days}, clean up the excess first..."
             )
             self.cleanup_old_papers(retention_days)
-            # 清理后重新获取日期列表
+            # Re-get list of dates after cleaning
             available_dates = self.get_available_dates()
             dates_with_papers = len(available_dates)
             print(
-                f"[DailyArxiv] 清理后剩余 {dates_with_papers} 个有论文的日期: {available_dates}"
+                f"[DailyArxiv] Remaining after cleaning {dates_with_papers} date with paper: {available_dates}"
             )
 
-        # 4. 执行抓取
+        # 4. Perform crawling
         if dates_to_fetch:
-            print(f"[DailyArxiv] 将按顺序抓取以下日期: {dates_to_fetch}")
+            print(f"[DailyArxiv] The following dates will be crawled in order: {dates_to_fetch}")
 
-            # 按顺序抓取每个日期（最新的优先）
+            # Fetch each date in order (newest first)
             for date_str in dates_to_fetch:
                 for category in categories:
                     try:
-                        print(f"[DailyArxiv] 抓取 {category} 分区 {date_str} 的论文...")
+                        print(f"[DailyArxiv] crawl {category} Partition {date_str} thesis...")
                         self.fetch_papers(category, date_str=date_str, force=False)
                     except Exception as e:
-                        print(f"[DailyArxiv] 抓取 {category} {date_str} 失败: {e}")
+                        print(f"[DailyArxiv] crawl {category} {date_str} fail: {e}")
 
-                    # 分区间间隔，避免请求过快
+                    # Interval between partitions to prevent requests from being too fast
                     time.sleep(2)
         else:
-            print(f"[DailyArxiv] 所有需要的日期都已完整，无需补充")
+            print(f"[DailyArxiv] All required dates are complete, no additions are needed")
 
-        # 5. 抓取完成后，再次清理，确保只保留 N 天（这是关键步骤）
+        # 5. After the fetching is complete, clean it again to ensure that only N days (this is a critical step)
         print(
-            f"[DailyArxiv] 抓取完成，执行最终清理，确保只保留 {retention_days} 天论文..."
+            f"[DailyArxiv] After the crawl is complete, perform final cleanup to ensure that only {retention_days} Tian thesis..."
         )
         self.cleanup_old_papers(retention_days)
 
-        # 验证清理结果
+        # Verify cleanup results
         final_dates = self.get_available_dates()
         final_count = len(final_dates)
-        print(f"[DailyArxiv] 最终保留 {final_count} 个有论文的日期: {final_dates}")
+        print(f"[DailyArxiv] final reservation {final_count} date with paper: {final_dates}")
         if final_count > retention_days:
             print(
-                f"[DailyArxiv] ⚠️ 警告：清理后仍有 {final_count} 个日期，超过保留数量 {retention_days}，可能存在清理逻辑问题"
+                f"[DailyArxiv] ⚠️ Warning: There are still {final_count} dates, exceeded reserved quantity {retention_days}, there may be a cleaning logic problem"
             )
         else:
             print(
-                f"[DailyArxiv] ✅ 清理完成，当前论文天数 ({final_count}) 符合设置 ({retention_days})"
+                f"[DailyArxiv] ✅ Cleanup completed, current paper days ({final_count}) Comply with settings ({retention_days})"
             )
 
-        print("[DailyArxiv] 定时抓取完成")
+        print("[DailyArxiv] Scheduled capture completed")
 
 
 def extract_pdf_first_page_text(pdf_path: str) -> Optional[str]:
     """
-    提取 PDF 第一页的文本内容
+    extract PDF The text content of the first page
 
     Args:
-        pdf_path: PDF 文件路径
+        pdf_path: PDF file path
 
     Returns:
-        第一页文本，失败返回 None
+        The first page of text, returned on failure None
     """
     try:
-        # 检查文件是否存在且不为空
+        # Check if the file exists and is not empty
         if not os.path.exists(pdf_path):
             return None
 
         file_size = os.path.getsize(pdf_path)
         if file_size == 0 or file_size < 1024:
             print(
-                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过提取文本: {pdf_path}"
+                f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes), skip extracting text: {pdf_path}"
             )
             return None
 
-        # 使用 PyMuPDF (fitz) 提取，它能更好地保留空格
+        # use PyMuPDF (fitz) Extract, which preserves whitespace better
         import fitz  # PyMuPDF
 
         doc = fitz.open(pdf_path)
@@ -1674,7 +1674,7 @@ def extract_pdf_first_page_text(pdf_path: str) -> Optional[str]:
         doc.close()
         return None
     except ImportError:
-        # 如果没有 PyMuPDF，降级使用 pdfplumber
+        # if not PyMuPDF, downgrade to use pdfplumber
         try:
             import pdfplumber
 
@@ -1685,10 +1685,10 @@ def extract_pdf_first_page_text(pdf_path: str) -> Optional[str]:
                     return text if text else None
             return None
         except Exception as e:
-            print(f"[DailyArxiv] 提取 PDF 第一页文本失败 (pdfplumber): {e}")
+            print(f"[DailyArxiv] extract PDF First page text failed (pdfplumber): {e}")
             return None
     except Exception as e:
-        print(f"[DailyArxiv] 提取 PDF 第一页文本失败: {e}")
+        print(f"[DailyArxiv] extract PDF First page text failed: {e}")
         return None
 
 
@@ -1696,83 +1696,83 @@ def generate_pdf_thumbnail(
     pdf_path: str, output_path: str = None, crop_ratio: float = 0.5
 ) -> Optional[str]:
     """
-    生成 PDF 第一页上半部分的缩略图
+    generate PDF Thumbnail of the first half of the first page
 
     Args:
-        pdf_path: PDF 文件路径
-        output_path: 输出图片路径（可选，默认与PDF同目录）
-        crop_ratio: 裁剪比例，0.5 表示上半部分
+        pdf_path: PDF file path
+        output_path: Output image path (optional, defaults toPDFsame directory)
+        crop_ratio: Crop ratio,0.5 Indicates the upper part
 
     Returns:
-        缩略图路径，失败返回 None
+        Thumbnail path, returned on failure None
     """
     try:
-        # 检查文件是否存在且不为空
+        # Check if the file exists and is not empty
         if not os.path.exists(pdf_path):
             return None
 
         file_size = os.path.getsize(pdf_path)
         if file_size == 0 or file_size < 1024:
             print(
-                f"[DailyArxiv] PDF 文件为空或太小 ({file_size} bytes)，跳过生成缩略图: {pdf_path}"
+                f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes), skip generating thumbnails: {pdf_path}"
             )
             return None
 
         import fitz  # PyMuPDF
 
-        # 如果没有指定输出路径，使用PDF同目录
+        # If no output path is specified, usePDFSame directory
         if output_path is None:
             base_name = os.path.splitext(pdf_path)[0]
             output_path = f"{base_name}_thumbnail.jpg"
 
-        # 打开PDF
+        # OpenPDF
         doc = fitz.open(pdf_path)
         if len(doc) == 0:
             doc.close()
             return None
 
-        # 获取第一页
+        # Get the first page
         page = doc[0]
 
-        # 设置缩放因子（提高清晰度）
-        zoom = 2.0  # 2倍缩放，生成更清晰的图片
+        # Set zoom factor (increase clarity)
+        zoom = 2.0  # 2Zoom twice to generate clearer pictures
         mat = fitz.Matrix(zoom, zoom)
 
-        # 渲染第一页为图片
+        # Render the first page as an image
         pix = page.get_pixmap(matrix=mat)
 
-        # 转换为PIL Image
+        # Convert toPIL Image
         try:
             from io import BytesIO
 
             from PIL import Image
         except ImportError:
-            print(f"[DailyArxiv] 生成缩略图失败: 需要安装 Pillow (pip install Pillow)")
+            print(f"[DailyArxiv] Failed to generate thumbnail: Requires installation Pillow (pip install Pillow)")
             doc.close()
             return None
 
         img_data = pix.tobytes("ppm")
         img = Image.open(BytesIO(img_data))
 
-        # 获取图片尺寸
+        # Get image size
         width, height = img.size
 
-        # 裁剪上半部分（根据 crop_ratio）
+        # Cut the top half (according to crop_ratio）
         crop_height = int(height * crop_ratio)
         img_cropped = img.crop((0, 0, width, crop_height))
 
-        # 保存为JPEG（压缩以减小文件大小）
+        # save asJPEG(Compressed to reduce file size)
         img_cropped.save(output_path, "JPEG", quality=85, optimize=True)
 
         doc.close()
-        print(f"[DailyArxiv] 生成缩略图: {output_path}")
+        print(f"[DailyArxiv] Generate thumbnails: {output_path}")
         return output_path
 
     except ImportError:
-        print(f"[DailyArxiv] 生成缩略图失败: 需要安装 PyMuPDF 和 Pillow")
+        print(f"[DailyArxiv] Failed to generate thumbnail: Requires installation PyMuPDF and Pillow")
         return None
     except Exception as e:
-        print(f"[DailyArxiv] 生成缩略图失败: {e}")
+        print(f"[DailyArxiv] Failed to generate thumbnail: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1788,18 +1788,18 @@ def extract_affiliations_with_llm(
     settings_file: str = None,
 ) -> Dict[str, Any]:
     """
-    使用 LLM 从 PDF 第一页文本中提取机构信息、homepage 和 github
+    use LLM from PDF Extract institutional information from the text on the first page,homepage and github
 
     Args:
-        first_page_text: PDF 第一页文本
-        openai_base_url: OpenAI API 基础 URL
-        openai_api_key: OpenAI API 密钥
-        model_name: LLM 模型名称
-        prompt: 自定义提示词（可选）
-        settings_file: 配置文件路径（可选，用于读取自定义机构映射）
+        first_page_text: PDF First page text
+        openai_base_url: OpenAI API Base URL
+        openai_api_key: OpenAI API key
+        model_name: LLM Model name
+        prompt: Custom prompt words (optional)
+        settings_file: Configuration file path (optional, used to read custom institution mappings)
 
     Returns:
-        包含 affiliations, homepage, github 的字典
+        Include affiliations, homepage, github dictionary
     """
     try:
         from openai import OpenAI
@@ -1809,11 +1809,11 @@ def extract_affiliations_with_llm(
             base_url=openai_base_url,
         )
 
-        # 获取可用模型
+        # Get available models
         try:
             models = client.models.list()
             if model_name not in [model.id for model in models.data]:
-                print(f"[DailyArxiv] 模型 {model_name} 不存在")
+                print(f"[DailyArxiv] Model {model_name} does not exist")
                 return {
                     "affiliations": [],
                     "countries": [],
@@ -1821,7 +1821,7 @@ def extract_affiliations_with_llm(
                     "github": None,
                 }
         except Exception as e:
-            print(f"[DailyArxiv] 获取模型列表失败: {e}")
+            print(f"[DailyArxiv] Failed to get model list: {e}")
             return {
                 "affiliations": [],
                 "countries": [],
@@ -1829,37 +1829,37 @@ def extract_affiliations_with_llm(
                 "github": None,
             }
 
-        # 构造提示词（使用自定义或默认）
+        # Construct prompt words (use custom or default)
         system_prompt = prompt if prompt else AFFILIATION_EXTRACTION_PROMPT
         full_prompt = system_prompt + first_page_text
         messages = [{"role": "user", "content": full_prompt}]
 
-        print(f"[DailyArxiv] 使用模型 {model_name} 提取机构信息、homepage 和 github...")
+        print(f"[DailyArxiv] Use model {model_name} Extract organization information,homepage and github...")
 
-        # 调用 LLM
+        # call LLM
         chat_completion = client.chat.completions.create(
             messages=messages,
             model=model_name,
             temperature=0.1,
-            max_tokens=800,  # 增加 token 数量以支持更多信息
+            max_tokens=800,  # Increase token quantity to support more information
         )
 
         result_content = chat_completion.choices[0].message.content.strip()
 
-        # 解析 JSON 结果（新格式：包含 affiliations, homepage, github）
+        # parse JSON Result (new format: contains affiliations, homepage, github）
         try:
-            # 尝试直接解析 JSON
+            # Try to parse directly JSON
             if result_content.startswith("{"):
                 result = json.loads(result_content)
             else:
-                # 尝试从文本中提取 JSON
+                # Try to extract from text JSON
                 import re
 
                 json_match = re.search(r"\{.*\}", result_content, re.DOTALL)
                 if json_match:
                     result = json.loads(json_match.group())
                 else:
-                    # 兼容旧格式（只有数组）
+                    # Compatible with old formats (arrays only)
                     if result_content.startswith("["):
                         affiliations = json.loads(result_content)
                         result = {
@@ -1869,7 +1869,7 @@ def extract_affiliations_with_llm(
                             "github": None,
                         }
                     else:
-                        print(f"[DailyArxiv] 无法解析结果: {result_content[:200]}")
+                        print(f"[DailyArxiv] Unable to parse result: {result_content[:200]}")
                         return {
                             "affiliations": [],
                             "countries": [],
@@ -1877,8 +1877,8 @@ def extract_affiliations_with_llm(
                             "github": None,
                         }
         except json.JSONDecodeError as e:
-            print(f"[DailyArxiv] JSON 解析失败: {e}")
-            print(f"[DailyArxiv] 原始内容: {result_content[:200]}")
+            print(f"[DailyArxiv] JSON Parsing failed: {e}")
+            print(f"[DailyArxiv] original content: {result_content[:200]}")
             return {
                 "affiliations": [],
                 "countries": [],
@@ -1886,12 +1886,12 @@ def extract_affiliations_with_llm(
                 "github": None,
             }
 
-        # 提取 affiliations（兼容旧格式）
+        # extract affiliations(compatible with older formats)
         affiliations = result.get("affiliations", [])
         if not isinstance(affiliations, list):
             affiliations = []
 
-        # 去重并保持顺序
+        # Remove duplicates and keep order
         seen = set()
         unique_affiliations = []
         for aff in affiliations:
@@ -1899,18 +1899,18 @@ def extract_affiliations_with_llm(
                 seen.add(aff.strip())
                 unique_affiliations.append(aff.strip())
 
-        # 提取 countries（与 affiliations 对应）
+        # extract countries(and affiliations correspond)
         countries = result.get("countries", [])
         if not isinstance(countries, list):
             countries = []
 
-        # 确保 countries 列表长度与 affiliations 一致（如果长度不一致，截断或填充）
+        # make sure countries The length of the list is the same as affiliations Consistent (truncate or pad if lengths are inconsistent)
         if len(countries) > len(unique_affiliations):
             countries = countries[: len(unique_affiliations)]
         elif len(countries) < len(unique_affiliations):
             countries.extend([""] * (len(unique_affiliations) - len(countries)))
 
-        # 去重 countries（使用 set，但保持顺序）
+        # Remove duplicates countries(use set, but keep the order)
         unique_countries = []
         seen_countries = set()
         for country in countries:
@@ -1920,40 +1920,40 @@ def extract_affiliations_with_llm(
                     seen_countries.add(country_clean)
                     unique_countries.append(country_clean)
 
-        # 提取 homepage 和 github
+        # extract homepage and github
         homepage = result.get("homepage")
         github = result.get("github")
 
-        # 处理 None 或空字符串
+        # deal with None or empty string
         if homepage == "None" or homepage == "":
             homepage = None
         if github == "None" or github == "":
             github = None
 
-        # 规范化 URL（如果没有协议，添加 https://）
+        # Standardize URL(If there is no agreement, add https://）
         if homepage and not homepage.startswith(("http://", "https://")):
             homepage = f"https://{homepage}"
         if github and not github.startswith(("http://", "https://")):
             github = f"https://{github}"
 
         print(
-            f"[DailyArxiv] 提取到 {len(unique_affiliations)} 个机构: {unique_affiliations}"
+            f"[DailyArxiv] Extract to {len(unique_affiliations)} institutions: {unique_affiliations}"
         )
         if unique_countries:
             print(
-                f"[DailyArxiv] 提取到 {len(unique_countries)} 个国家: {unique_countries}"
+                f"[DailyArxiv] Extract to {len(unique_countries)} countries: {unique_countries}"
             )
         if homepage:
             print(f"[DailyArxiv] Homepage: {homepage}")
         if github:
             print(f"[DailyArxiv] GitHub: {github}")
 
-        # 标准化机构名称（将各种变体统一为标准缩写）
+        # Standardization body name (unification of various variants into a standard abbreviation)
         try:
             import os
             import sys
 
-            # 添加 tools 目录到 Python 路径
+            # Add to tools Directory to Python path
             current_dir = os.path.dirname(os.path.abspath(__file__))
             parent_dir = os.path.dirname(current_dir)
             tools_dir = os.path.join(parent_dir, "tools")
@@ -1964,19 +1964,19 @@ def extract_affiliations_with_llm(
                 InstitutionNormalizer,
             )  # type: ignore
 
-            # 创建标准化器实例（包含系统映射 + 用户自定义映射）
-            # settings_file 参数传入的是配置文件路径（如果有）
+            # Create a normalizer instance (containing system mapping + User-defined mapping)
+            # settings_file The parameter passed in is the configuration file path (if any)
             normalizer = InstitutionNormalizer(custom_mapping_file=settings_file)
             normalized_affiliations = normalizer.normalize_list(unique_affiliations)
 
-            # 如果标准化后的机构列表与原列表不同，打印日志
+            # If the standardized institution list is different from the original list, print the log
             if normalized_affiliations != unique_affiliations:
-                print(f"[DailyArxiv] 标准化前: {unique_affiliations}")
-                print(f"[DailyArxiv] 标准化后: {normalized_affiliations}")
+                print(f"[DailyArxiv] before standardization: {unique_affiliations}")
+                print(f"[DailyArxiv] After standardization: {normalized_affiliations}")
 
             unique_affiliations = normalized_affiliations
         except Exception as e:
-            print(f"[DailyArxiv] 机构名称标准化失败（使用原始名称）: {e}")
+            print(f"[DailyArxiv] Organization name normalization failed (original name used): {e}")
             import traceback
 
             traceback.print_exc()
@@ -1989,7 +1989,7 @@ def extract_affiliations_with_llm(
         }
 
     except Exception as e:
-        print(f"[DailyArxiv] 提取机构信息失败: {e}")
+        print(f"[DailyArxiv] Failed to extract organization information: {e}")
         import traceback
 
         traceback.print_exc()
@@ -2004,17 +2004,17 @@ def extract_summary_and_keywords_with_llm(
     prompt: str = None,
 ) -> Dict[str, Any]:
     """
-    使用 LLM 从论文摘要中提取总结和关键词
+    use LLM Extract summary and keywords from paper abstract
 
     Args:
-        abstract: 论文摘要（英文）
-        openai_base_url: OpenAI API 基础 URL
-        openai_api_key: OpenAI API 密钥
-        model_name: LLM 模型名称
-        prompt: 自定义提示词（可选）
+        abstract: Abstract of thesis (English)
+        openai_base_url: OpenAI API Base URL
+        openai_api_key: OpenAI API key
+        model_name: LLM Model name
+        prompt: Custom prompt words (optional)
 
     Returns:
-        包含 summary 和 keywords 的字典
+        Include summary and keywords dictionary
     """
     try:
         from openai import OpenAI
@@ -2024,25 +2024,25 @@ def extract_summary_and_keywords_with_llm(
             base_url=openai_base_url,
         )
 
-        # 获取可用模型
+        # Get available models
         try:
             models = client.models.list()
             if model_name not in [model.id for model in models.data]:
-                print(f"[DailyArxiv] 模型 {model_name} 不存在")
+                print(f"[DailyArxiv] Model {model_name} does not exist")
                 return {"summary": None, "keywords": []}
         except Exception as e:
-            print(f"[DailyArxiv] 获取模型列表失败: {e}")
+            print(f"[DailyArxiv] Failed to get model list: {e}")
             return {"summary": None, "keywords": []}
 
-        # 构造提示词（使用自定义或默认）
+        # Construct prompt words (use custom or default)
         system_prompt = prompt if prompt else SUMMARY_EXTRACTION_PROMPT
-        # 如果 prompt 中包含 {keyword_list} 占位符，需要在使用前替换（但这里应该已经在调用前替换了）
+        # if prompt Contains {keyword_list} Placeholder, needs to be replaced before use (but here it should have been replaced before calling)
         full_prompt = system_prompt + abstract
         messages = [{"role": "user", "content": full_prompt}]
 
-        print(f"[DailyArxiv] 使用模型 {model_name} 提取摘要和关键词...")
+        print(f"[DailyArxiv] Use model {model_name} Extract abstracts and keywords...")
 
-        # 调用 LLM
+        # call LLM
         chat_completion = client.chat.completions.create(
             messages=messages,
             model=model_name,
@@ -2052,57 +2052,57 @@ def extract_summary_and_keywords_with_llm(
 
         result_content = chat_completion.choices[0].message.content.strip()
 
-        # 解析 JSON 结果
+        # parse JSON result
         import re
 
-        # 尝试直接解析
+        # Try to parse directly
         if result_content.startswith("{"):
             result = json.loads(result_content)
         else:
-            # 尝试从文本中提取 JSON
+            # Try to extract from text JSON
             json_match = re.search(r"\{.*\}", result_content, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group())
             else:
-                print(f"[DailyArxiv] 无法解析摘要和关键词: {result_content[:200]}")
+                print(f"[DailyArxiv] Unable to parse abstract and keywords: {result_content[:200]}")
                 return {"summary": None, "keywords": []}
 
         summary = result.get("summary", "")
         keywords = result.get("keywords", [])
 
-        # 确保 keywords 是列表
+        # make sure keywords is a list
         if isinstance(keywords, str):
             keywords = [k.strip() for k in keywords.split(",")]
 
-        print(f"[DailyArxiv] 提取到关键词: {keywords}")
+        print(f"[DailyArxiv] Extract keywords: {keywords}")
         return {"summary": summary, "keywords": keywords}
 
     except json.JSONDecodeError as e:
-        print(f"[DailyArxiv] JSON 解析失败: {e}")
+        print(f"[DailyArxiv] JSON Parsing failed: {e}")
         return {"summary": None, "keywords": []}
     except Exception as e:
-        print(f"[DailyArxiv] 提取摘要和关键词失败: {e}")
+        print(f"[DailyArxiv] Failed to extract abstracts and keywords: {e}")
         import traceback
 
         traceback.print_exc()
         return {"summary": None, "keywords": []}
 
 
-# 全局管理器实例
+# Global manager instance
 _manager_instance: Optional[DailyArxivManager] = None
 
 
 def get_manager(base_dir: str, settings_file: str) -> DailyArxivManager:
-    """获取全局管理器实例"""
+    """Get global manager instance"""
     global _manager_instance
     if _manager_instance is None:
         _manager_instance = DailyArxivManager(base_dir, settings_file)
     return _manager_instance
 
 
-# 兼容旧接口
+# Compatible with old interfaces
 class DailyArxivFetcher:
-    """旧接口兼容层"""
+    """Old interface compatibility layer"""
 
     def __init__(self, temp_dir: str):
         self.temp_dir = temp_dir
@@ -2131,14 +2131,14 @@ class DailyArxivFetcher:
                 paper = ArxivPaper.from_arxiv_result(result, fetch_category=category)
                 papers.append(paper)
 
-            print(f"[DailyArxiv] 从 {category} 获取了 {len(papers)} 篇论文")
+            print(f"[DailyArxiv] from {category} Got {len(papers)} papers")
             return papers
 
         except Exception as e:
-            print(f"[DailyArxiv] 获取 {category} 论文失败: {e}")
+            print(f"[DailyArxiv] get {category} Thesis failed: {e}")
             return []
 
 
 def get_fetcher(temp_dir: str) -> DailyArxivFetcher:
-    """获取旧式 fetcher 实例"""
+    """get old style fetcher Example"""
     return DailyArxivFetcher(temp_dir)

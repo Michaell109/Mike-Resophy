@@ -49,9 +49,9 @@ class Paper:
     abstract: str = ""
     keywords: str = ""
     subject: str = ""
-    summary: str = ""  # arXiv summary (保留原始格式)
-    bibtex: str = ""  # BibTeX 引用
-    notes: str = ""  # 用户备注
+    summary: str = ""  # arXiv summary (Keep original format)
+    bibtex: str = ""  # BibTeX Quote
+    notes: str = ""  # User remarks
     starred: bool = False
     has_chinese_version: bool = False
     chinese_version_path: Optional[str] = None
@@ -65,8 +65,8 @@ class Paper:
     arxiv_id: Optional[str] = None
     arxiv_published_date: Optional[str] = None
     arxiv_url: Optional[str] = None
-    github: Optional[str] = None  # GitHub 仓库 URL
-    homepage: Optional[str] = None  # 项目主页 URL
+    github: Optional[str] = None  # GitHub storehouse URL
+    homepage: Optional[str] = None  # Project home page URL
     upload_source: Optional[str] = None
     translation_status: str = "idle"
     translation_task_id: Optional[str] = None
@@ -168,11 +168,11 @@ class Paper:
         self.analysis_result_path = result_path if has_result else None
 
     def record_read_time(self, seconds: int) -> None:
-        """累加阅读时间（秒）"""
+        """Accumulated reading time（Second）"""
         self.read_time = self.read_time + _normalize_int(seconds, 0)
 
     def record_analysis_view_time(self, seconds: int) -> None:
-        """累加 AI 解读阅读时间（秒）"""
+        """Accumulate AI Interpret reading time（Second）"""
         self.analysis_view_time = self.analysis_view_time + _normalize_int(seconds, 0)
 
     def mark_starred(self, value: Any) -> None:

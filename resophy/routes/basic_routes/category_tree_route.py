@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import shutil
 import uuid
+from io import BytesIO
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
 from flask import Flask, jsonify, request, send_file
-from io import BytesIO
 
 
 class GetCategoriesFn(Protocol):
@@ -130,7 +130,7 @@ def register_category_routes(
 
     @app.route("/api/categories/<category_id>/pin", methods=["PUT"])
     def api_pin_category(category_id):
-        """置顶/取消置顶分类"""
+        """Pin to top/Cancel pinned category"""
         data = request.json or {}
         pinned = data.get("pinned", False)
 
@@ -146,7 +146,7 @@ def register_category_routes(
 
     @app.route("/api/categories/<category_id>/color", methods=["PUT"])
     def api_change_category_color(category_id):
-        """更改分类图标颜色"""
+        """Change category icon color"""
         data = request.json or {}
         color = data.get("color")
 
@@ -171,19 +171,19 @@ def register_category_routes(
         categories = get_categories()
 
         def collect_all_category_ids(node: Dict[str, Any]) -> List[str]:
-            """递归收集分类及其所有子分类的 ID"""
+            """Recursively collect a category and all its subcategories ID"""
             ids = [node.get("id")]
             for child in node.get("children", []):
                 ids.extend(collect_all_category_ids(child))
             return ids
 
         def delete_papers_in_categories(category_ids: List[str]) -> int:
-            """从 paper_store 中删除指定分类下的所有论文"""
+            """from paper_store Delete all papers under the specified category"""
             deleted_count = 0
             for cat_id in category_ids:
                 papers = paper_store.list_by_category(cat_id)
                 for paper in papers:
-                    paper_id = paper.id if hasattr(paper, 'id') else paper.get('id')
+                    paper_id = paper.id if hasattr(paper, "id") else paper.get("id")
                     if paper_id:
                         paper_store.remove(paper_id)
                         deleted_count += 1
@@ -193,22 +193,22 @@ def register_category_routes(
             children = node.get("children", [])
             for index, child in enumerate(children):
                 if child["id"] == target_id:
-                    # 1. 收集要删除的所有分类 ID（包括子分类）
+                    # 1. Collect all categories to be deleted ID(Includes subcategories)
                     all_category_ids = collect_all_category_ids(child)
-                    
-                    # 2. 从 paper_store 中删除所有相关论文
+
+                    # 2. from paper_store Delete all related papers from
                     deleted_papers = delete_papers_in_categories(all_category_ids)
-                    print(f"已从 paper_store 删除 {deleted_papers} 篇论文")
-                    
-                    # 3. 删除物理文件夹
+                    print(f"Already from paper_store delete {deleted_papers} papers")
+
+                    # 3. Delete physical folder
                     category_path = get_category_path(categories, target_id)
                     if category_path and len(category_path) > 1:
                         folder_path = os.path.join(upload_folder, *category_path[1:])
                         if os.path.exists(folder_path):
                             shutil.rmtree(folder_path)
-                            print(f"已删除分类文件夹: {folder_path}")
+                            print(f"Category folder deleted: {folder_path}")
 
-                    # 4. 从分类树中删除节点
+                    # 4. Remove node from classification tree
                     del children[index]
                     return True
                 if delete_category_recursive(child, target_id):
@@ -224,34 +224,52 @@ def register_category_routes(
     @app.route("/api/categories/<category_id>/move", methods=["PUT"])
     def api_move_category(category_id):
         """
-        移动分类到新的父分类下
-        
-        请求体:
+        Move category to new parent category
+
+        Request body:
         {
-            "target_parent_id": "目标父分类ID" 或 "root" 表示移动到根目录
+            "target_parent_id": "target parent categoryID" or "root" Indicates moving to the root directory
         }
         """
         data = request.json or {}
         target_parent_id = data.get("target_parent_id")
-        
+
         if not target_parent_id:
-            return jsonify({"success": False, "error": "目标父分类ID不能为空"}), 400
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "target parent categoryIDcannot be empty",
+                    }
+                ),
+                400,
+            )
+
         categories = get_categories()
-        
-        # 不能移动根分类
+
+        # Cannot move root category
         if category_id == categories.get("id") or category_id == "root":
-            return jsonify({"success": False, "error": "不能移动根分类"}), 400
-        
-        # 不能移动到自己
+            return (
+                jsonify({"success": False, "error": "Cannot move root category"}),
+                400,
+            )
+
+        # cannot move to self
         if category_id == target_parent_id:
-            return jsonify({"success": False, "error": "不能将分类移动到自身"}), 400
-        
-        # 检查是否试图将分类移动到其子分类下（会造成循环）
-        def is_descendant(node: Dict[str, Any], ancestor_id: str, target_id: str) -> bool:
-            """检查 target_id 是否是 ancestor_id 的子孙节点"""
+            return (
+                jsonify(
+                    {"success": False, "error": "Category cannot be moved to itself"}
+                ),
+                400,
+            )
+
+        # Check if you are trying to move a category to its subcategory (which will cause a loop)
+        def is_descendant(
+            node: Dict[str, Any], ancestor_id: str, target_id: str
+        ) -> bool:
+            """examine target_id whether it is ancestor_id descendant nodes of"""
             if node.get("id") == ancestor_id:
-                # 找到了祖先节点，现在检查 target_id 是否在其子树中
+                # Ancestor node found, now check target_id Is it in its subtree
                 def find_in_subtree(n: Dict[str, Any]) -> bool:
                     if n.get("id") == target_id:
                         return True
@@ -259,22 +277,31 @@ def register_category_routes(
                         if find_in_subtree(child):
                             return True
                     return False
+
                 return find_in_subtree(node)
-            
+
             for child in node.get("children", []):
                 if is_descendant(child, ancestor_id, target_id):
                     return True
             return False
-        
+
         if is_descendant(categories, category_id, target_parent_id):
-            return jsonify({"success": False, "error": "不能将分类移动到其子分类下"}), 400
-        
-        # 获取原路径（用于移动文件夹）
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Categories cannot be moved to their subcategories",
+                    }
+                ),
+                400,
+            )
+
+        # Get the original path (for moving folders)
         old_path = get_category_path(categories, category_id)
-        
-        # 找到并移除分类节点
+
+        # Find and remove classification nodes
         category_node = None
-        
+
         def remove_from_parent(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             children = node.get("children", [])
             for index, child in enumerate(children):
@@ -284,189 +311,216 @@ def register_category_routes(
                 if result:
                     return result
             return None
-        
+
         category_node = remove_from_parent(categories)
-        
+
         if not category_node:
-            return jsonify({"success": False, "error": "分类不存在"}), 404
-        
-        # 找到目标父节点并添加分类
+            return jsonify({"success": False, "error": "Category does not exist"}), 404
+
+        # Find the target parent node and add a category
         if target_parent_id in {"root", categories.get("id")}:
             target_parent = categories
         else:
             target_parent = find_category_node(categories, target_parent_id)
-        
+
         if not target_parent:
-            # 恢复原状态
-            # 这里简化处理，实际上应该恢复到原来的位置
-            return jsonify({"success": False, "error": "目标父分类不存在"}), 404
-        
+            # Restore original state
+            # To simplify the process here, it should actually be restored to its original position.
+            return (
+                jsonify(
+                    {"success": False, "error": "Target parent category does not exist"}
+                ),
+                404,
+            )
+
         target_parent.setdefault("children", []).append(category_node)
-        
-        # 获取新路径
+
+        # Get new path
         new_path = get_category_path(categories, category_id)
-        
-        # 移动物理文件夹
+
+        # Move physical folder
         if old_path and new_path and len(old_path) > 1 and len(new_path) > 1:
             old_folder = os.path.join(upload_folder, *old_path[1:])
             new_folder = os.path.join(upload_folder, *new_path[1:])
-            
+
             if os.path.exists(old_folder) and old_folder != new_folder:
-                # 确保新路径的父目录存在
+                # Make sure the parent directory of the new path exists
                 new_parent_folder = os.path.dirname(new_folder)
                 os.makedirs(new_parent_folder, exist_ok=True)
-                
-                # 如果目标位置已存在同名文件夹，需要处理
+
+                # If a folder with the same name already exists in the target location, it needs to be processed
                 if os.path.exists(new_folder):
-                    print(f"[移动分类] 目标位置已存在文件夹: {new_folder}")
-                    # 可以选择合并或返回错误
-                    return jsonify({"success": False, "error": "目标位置已存在同名文件夹"}), 400
-                
+                    print(
+                        f"[mobile classification] The folder already exists in the target location: {new_folder}"
+                    )
+                    # Optionally merge or return an error
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "A folder with the same name already exists in the target location",
+                            }
+                        ),
+                        400,
+                    )
+
                 try:
                     shutil.move(old_folder, new_folder)
-                    print(f"[移动分类] 文件夹已移动: {old_folder} -> {new_folder}")
+                    print(
+                        f"[mobile classification] Folder moved: {old_folder} -> {new_folder}"
+                    )
                 except Exception as e:
-                    print(f"[移动分类] 移动文件夹失败: {e}")
-                    # 继续保存分类结构，即使文件夹移动失败
-        
+                    print(f"[mobile classification] Failed to move folder: {e}")
+                    # Continue saving category structures even if folder move fails
+
         save_categories(categories)
-        
-        return jsonify({
-            "success": True,
-            "category": category_node,
-            "old_path": old_path,
-            "new_path": new_path
-        })
+
+        return jsonify(
+            {
+                "success": True,
+                "category": category_node,
+                "old_path": old_path,
+                "new_path": new_path,
+            }
+        )
 
     @app.route("/api/categories/<category_id>/export-bibtex", methods=["GET"])
     def api_export_category_bibtex(category_id: str):
         """
-        导出分类及其所有子分类下所有论文的 BibTeX
-        
-        递归遍历分类树，收集所有论文的 BibTeX，合并成一个 .bib 文件
+        Export all papers under a category and all its subcategories BibTeX
+
+        Recursively traverse the classification tree and collect all papers BibTeX, merged into one .bib document
         """
         try:
             categories = get_categories()
             category_node = find_category_node(categories, category_id)
-            
+
             if not category_node:
                 return jsonify({"error": "Category not found"}), 404
-            
-            # 递归收集所有论文的 BibTeX
+
+            # Recursively collect all papers BibTeX
             def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
-                """递归收集分类及其子分类下的所有论文"""
+                """Recursively collect all papers under a category and its subcategories"""
                 papers = []
-                
-                # 获取当前分类的论文
+
+                # Get papers in the current category
                 node_path = get_category_path(categories, node["id"])
                 if node_path:
                     node_papers = get_papers_in_category(node["id"], node_path)
                     papers.extend(node_papers)
-                
-                # 递归处理子分类
+
+                # Recursively process subcategories
                 for child in node.get("children", []):
                     papers.extend(collect_papers_recursive(child))
-                
+
                 return papers
-            
+
             all_papers = collect_papers_recursive(category_node)
-            
+
             if not all_papers:
-                return jsonify({"error": "该分类下没有论文"}), 404
-            
-            # 收集所有 BibTeX
+                return jsonify({"error": "There are no papers in this category"}), 404
+
+            # collect all BibTeX
             bibtex_entries = []
             for paper in all_papers:
-                # paper 可能是 Paper 对象或字典
-                if hasattr(paper, 'bibtex'):
+                # paper may be Paper object or dictionary
+                if hasattr(paper, "bibtex"):
                     bibtex = paper.bibtex
                 elif isinstance(paper, dict):
                     bibtex = paper.get("bibtex", "")
                 else:
                     bibtex = ""
-                
+
                 if bibtex and bibtex.strip():
                     bibtex_entries.append(bibtex.strip())
-            
+
             if not bibtex_entries:
-                return jsonify({"error": "该分类下的论文都没有 BibTeX"}), 404
-            
-            # 合并所有 BibTeX 条目
+                return (
+                    jsonify({"error": "There are no papers in this category BibTeX"}),
+                    404,
+                )
+
+            # merge all BibTeX entry
             bibtex_content = "\n\n".join(bibtex_entries)
-            
-            # 生成文件名（使用分类名称）
+
+            # Generate file names (using category names)
             category_name = category_node.get("name", "export")
-            # 清理文件名（移除特殊字符）
-            safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in category_name)
-            safe_name = safe_name.strip().replace(' ', '_')
+            # Clean file names (remove special characters)
+            safe_name = "".join(
+                c if c.isalnum() or c in (" ", "-", "_") else "" for c in category_name
+            )
+            safe_name = safe_name.strip().replace(" ", "_")
             filename = f"{safe_name}_bibtex.bib"
-            
-            # 创建文件对象
-            bibtex_bytes = bibtex_content.encode('utf-8')
+
+            # Create file object
+            bibtex_bytes = bibtex_content.encode("utf-8")
             bibtex_file = BytesIO(bibtex_bytes)
-            
-            print(f"[导出 BibTeX] 分类: {category_name}, 论文数: {len(all_papers)}, BibTeX 条目数: {len(bibtex_entries)}")
-            
+
+            print(
+                f"[Export BibTeX] Classification: {category_name}, Number of papers: {len(all_papers)}, BibTeX Number of entries: {len(bibtex_entries)}"
+            )
+
             return send_file(
                 bibtex_file,
-                mimetype='application/x-bibtex',
+                mimetype="application/x-bibtex",
                 as_attachment=True,
-                download_name=filename
+                download_name=filename,
             )
-            
+
         except Exception as exc:
-            print(f"导出 BibTeX 失败: {exc}")
+            print(f"Export BibTeX fail: {exc}")
             import traceback
+
             traceback.print_exc()
-            return jsonify({"error": f"导出失败: {str(exc)}"}), 500
+            return jsonify({"error": f"Export failed: {str(exc)}"}), 500
 
     @app.route("/api/categories/<category_id>/copy-arxiv-urls", methods=["GET"])
     def api_copy_category_arxiv_urls(category_id: str):
         """
-        获取分类及其所有子分类下所有论文的 arXiv URL
-        
-        返回格式：title：URL，title：URL
+        Error 500 (Server Error)!!1500.That’s an error.There was an error. Please try again later.That’s all we know. arXiv URL
+
+        Return format:title：URL，title：URL
         """
         try:
             categories = get_categories()
             category_node = find_category_node(categories, category_id)
-            
+
             if not category_node:
                 return jsonify({"error": "Category not found"}), 404
-            
-            # 递归收集所有论文
+
+            # Collect all papers recursively
             def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
-                """递归收集分类及其子分类下的所有论文"""
+                """Recursively collect all papers under a category and its subcategories"""
                 papers = []
-                
-                # 获取当前分类的论文
+
+                # Get papers in the current category
                 node_path = get_category_path(categories, node["id"])
                 if node_path:
                     node_papers = get_papers_in_category(node["id"], node_path)
                     papers.extend(node_papers)
-                
-                # 递归处理子分类
+
+                # Recursively process subcategories
                 for child in node.get("children", []):
                     papers.extend(collect_papers_recursive(child))
-                
+
                 return papers
-            
+
             all_papers = collect_papers_recursive(category_node)
-            
+
             if not all_papers:
-                return jsonify({"error": "该分类下没有论文"}), 404
-            
-            # 收集所有有 arXiv URL 的论文
+                return jsonify({"error": "There are no papers in this category"}), 404
+
+            # collect all there are arXiv URL thesis
             arxiv_entries = []
             for paper in all_papers:
-                # paper 可能是 Paper 对象或字典
+                # paper may be Paper object or dictionary
                 arxiv_url = None
                 arxiv_id = None
                 title = ""
-                
-                if hasattr(paper, 'arxiv_url'):
+
+                if hasattr(paper, "arxiv_url"):
                     arxiv_url = paper.arxiv_url
-                    arxiv_id = getattr(paper, 'arxiv_id', None)
+                    arxiv_id = getattr(paper, "arxiv_id", None)
                     title = paper.title or paper.filename or ""
                 elif isinstance(paper, dict):
                     arxiv_url = paper.get("arxiv_url")
@@ -474,40 +528,52 @@ def register_category_routes(
                     title = paper.get("title") or paper.get("filename") or ""
                 else:
                     continue
-                
-                # 如果没有 arxiv_url 但有 arxiv_id，根据 arxiv_id 构建 URL
+
+                # if not arxiv_url But there is arxiv_id,according to arxiv_id build URL
                 if not arxiv_url or not arxiv_url.strip():
                     if arxiv_id and arxiv_id.strip():
                         arxiv_url = f"https://arxiv.org/abs/{arxiv_id.strip()}"
                     else:
-                        continue  # 既没有 arxiv_url 也没有 arxiv_id，跳过
-                
-                # 处理有 arXiv URL 的论文
+                        continue  # Neither arxiv_url Neither arxiv_id,jump over
+
+                # Processed with arXiv URL thesis
                 if arxiv_url and arxiv_url.strip():
-                    arxiv_entries.append({
-                        "title": title.strip() if title else "未命名论文",
-                        "url": arxiv_url.strip()
-                    })
-            
+                    arxiv_entries.append(
+                        {
+                            "title": title.strip() if title else "Untitled paper",
+                            "url": arxiv_url.strip(),
+                        }
+                    )
+
             if not arxiv_entries:
-                return jsonify({"error": "该分类下的论文都没有 arXiv URL"}), 404
-            
-            # 格式化为 "title：URL\n\ntitle：URL" 格式（不同论文之间用两个换行符分隔）
-            formatted_text = "\n\n".join([f"{entry['title']}：{entry['url']}" for entry in arxiv_entries])
-            
-            print(f"[复制 arXiv URL] 分类: {category_node.get('name', 'export')}, 总论文数: {len(all_papers)}, 有 arXiv URL 的论文数: {len(arxiv_entries)}")
+                return (
+                    jsonify(
+                        {"error": "There are no papers in this category arXiv URL"}
+                    ),
+                    404,
+                )
+
+            # formatted as "title：URL\n\ntitle：URL" Format (separate different papers with two newlines)
+            formatted_text = "\n\n".join(
+                [f"{entry['title']}：{entry['url']}" for entry in arxiv_entries]
+            )
+
+            print(
+                f"[copy arXiv URL] Classification: {category_node.get('name', 'export')}, Total number of papers: {len(all_papers)}, have arXiv URL number of papers: {len(arxiv_entries)}"
+            )
             if len(all_papers) > len(arxiv_entries):
                 skipped_count = len(all_papers) - len(arxiv_entries)
-                print(f"[复制 arXiv URL] 警告: 跳过了 {skipped_count} 篇没有 arXiv URL/ID 的论文")
-            
-            return jsonify({
-                "success": True,
-                "text": formatted_text,
-                "count": len(arxiv_entries)
-            })
-            
+                print(
+                    f"[copy arXiv URL] warn: skipped {skipped_count} No articles arXiv URL/ID thesis"
+                )
+
+            return jsonify(
+                {"success": True, "text": formatted_text, "count": len(arxiv_entries)}
+            )
+
         except Exception as exc:
-            print(f"获取 arXiv URL 失败: {exc}")
+            print(f"get arXiv URL fail: {exc}")
             import traceback
+
             traceback.print_exc()
             return jsonify({"error": str(exc)}), 500

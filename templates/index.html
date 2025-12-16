@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Resophy - Agentic Paper Reading</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- PDF.js (CDN) 用于前端解析PDF元数据 -->
+    <!-- PDF.js (CDN) for client-side PDF metadata parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Marked.js (CDN) 用于渲染 Markdown -->
+    <!-- Marked.js (CDN) for rendering Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- Highlight.js (CDN) 用于代码高亮 -->
+    <!-- Highlight.js (CDN) for code highlighting -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
@@ -30,27 +30,27 @@
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
 </head>
 <body>
-    <!-- 导航栏 -->
+    <!-- Navbar -->
     <nav class="navbar">
         <div class="navbar-content">
-            <div class="navbar-brand" id="navbar-brand" style="cursor: pointer;" title="返回主界面">
+            <div class="navbar-brand" id="navbar-brand" style="cursor: pointer;" title="Back to Home">
                 <img src="{{ url_for('static', filename='images/hompage_logo.png') }}" alt="Resophy" class="navbar-logo" id="navbar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
                 <span class="navbar-brand-text" id="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> Resophy</span>
             </div>
             <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
-                <button id="btn-show-translating" class="ti-item ti-translate" title="查看翻译中的论文">
+                <button id="btn-show-translating" class="ti-item ti-translate" title="View papers being translated">
                     <i class="fas fa-language"></i>
-                    <span class="ti-label">翻译</span>
+                    <span class="ti-label">Translating</span>
                     <span class="ti-count" id="ti-translate-count">0</span>
                 </button>
-                <button id="btn-show-analyzing" class="ti-item ti-analyze" title="查看解读中的论文">
+                <button id="btn-show-analyzing" class="ti-item ti-analyze" title="View papers being analyzed">
                     <i class="fas fa-brain"></i>
-                    <span class="ti-label">解读</span>
+                    <span class="ti-label">Interpreting</span>
                     <span class="ti-count" id="ti-analyze-count">0</span>
                 </button>
-                <button id="btn-show-reading-list" class="ti-item ti-reading" title="查看待读列表">
+                <button id="btn-show-reading-list" class="ti-item ti-reading" title="View reading list">
                     <i class="fas fa-book-open"></i>
-                    <span class="ti-label">待读</span>
+                    <span class="ti-label">Reading</span>
                     <span class="ti-count" id="ti-reading-count">0</span>
                 </button>
                 <button class="nav-tab ti-item ti-paper active" data-tab="paper" title="Paper">
@@ -67,135 +67,135 @@
         </div>
     </nav>
 
-    <!-- Paper 界面 -->
+    <!-- Paper View -->
     <div class="container" id="paper-view">
-        <!-- 左侧分类栏 -->
+        <!-- Left Sidebar: Categories -->
         <div class="sidebar">
             <div class="sidebar-resizer" id="sidebar-resizer"></div>
             <div class="sidebar-header">
-                <h3><i class="fas fa-folder-tree"></i> 我的文库</h3>
-                <button id="add-root-category" class="btn-add" title="添加分类（选中分类时添加子分类，否则添加根分类）">
+                <h3><i class="fas fa-folder-tree"></i> My Library</h3>
+                <button id="add-root-category" class="btn-add" title="Add category (add subcategory if one is selected, otherwise add root category)">
                     <i class="fas fa-plus"></i>
                 </button>
             </div>
             <div class="category-tree" id="category-tree">
-                <!-- 分类树将在这里动态生成 -->
+                <!-- Category tree will be rendered here -->
             </div>
-            <!-- 已移除左下角上传区域 -->
+            <!-- Upload area removed -->
             <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
         </div>
 
-        <!-- 中间 PDF 列表栏 -->
+        <!-- Middle: PDF List -->
         <div class="main-content">
             <div class="content-header">
-                <h3 id="current-category">选择一个分类查看 PDF</h3>
+                <h3 id="current-category">Select a category to view PDFs</h3>
                 <div class="content-actions">
                     <div class="search-box">
-                        <input id="global-search" type="text" placeholder="搜索 Title / Authors / Abstract / 备注" autocomplete="off" />
+                        <input id="global-search" type="text" placeholder="Search Title / Authors / Abstract / Notes" autocomplete="off" />
                         <div id="search-results" class="search-results" style="display:none;"></div>
                     </div>
                     <div class="sort-controls" id="sort-controls" style="display: none;">
-                        <label for="sort-by">排序：</label>
+                        <label for="sort-by">Sort:</label>
                         <select id="sort-by">
-                            <option value="upload_date_desc">上传时间 ↓</option>
-                            <option value="upload_date_asc">上传时间 ↑</option>
-                            <option value="title_asc">标题 A-Z</option>
-                            <option value="title_desc">标题 Z-A</option>
-                            <option value="published_date_desc">发布日期 ↓</option>
-                            <option value="published_date_asc">发布日期 ↑</option>
-                            <option value="authors_asc">作者 A-Z</option>
-                            <option value="authors_desc">作者 Z-A</option>
+                            <option value="upload_date_desc">Upload time ↓</option>
+                            <option value="upload_date_asc">Upload time ↑</option>
+                            <option value="title_asc">Title A-Z</option>
+                            <option value="title_desc">Title Z-A</option>
+                            <option value="published_date_desc">Published date ↓</option>
+                            <option value="published_date_asc">Published date ↑</option>
+                            <option value="authors_asc">Authors A-Z</option>
+                            <option value="authors_desc">Authors Z-A</option>
                         </select>
                     </div>
-                    <button id="refresh-papers" class="btn-action" title="刷新">
+                    <button id="refresh-papers" class="btn-action" title="Refresh">
                         <i class="fas fa-refresh"></i>
                     </button>
-                    <button id="toggle-multiselect" class="btn-action" title="多选模式">
+                    <button id="toggle-multiselect" class="btn-action" title="Multi-select mode">
                         <i class="fas fa-check-double"></i>
                     </button>
-                    <button id="upload-btn" class="btn-action" title="上传文件">
+                    <button id="upload-btn" class="btn-action" title="Upload files">
                         <i class="fas fa-upload"></i>
                     </button>
-                    <button id="upload-arxiv-btn" class="btn-action" title="从 arXiv 导入">
+                    <button id="upload-arxiv-btn" class="btn-action" title="Import from arXiv">
                         <i class="fas fa-link"></i>
                     </button>
-                    <span id="reading-list-label" class="reading-list-label" style="display: none;">待读列表</span>
+                    <span id="reading-list-label" class="reading-list-label" style="display: none;">Reading list</span>
                 </div>
             </div>
             <div class="batch-toolbar" id="batch-toolbar" style="display:none;">
                 <div class="batch-left">
-                    <span id="batch-count">已选中 0 项</span>
+                    <span id="batch-count">Selected 0 items</span>
                 </div>
                 <div class="batch-actions">
-                    <button class="btn" id="batch-analyze" title="AI解读"><i class="fas fa-brain"></i> 解读</button>
-                    <button class="btn" id="batch-translate" title="翻译为中文"><i class="fas fa-language"></i> 翻译</button>
-                    <button class="btn btn-danger" id="batch-delete" title="删除"><i class="fas fa-trash"></i> 删除</button>
-                    <button class="btn btn-secondary" id="batch-cancel" title="退出多选"><i class="fas fa-times"></i> 取消</button>
+                    <button class="btn" id="batch-analyze" title="AI Analysis"><i class="fas fa-brain"></i> Analyze</button>
+                    <button class="btn" id="batch-translate" title="Translate to Chinese"><i class="fas fa-language"></i> Translate</button>
+                    <button class="btn btn-danger" id="batch-delete" title="Delete"><i class="fas fa-trash"></i> Delete</button>
+                    <button class="btn btn-secondary" id="batch-cancel" title="Exit multi-select"><i class="fas fa-times"></i> Cancel</button>
                 </div>
             </div>
             <div class="papers-list" id="papers-list">
                 <div class="empty-state">
                     <i class="fas fa-file-pdf"></i>
-                    <p>选择左侧分类查看 PDF 文件</p>
+                    <p>Select a category on the left to view PDF files</p>
                 </div>
             </div>
         </div>
 
-        <!-- 右侧信息栏 -->
+        <!-- Right: Info Panel -->
         <div class="info-panel" id="info-panel">
             <div class="info-panel-resizer" id="info-panel-resizer"></div>
             <div class="info-header">
-                <h3><i class="fas fa-info-circle"></i> 论文信息</h3>
+                <h3><i class="fas fa-info-circle"></i> Paper Info</h3>
             </div>
             <div class="paper-info" id="paper-info">
                 <div class="empty-state">
                     <i class="fas fa-file-alt"></i>
-                    <p>选择一篇论文查看详细信息</p>
+                    <p>Select a paper to view details</p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Daily arXiv 界面 -->
+    <!-- Daily arXiv View -->
     <div class="daily-arxiv-view" id="daily-arxiv-view" style="display: none;">
         <div class="daily-arxiv-header">
             <div class="daily-arxiv-title">
                 <h2><img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="arxiv-logo-icon"> Daily arXiv</h2>
-                <!-- 日期选择器 -->
+                <!-- Date selector -->
                 <div class="daily-arxiv-date-selector" id="daily-arxiv-date-selector">
-                    <button class="date-nav-btn" id="daily-arxiv-prev-date" title="前一天">
+                    <button class="date-nav-btn" id="daily-arxiv-prev-date" title="Previous day">
                         <i class="fas fa-chevron-left"></i>
                     </button>
                     <span class="daily-arxiv-current-date" id="daily-arxiv-current-date">
-                        <!-- 日期将在这里动态显示 -->
+                        <!-- Date will be displayed here -->
                     </span>
-                    <button class="date-nav-btn" id="daily-arxiv-next-date" title="后一天">
+                    <button class="date-nav-btn" id="daily-arxiv-next-date" title="Next day">
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
             </div>
             <div class="daily-arxiv-actions">
-                <!-- Daily arXiv 搜索：title / authors / institution / abstract -->
+                <!-- Daily arXiv search: title / authors / institution / abstract -->
                 <div class="daily-arxiv-search-box">
-                    <input id="daily-arxiv-search" type="text" placeholder="搜索标题 / 作者 / 机构 / 摘要..." />
+                    <input id="daily-arxiv-search" type="text" placeholder="Search title / author / institution / abstract..." />
                     <i class="fas fa-search"></i>
                 </div>
-                <button class="btn btn-outline" id="daily-arxiv-filter" title="过滤当前论文">
-                    <i class="fas fa-filter"></i> 过滤
+                <button class="btn btn-outline" id="daily-arxiv-filter" title="Filter current papers">
+                    <i class="fas fa-filter"></i> Filter
                 </button>
                 <div class="daily-arxiv-categories" id="daily-arxiv-categories">
-                    <!-- 分区标签将在这里动态生成 -->
+                    <!-- Category tags will be rendered here -->
                 </div>
-                <button class="btn btn-secondary" id="daily-arxiv-settings" title="配置 arXiv 分区">
-                    <i class="fas fa-cog"></i> 配置
+                <button class="btn btn-secondary" id="daily-arxiv-settings" title="Configure arXiv categories">
+                    <i class="fas fa-cog"></i> Settings
                 </button>
             </div>
         </div>
         
-        <!-- 进度条 -->
+        <!-- Progress bar -->
         <div class="daily-arxiv-progress" id="daily-arxiv-progress" style="display: none;">
             <div class="progress-header">
-                <span class="progress-title" id="daily-arxiv-progress-title">正在抓取论文...</span>
+                <span class="progress-title" id="daily-arxiv-progress-title">Fetching papers...</span>
                 <span class="progress-count" id="daily-arxiv-progress-count">0/0</span>
             </div>
             <div class="progress-bar-container">
@@ -204,34 +204,34 @@
             <div class="progress-current" id="daily-arxiv-progress-current"></div>
         </div>
         
-        <!-- 加载状态 -->
+        <!-- Loading state -->
         <div class="daily-arxiv-loading" id="daily-arxiv-loading" style="display: none;">
             <div class="loading-spinner">
                 <i class="fas fa-spinner fa-spin"></i>
             </div>
-            <p>正在获取最新论文...</p>
+            <p>Fetching latest papers...</p>
         </div>
         
-        <!-- 空状态：未配置分区 -->
+        <!-- Empty state: no categories configured -->
         <div class="daily-arxiv-empty" id="daily-arxiv-empty" style="display: none;">
             <i class="fas fa-cog fa-3x"></i>
-            <h3>请先配置 arXiv 分区</h3>
-            <p>点击右上角的「配置」按钮添加您感兴趣的 arXiv 分区，例如：cs.CV、cs.AI</p>
+            <h3>Please configure arXiv categories first</h3>
+            <p>Click the "Settings" button in the top right to add arXiv categories you care about, e.g., cs.CV, cs.AI</p>
             <button class="btn btn-primary" onclick="showDailyArxivSettingsModal()">
-                <i class="fas fa-plus"></i> 添加分区
+                <i class="fas fa-plus"></i> Add category
             </button>
         </div>
         
-        <!-- 过滤器 + 论文网格 -->
+        <!-- Filters + paper grid -->
         <div class="daily-arxiv-main">
-            <!-- 过滤器面板 -->
+            <!-- Filter panel -->
             <div class="daily-arxiv-filter-panel" id="daily-arxiv-filter-panel" style="display: none;">
                 <div class="daily-arxiv-filter-resizer" id="daily-arxiv-filter-resizer"></div>
                 <div class="filter-panel-header">
-                    <h3>过滤器</h3>
-                    <button class="filter-clear-btn" id="daily-arxiv-filter-clear" type="button" title="清除所有过滤条件">
+                    <h3>Filters</h3>
+                    <button class="filter-clear-btn" id="daily-arxiv-filter-clear" type="button" title="Clear all filters">
                         <i class="fas fa-times"></i>
-                        <span>清除过滤条件</span>
+                        <span>Clear filters</span>
                     </button>
                 </div>
                 <div class="filter-section-box">
@@ -239,11 +239,11 @@
                         <div class="filter-section-title">
                             <i class="fas fa-chevron-down filter-toggle-icon"></i>
                             <i class="fas fa-building"></i>
-                            <span>单位过滤</span>
+                            <span>Affiliation filter</span>
                         </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-affiliations">
-                        <!-- 单位标签将在这里动态生成 -->
+                        <!-- Affiliation tags will be rendered here -->
                     </div>
                 </div>
                 <div class="filter-section-box">
@@ -251,11 +251,11 @@
                         <div class="filter-section-title">
                             <i class="fas fa-chevron-down filter-toggle-icon"></i>
                             <i class="fas fa-globe"></i>
-                            <span>地区过滤</span>
+                            <span>Country filter</span>
                         </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-countries">
-                        <!-- 国家标签将在这里动态生成 -->
+                        <!-- Country tags will be rendered here -->
                     </div>
                 </div>
                 <div class="filter-section-box">
@@ -263,28 +263,28 @@
                         <div class="filter-section-title">
                             <i class="fas fa-chevron-down filter-toggle-icon"></i>
                             <i class="fas fa-key"></i>
-                            <span>关键词过滤</span>
+                            <span>Keyword filter</span>
                         </div>
                     </div>
                     <div class="filter-section-body" id="daily-arxiv-filter-keywords">
-                        <!-- 关键词标签将在这里动态生成 -->
+                        <!-- Keyword tags will be rendered here -->
                     </div>
                 </div>
             </div>
 
-            <!-- 论文网格 -->
+            <!-- Paper grid -->
             <div class="daily-arxiv-grid" id="daily-arxiv-grid">
-                <!-- 论文卡片将在这里动态生成 -->
+                <!-- Thesis cards will be dynamically generated here -->
             </div>
         </div>
     </div>
 
-    <!-- Setting 界面 -->
+    <!-- Settings View -->
     <div class="setting-view" id="setting-view" style="display: none;">
-        <!-- 左侧导航 -->
+        <!-- Left sidebar -->
         <div class="setting-sidebar">
             <div class="setting-sidebar-header">
-                <div class="setting-user-avatar" id="setting-user-avatar" title="点击上传头像">
+                <div class="setting-user-avatar" id="setting-user-avatar" title="Click to upload avatar">
                     <canvas id="setting-avatar-canvas" width="56" height="56"></canvas>
                     <div class="avatar-overlay">
                         <i class="fas fa-camera"></i>
@@ -292,8 +292,8 @@
                 </div>
                 <input type="file" id="avatar-upload" accept="image/*" style="display: none;">
                 <div class="setting-user-info">
-                    <span class="setting-user-name" id="setting-user-name" title="双击编辑名字">Paper Reader</span>
-                    <span class="setting-user-stats" id="setting-total-stats">0 篇论文 · 0h 阅读</span>
+                    <span class="setting-user-name" id="setting-user-name" title="Double-click to edit name">Paper Reader</span>
+                    <span class="setting-user-stats" id="setting-total-stats">0 papers · 0h reading</span>
                 </div>
             </div>
             <nav class="setting-sidebar-nav">
@@ -320,50 +320,50 @@
             </nav>
         </div>
 
-        <!-- 主内容区 -->
+        <!-- Main content -->
         <div class="setting-main">
-            <!-- Overview Panel - 默认显示 -->
+            <!-- Overview Panel - default -->
             <div class="setting-panel" id="setting-panel-overview" style="display:block;">
                 <div class="overview-header">
                     <h2>Reading Activity</h2>
                 </div>
                 
-                <!-- 统计卡片 -->
+                <!-- Stats cards -->
                 <div class="stats-cards">
                     <div class="stat-card">
                         <div class="stat-icon papers"><i class="fas fa-file-pdf"></i></div>
                         <div class="stat-content">
                             <span class="stat-value" id="stat-total-papers">0</span>
-                            <span class="stat-label">总论文数</span>
+                            <span class="stat-label">Total papers</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon time"><i class="fas fa-clock"></i></div>
                         <div class="stat-content">
                             <span class="stat-value" id="stat-total-time">0h</span>
-                            <span class="stat-label">总阅读时长</span>
+                            <span class="stat-label">Total reading time</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon papers"><i class="fas fa-file-pdf"></i></div>
                         <div class="stat-content">
                             <span class="stat-value" id="stat-week-papers">0</span>
-                            <span class="stat-label">本周阅读论文数</span>
+                            <span class="stat-label">Papers read this week</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon time"><i class="fas fa-clock"></i></div>
                         <div class="stat-content">
                             <span class="stat-value" id="stat-week-time">0h</span>
-                            <span class="stat-label">本周阅读时长</span>
+                            <span class="stat-label">Reading time this week</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 热力图 -->
+                <!-- Heatmap -->
                 <div class="heatmap-container">
                     <div class="heatmap-header">
-                        <span class="heatmap-contributions" id="heatmap-total">0 天有阅读活动</span>
+                        <span class="heatmap-contributions" id="heatmap-total">0 days with reading activity</span>
                         <div class="heatmap-year-selector">
                             <button class="year-btn" id="year-prev"><i class="fas fa-chevron-left"></i></button>
                             <span class="year-display" id="heatmap-year">2025</span>
@@ -383,7 +383,7 @@
                     </div>
                     <div class="heatmap-footer">
                         <span class="heatmap-legend-label">Less</span>
-                        <div class="heatmap-legend" id="heatmap-legend" title="点击选择配色方案">
+                        <div class="heatmap-legend" id="heatmap-legend" title="Click to choose a color scheme">
                             <span class="heatmap-level" data-level="0"></span>
                             <span class="heatmap-level" data-level="1"></span>
                             <span class="heatmap-level" data-level="2"></span>
@@ -391,7 +391,7 @@
                             <span class="heatmap-level" data-level="4"></span>
                         </div>
                         <span class="heatmap-legend-label">More</span>
-                        <!-- 色系选择下拉框 -->
+                        <!-- Color scheme dropdown -->
                         <div class="color-scheme-dropdown" id="color-scheme-dropdown">
                             <div class="color-scheme-option" data-scheme="green">
                                 <span class="scheme-preview green"></span>
@@ -417,11 +417,11 @@
                     </div>
                 </div>
 
-                <!-- 最近阅读 -->
+                <!-- Recent reading -->
                 <div class="recent-activity">
-                    <h3><i class="fas fa-history"></i> 最近阅读</h3>
+                    <h3><i class="fas fa-history"></i> Recent Reading</h3>
                     <div class="recent-list" id="recent-activity-list">
-                        <!-- 动态填充 -->
+                        <!-- Filled dynamically -->
                     </div>
                 </div>
             </div>
@@ -430,43 +430,43 @@
             <div class="setting-panel" id="setting-panel-agentic" style="display:none;">
                 <div class="panel-header">
                     <h2><i class="fas fa-robot"></i> Agentic Settings</h2>
-                    <p>AI 功能配置（包括翻译、解读、Daily arXiv 等）</p>
+                    <p>AI feature configuration (translation, analysis, Daily arXiv, etc.)</p>
                 </div>
                 
-                <!-- LLM API 配置 -->
+                <!-- LLM API configuration -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-brain"></i>
-                        <span>LLM API 配置</span>
+                        <span>LLM API Configuration</span>
                     </div>
                     <div class="setting-card-body">
                         <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
                             <i class="fas fa-info-circle"></i> 
-                            统一的 LLM API 配置，用于 AI 翻译、AI 解读、Daily arXiv 机构提取、摘要生成等所有 AI 功能
+                            Unified LLM API configuration used for AI translation, AI analysis, Daily arXiv institution extraction, summary generation, and all other AI features.
                         </p>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="llm-model">Model Name</label>
-                                <small>LLM 模型名称</small>
+                                <small>LLM model name</small>
                             </div>
                             <input type="text" id="llm-model" placeholder="ai_server/Qwen3-4B-Instruct-2507" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="llm-base-url">Base URL</label>
-                                <small>OpenAI 兼容的 API 服务地址</small>
+                                <small>OpenAI-compatible API base URL</small>
                             </div>
                             <input type="text" id="llm-base-url" placeholder="http://0.0.0.0:6002/v1" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="llm-api-key">API Key</label>
-                                <small>API 访问密钥</small>
+                                <small>API access key</small>
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <input type="password" id="llm-api-key" placeholder="token-abc123" class="setting-input" style="width: 300px; max-width: 300px;" />
-                                <button id="test-llm-api" class="btn btn-secondary" style="white-space: nowrap;" title="测试 LLM API 连接">
-                                    <i class="fas fa-vial"></i> 测试
+                                <button id="test-llm-api" class="btn btn-secondary" style="white-space: nowrap;" title="Test LLM API connection">
+                                    <i class="fas fa-vial"></i> Test
                                 </button>
                             </div>
                         </div>
@@ -474,26 +474,26 @@
                     </div>
                 </div>
 
-                <!-- PDF 解析服务配置 -->
+                <!-- PDF parsing service configuration -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-file-pdf"></i>
-                        <span>PDF 解析服务</span>
+                        <span>PDF Parsing Service</span>
                     </div>
                     <div class="setting-card-body">
                         <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
                             <i class="fas fa-info-circle"></i> 
-                            用于 AI 解读功能，将 PDF 解析为 Markdown 格式
+                            Used by AI analysis to convert PDF to Markdown format.
                         </p>
                         <div class="setting-row">
                             <div class="setting-info">
                                 <label for="mineru-server-url">MinerU Server URL</label>
-                                <small>PDF 解析服务地址</small>
+                                <small>PDF parsing service URL</small>
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <input type="text" id="mineru-server-url" placeholder="http://0.0.0.0:6002" class="setting-input" style="width: 300px; max-width: 300px;" />
-                                <button id="test-mineru-api" class="btn btn-secondary" style="white-space: nowrap;" title="测试 MinerU API 连接">
-                                    <i class="fas fa-vial"></i> 测试
+                                <button id="test-mineru-api" class="btn btn-secondary" style="white-space: nowrap;" title="Test MinerU API connection">
+                                    <i class="fas fa-vial"></i> Test
                                 </button>
                             </div>
                         </div>
@@ -501,22 +501,22 @@
                     </div>
                 </div>
 
-                <!-- AI 解读提示词配置 -->
+                <!-- AI analysis prompt configuration -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-comment-dots"></i>
-                        <span>AI 解读提示词</span>
+                        <span>AI Analysis Prompt</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row full-width">
                             <div class="setting-info">
                                 <label for="analysis-system-prompt">System Prompt</label>
-                                <small>AI 解读的系统提示词（下方显示的是当前使用的提示词，可以修改）</small>
+                                <small>System prompt for AI analysis (current prompt is shown below, you can modify it)</small>
                             </div>
-                            <textarea id="analysis-system-prompt" rows="12" placeholder="加载中..." class="setting-textarea"></textarea>
+                            <textarea id="analysis-system-prompt" rows="12" placeholder="Loading..." class="setting-textarea"></textarea>
                             <div style="margin-top: 8px; font-size: 12px; color: #666;">
                                 <i class="fas fa-info-circle"></i> 
-                                <span id="prompt-status-text">提示：修改后将保存为自定义提示词</span>
+                                <span id="prompt-status-text">Note: changes will be saved as a custom prompt.</span>
                             </div>
                         </div>
                     </div>
@@ -529,31 +529,31 @@
             <div class="setting-panel" id="setting-panel-daily-arxiv" style="display:none;">
                 <div class="panel-header">
                     <h2><img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="panel-header-arxiv-icon"> Daily arXiv Settings</h2>
-                    <p>配置每日 arXiv 论文推送</p>
+                    <p>Configure daily arXiv paper fetching</p>
                 </div>
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-tags"></i>
-                        <span>arXiv 分区</span>
+                        <span>arXiv Categories</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row full-width">
                             <div class="setting-info">
-                                <label>已配置的分区</label>
-                                <small>添加您感兴趣的 arXiv 分区，如 cs.CV、cs.AI、cs.LG 等</small>
+                                <label>Configured categories</label>
+                                <small>Add arXiv categories you care about, e.g., cs.CV, cs.AI, cs.LG, etc.</small>
                             </div>
                             <div class="daily-arxiv-category-list" id="daily-arxiv-category-list">
-                                <!-- 分区标签将在这里动态生成 -->
+                                <!-- Category tags will be rendered here -->
                             </div>
                             <div class="daily-arxiv-add-category">
-                                <input type="text" id="daily-arxiv-new-category" placeholder="输入分区名称，如 cs.CV" class="setting-input" />
+                                <input type="text" id="daily-arxiv-new-category" placeholder="Enter category name, e.g., cs.CV" class="setting-input" />
                                 <button class="btn btn-secondary" onclick="addDailyArxivCategory()">
-                                    <i class="fas fa-plus"></i> 添加
+                                    <i class="fas fa-plus"></i> Add
                                 </button>
                             </div>
                         </div>
                         <div class="arxiv-category-suggestions">
-                            <span class="suggestion-label">常用分区：</span>
+                            <span class="suggestion-label">Common categories:</span>
                             <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.CV')">cs.CV</button>
                             <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.AI')">cs.AI</button>
                             <button class="suggestion-tag" onclick="addDailyArxivCategoryQuick('cs.LG')">cs.LG</button>
@@ -566,20 +566,20 @@
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-sliders-h"></i>
-                        <span>抓取设置</span>
+                        <span>Fetch settings</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="daily-arxiv-retention-days">论文保留天数</label>
-                                <small>超过此天数的论文将被自动清理</small>
+                                <label for="daily-arxiv-retention-days">Retention days</label>
+                                <small>Papers older than this days will be automatically cleaned up</small>
                             </div>
                             <input type="number" id="daily-arxiv-retention-days" min="1" max="30" value="7" class="setting-input" />
                         </div>
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="daily-arxiv-check-interval">检查间隔（分钟）</label>
-                                <small>自动检查新论文的时间间隔</small>
+                                <label for="daily-arxiv-check-interval">Check interval (minutes)</label>
+                                <small>Interval for automatically checking new papers</small>
                             </div>
                             <input type="number" id="daily-arxiv-check-interval" min="5" max="60" value="10" class="setting-input" />
                         </div>
@@ -588,26 +588,26 @@
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-key"></i>
-                        <span>关键词列表</span>
+                        <span>Keyword list</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="daily-arxiv-max-keywords">最多关键词数</label>
-                                <small>AI 提取关键词时的最大数量（1-3）</small>
+                                <label for="daily-arxiv-max-keywords">Max keywords</label>
+                                <small>Maximum number of keywords extracted by AI (1-3)</small>
                             </div>
                             <input type="number" id="daily-arxiv-max-keywords" min="1" max="3" value="1" class="setting-input" />
                         </div>
                         <div class="setting-row full-width">
                             <div class="setting-info">
-                                <label>关键词列表</label>
-                                <small>用于 AI 提取论文关键词时的候选列表</small>
+                                <label>Keyword list</label>
+                                <small>Candidate list used when AI extracts keywords for papers</small>
                             </div>
                             <div class="daily-arxiv-keyword-list" id="daily-arxiv-keyword-list">
-                                <!-- 关键词标签将在这里动态生成 -->
+                                <!-- Keyword tags will be rendered here -->
                             </div>
                             <div class="daily-arxiv-add-keyword">
-                                <input type="text" id="daily-arxiv-new-keyword" placeholder="输入关键词，按回车添加" class="setting-input" />
+                                <input type="text" id="daily-arxiv-new-keyword" placeholder="Enter keyword, press Enter to add" class="setting-input" />
                             </div>
                         </div>
                     </div>
@@ -615,19 +615,19 @@
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-university"></i>
-                        <span>额外的机构配置</span>
+                        <span>Additional institution configuration</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="setting-row full-width">
                             <div class="setting-info">
-                                <label>已配置的额外机构</label>
-                                <small>双击机构标签可编辑缩写和全称变体</small>
+                                <label>Configured institutions</label>
+                                <small>Double-click an institution tag to edit abbreviation and full-name variants</small>
                             </div>
                             <div class="custom-institution-list" id="custom-institution-list">
-                                <!-- 自定义机构标签将在这里动态生成 -->
+                                <!-- Custom institution tags will be rendered here -->
                             </div>
                             <button class="btn btn-secondary" onclick="showAddInstitutionModal()" style="margin-top: 12px;">
-                                <i class="fas fa-plus"></i> 添加机构
+                                <i class="fas fa-plus"></i> Add institution
                             </button>
                         </div>
                     </div>
@@ -638,134 +638,134 @@
             <div class="setting-panel" id="setting-panel-import" style="display:none;">
                 <div class="panel-header">
                     <h2><i class="fas fa-file-import"></i> Import Data</h2>
-                    <p>从 Zotero 或其他来源导入论文库</p>
+                    <p>Import your paper library from Zotero or other sources</p>
                 </div>
                 
-                <!-- 导入类型选择 -->
+                <!-- Import type tabs -->
                 <div class="import-type-tabs">
                     <button class="import-type-tab active" data-import-type="zotero">
                         <i class="fas fa-book"></i>
-                        从 Zotero 导入
+                        Import from Zotero
                     </button>
                     <button class="import-type-tab" data-import-type="export">
                         <i class="fas fa-file-archive"></i>
-                        从导出文件导入
+                        Import from export file
                     </button>
                 </div>
                 
-                <!-- Zotero 导入 -->
+                <!-- Zotero import -->
                 <div id="import-zotero-panel" class="import-content-panel">
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-upload"></i>
-                        <span>上传 RDF 文件</span>
+                        <span>Upload RDF file</span>
                     </div>
                     <div class="setting-card-body">
-                        <div class="import-options">
-                            <div class="import-target-category">
-                                <label><i class="fas fa-folder"></i> 导入到目录：</label>
-                                <select id="import-target-category">
-                                    <option value="">根目录（默认）</option>
-                                    <!-- 目录列表将通过 JS 动态填充 -->
-                                </select>
-                                <small>Zotero 分类结构将在所选目录下创建</small>
+                            <div class="import-options">
+                                <div class="import-target-category">
+                                    <label><i class="fas fa-folder"></i> Import into folder:</label>
+                                    <select id="import-target-category">
+                                        <option value="">Root (default)</option>
+                                        <!-- Category list will be filled by JS -->
+                                    </select>
+                                    <small>Zotero collections will be created under the selected folder</small>
                             </div>
                         </div>
                         
                         <div class="import-drop-zone" id="import-drop-zone">
                             <div class="drop-zone-content" id="drop-zone-content">
                                 <i class="fas fa-cloud-upload-alt"></i>
-                                <p>拖拽 Zotero RDF 文件到此处</p>
-                                <span>或者 <a href="#" onclick="document.getElementById('rdf-file-input').click(); return false;">点击选择文件</a></span>
-                                <small>从 Zotero 导出：文件 → 导出文献库 → 选择 RDF 格式</small>
+                                <p>Drag Zotero RDF file here</p>
+                                <span>or <a href="#" onclick="document.getElementById('rdf-file-input').click(); return false;">click to choose a file</a></span>
+                                <small>Export from Zotero: File → Export Library → choose RDF format</small>
                             </div>
                             <input type="file" id="rdf-file-input" accept=".rdf" style="display: none;">
                         </div>
                         
-                        <!-- 解析进度 -->
+                        <!-- Parsing progress -->
                         <div class="import-progress-container" id="import-progress-container" style="display: none;">
                             <div class="import-status">
                                 <i class="fas fa-spinner fa-spin" id="import-status-icon"></i>
-                                <span id="import-status-text">正在解析 RDF 文件...</span>
-                                <!-- 取消导入按钮已隐藏 -->
+                                <span id="import-status-text">Parsing RDF file...</span>
+                                <!-- Cancel import button is hidden -->
                                 <!-- <button class="btn btn-danger btn-sm" id="cancel-import-btn" onclick="cancelImport()" style="margin-left: 10px; display: none;">
-                                    <i class="fas fa-times"></i> 取消导入
+                                    <i class="fas fa-times"></i> Cancel import
                                 </button> -->
                             </div>
                             <div class="import-progress-bar">
                                 <div class="import-progress-fill" id="import-progress-fill" style="width: 0%"></div>
                             </div>
                             <div class="import-progress-detail" id="import-progress-detail">
-                                准备中...
+                                Preparing...
                             </div>
                         </div>
                         
-                        <!-- 导入结果 -->
+                        <!-- Import result -->
                         <div class="import-result" id="import-result" style="display: none;">
                             <div class="import-result-summary">
                                 <div class="result-stat success">
                                     <i class="fas fa-check-circle"></i>
                                     <span id="import-success-count">0</span>
-                                    <label>成功导入</label>
+                                    <label>Imported</label>
                                 </div>
                                 <div class="result-stat failed">
                                     <i class="fas fa-times-circle"></i>
                                     <span id="import-failed-count">0</span>
-                                    <label>导入失败</label>
+                                    <label>Failed</label>
                                 </div>
                                 <div class="result-stat skipped">
                                     <i class="fas fa-forward"></i>
                                     <span id="import-skipped-count">0</span>
-                                    <label>已跳过</label>
+                                    <label>Skipped</label>
                                 </div>
                                 <div class="result-stat duplicate">
                                     <i class="fas fa-clone"></i>
                                     <span id="import-duplicate-count">0</span>
-                                    <label>重复跳过</label>
+                                    <label>Duplicates</label>
                                 </div>
                             </div>
                             <div class="import-result-detail" id="import-result-detail" style="display: none;">
-                                <p><i class="fas fa-folder" style="color: #8b949e;"></i> 其中 <strong id="import-others-count">0</strong> 篇因无分类进入 Others 目录</p>
+                                <p><i class="fas fa-folder" style="color: #8b949e;"></i> <strong id="import-others-count">0</strong> papers without categories were placed into the "Others" folder.</p>
                             </div>
                             <div class="import-result-actions">
                                 <button class="btn btn-primary" onclick="resetImport()">
-                                    <i class="fas fa-redo"></i> 重新导入
+                                    <i class="fas fa-redo"></i> Import again
                                 </button>
                                 <button class="btn btn-secondary" onclick="switchToOverview()">
-                                    <i class="fas fa-arrow-left"></i> 返回概览
+                                    <i class="fas fa-arrow-left"></i> Back to Overview
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 导入说明 -->
+                <!-- Import instructions -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-info-circle"></i>
-                        <span>导入说明</span>
+                        <span>How to import</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="import-instructions">
                             <div class="instruction-step">
                                 <span class="step-number">1</span>
                                 <div class="step-content">
-                                    <strong>导出 Zotero 文献库</strong>
-                                    <p>在 Zotero 中选择「我的文库」，右键点击「导出文献库」，格式选择 <code>Zotero RDF</code>，得到 .rdf 文件</p>
+                                    <strong>Export Zotero library</strong>
+                                    <p>In Zotero, select "My Library", right-click and choose "Export Library", select <code>Zotero RDF</code> to get an .rdf file.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">2</span>
                                 <div class="step-content">
-                                    <strong>上传 RDF 文件</strong>
-                                    <p>将导出的 .rdf 文件拖拽到上方区域，系统会自动解析</p>
+                                    <strong>Upload RDF file</strong>
+                                    <p>Drag the exported .rdf file into the area above, the system will parse it automatically.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">3</span>
                                 <div class="step-content">
-                                    <strong>自动下载 PDF</strong>
-                                    <p>系统会根据论文信息从 arXiv 自动下载 PDF 文件</p>
+                                    <strong>Auto-download PDFs</strong>
+                                    <p>The system will automatically download PDFs from arXiv based on paper information.</p>
                                 </div>
                             </div>
                         </div>
@@ -773,23 +773,23 @@
                 </div>
                 </div>
                 
-                <!-- 从导出文件导入 -->
+                <!-- Import from export file -->
                 <div id="import-export-panel" class="import-content-panel" style="display:none;">
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-file-archive"></i>
-                        <span>上传导出文件</span>
+                        <span>Upload export file</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="export-info-box" style="margin-bottom: 20px;">
                             <i class="fas fa-info-circle"></i>
                             <div class="export-info-text">
-                                <p><strong>关于导出文件导入：</strong></p>
+                                <p><strong>About importing from export files:</strong></p>
                                 <ul>
-                                    <li>支持导入从 Export 功能生成的 ZIP 文件</li>
-                                    <li>将自动恢复论文、目录结构、翻译和解读</li>
-                                    <li>如果分类已存在，将自动合并</li>
-                                    <li>重复的论文将被跳过</li>
+                                    <li>Supports importing ZIP files generated by the Export feature.</li>
+                                    <li>Will automatically restore papers, folder structure, translations, and analyses.</li>
+                                    <li>If a category already exists, it will be merged automatically.</li>
+                                    <li>Duplicate papers will be skipped.</li>
                                 </ul>
                             </div>
                         </div>
@@ -797,17 +797,17 @@
                         <div class="import-drop-zone" id="export-import-drop-zone">
                             <div class="drop-zone-content" id="export-drop-zone-content">
                                 <i class="fas fa-cloud-upload-alt"></i>
-                                <p>拖拽导出的 ZIP 文件到此处</p>
-                                <span>或者 <a href="#" onclick="document.getElementById('export-file-input').click(); return false;">点击选择文件</a></span>
-                                <small>从 Export 功能生成的 ZIP 文件</small>
+                                <p>Drag exported ZIP file here</p>
+                                <span>or <a href="#" onclick="document.getElementById('export-file-input').click(); return false;">click to choose a file</a></span>
+                                <small>ZIP file generated by the Export feature</small>
                             </div>
                             <input type="file" id="export-file-input" accept=".zip" style="display: none;">
                         </div>
                         
-                        <!-- 导入进度 -->
+                        <!-- Import progress -->
                         <div id="export-import-progress-container" style="display:none; margin-top: 20px;">
                             <div class="import-progress-header">
-                                <span id="export-import-status-text">正在导入...</span>
+                                <span id="export-import-status-text">Importing...</span>
                                 <span id="export-import-progress-percent">0%</span>
                             </div>
                             <div class="import-progress-bar">
@@ -815,49 +815,49 @@
                             </div>
                             <div id="export-import-current-item" class="import-current-item"></div>
                             <div class="import-details" id="export-import-details">
-                                <span>成功: <strong id="export-import-success-count">0</strong></span>
-                                <span>失败: <strong id="export-import-failed-count">0</strong></span>
-                                <span>跳过: <strong id="export-import-skipped-count">0</strong></span>
-                                <span>重复: <strong id="export-import-duplicate-count">0</strong></span>
+                                <span>Success: <strong id="export-import-success-count">0</strong></span>
+                                <span>Failed: <strong id="export-import-failed-count">0</strong></span>
+                                <span>Skipped: <strong id="export-import-skipped-count">0</strong></span>
+                                <span>Duplicates: <strong id="export-import-duplicate-count">0</strong></span>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 导入说明 -->
+                <!-- Usage instructions -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-info-circle"></i>
-                        <span>使用说明</span>
+                        <span>Usage</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="import-instructions">
                             <div class="instruction-step">
                                 <span class="step-number">1</span>
                                 <div class="step-content">
-                                    <strong>准备导出文件</strong>
-                                    <p>确保你有一个从 Export 功能生成的 ZIP 文件。该文件包含完整的论文库备份。</p>
+                                    <strong>Prepare export file</strong>
+                                    <p>Make sure you have a ZIP file generated by the Export feature. This file contains a backup of your paper library.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">2</span>
                                 <div class="step-content">
-                                    <strong>上传 ZIP 文件</strong>
-                                    <p>将导出的 ZIP 文件拖拽到上方区域，或点击「选择文件」按钮选择文件。</p>
+                                    <strong>Upload ZIP file</strong>
+                                    <p>Drag the exported ZIP file into the area above or click "Choose file" to select it.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">3</span>
                                 <div class="step-content">
-                                    <strong>自动导入</strong>
-                                    <p>系统将自动解析 ZIP 文件并导入所有论文、目录结构、翻译和解读。导入过程可能需要一些时间。</p>
+                                    <strong>Automatic import</strong>
+                                    <p>The system will automatically parse the ZIP file and import all papers, folder structure, translations, and analyses. This may take some time.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">4</span>
                                 <div class="step-content">
-                                    <strong>查看结果</strong>
-                                    <p>导入完成后，可以在主界面查看导入的论文和目录结构。</p>
+                                    <strong>View results</strong>
+                                    <p>After import completes, you can view the imported papers and folder structure in the main interface.</p>
                                 </div>
                             </div>
                         </div>
@@ -870,43 +870,43 @@
             <div class="setting-panel" id="setting-panel-export" style="display:none;">
                 <div class="panel-header">
                     <h2><i class="fas fa-file-export"></i> Export Data</h2>
-                    <p>导出论文库数据，可在其他服务器或新安装中恢复</p>
+                    <p>Export your paper library data to restore on another server or installation</p>
                 </div>
                 
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-box-archive"></i>
-                        <span>导出说明</span>
+                        <span>Export notes</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="export-info-box export-warning-box">
                             <i class="fas fa-exclamation-triangle"></i>
                             <div>
-                                <strong>浏览器限制说明</strong>
-                                <p>由于浏览器对文件上传大小的限制，导出功能仅导出 <strong>JSON 元数据和目录结构</strong>，不包含 PDF 文件、AI 翻译和 AI 解读。</p>
-                                <p>导入时系统会自动从 arXiv 重新下载 PDF 文件。</p>
+                                <strong>Browser limitations</strong>
+                                <p>Due to browser upload size limits, Export only includes <strong>JSON metadata and folder structure</strong>, not PDF files, AI translations, or AI analyses.</p>
+                                <p>When importing, the system will re-download PDFs from arXiv.</p>
                             </div>
                         </div>
                         
                         <div class="export-info-box">
                             <i class="fas fa-server"></i>
                             <div>
-                                <strong>完整数据迁移方案</strong>
-                                <p>如需迁移包含 PDF、翻译、解读的完整数据，请直接在服务器端复制整个 <code>papers</code> 目录：</p>
-                                <code id="papers-dir-path" style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 4px; word-break: break-all;">加载中...</code>
+                                <strong>Full data migration</strong>
+                                <p>To migrate full data including PDFs, translations, and analyses, copy the entire <code>papers</code> directory on the server:</p>
+                                <code id="papers-dir-path" style="display: block; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 4px; word-break: break-all;">Loading...</code>
                             </div>
                         </div>
                         
                         <div class="export-info-box">
                             <i class="fas fa-info-circle"></i>
                             <div class="export-info-text">
-                                <p><strong>导出内容包括：</strong></p>
+                                <p><strong>Export includes:</strong></p>
                                 <ul>
-                                    <li>完整的目录结构</li>
-                                    <li>所有论文的元数据（标题、作者、摘要等）</li>
-                                    <li>待读列表</li>
-                                    <li>阅读历史记录</li>
-                                    <li>用户设置（头像、偏好等）</li>
+                                    <li>Full folder/category structure</li>
+                                    <li>All paper metadata (title, authors, abstract, etc.)</li>
+                                    <li>Reading list</li>
+                                    <li>Reading history</li>
+                                    <li>User settings (avatar, preferences, etc.)</li>
                                 </ul>
                             </div>
                         </div>
@@ -914,14 +914,14 @@
                         <div class="export-actions">
                             <button id="btn-start-export" class="btn btn-primary">
                                 <i class="fas fa-download"></i>
-                                开始导出
+                                Start export
                             </button>
                         </div>
                         
-                        <!-- 导出进度 -->
+                        <!-- Export progress -->
                         <div id="export-progress-container" style="display:none; margin-top: 20px;">
                             <div class="export-progress-header">
-                                <span id="export-status-text">正在导出...</span>
+                                <span id="export-status-text">Exporting...</span>
                                 <span id="export-progress-text">0 / 0</span>
                             </div>
                             <div class="export-progress-bar">
@@ -931,44 +931,44 @@
                             <div class="export-actions" style="margin-top: 15px;">
                                 <button id="btn-download-export" class="btn btn-success" style="display:none;">
                                     <i class="fas fa-file-download"></i>
-                                    下载导出文件
+                                    Download export file
                                 </button>
                                 <button id="btn-cancel-export" class="btn btn-secondary">
                                     <i class="fas fa-times"></i>
-                                    取消导出
+                                    Cancel export
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 导出说明 -->
+                <!-- Export instructions -->
                 <div class="setting-card">
                     <div class="setting-card-header">
                         <i class="fas fa-info-circle"></i>
-                        <span>使用说明</span>
+                        <span>Usage</span>
                     </div>
                     <div class="setting-card-body">
                         <div class="import-instructions">
                             <div class="instruction-step">
                                 <span class="step-number">1</span>
                                 <div class="step-content">
-                                    <strong>开始导出</strong>
-                                    <p>点击「开始导出」按钮，系统将收集所有论文的 JSON 元数据和目录结构并打包成 ZIP 文件。</p>
+                                    <strong>Start export</strong>
+                                    <p>Click "Start export" and the system will collect all paper JSON metadata and folder structure into a ZIP file.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">2</span>
                                 <div class="step-content">
-                                    <strong>下载并保存</strong>
-                                    <p>导出完成后，点击「下载导出文件」按钮。ZIP 文件包含论文元数据、分类结构和配置信息。</p>
+                                    <strong>Download and save</strong>
+                                    <p>After export finishes, click "Download export file". The ZIP contains paper metadata, category structure, and configuration.</p>
                                 </div>
                             </div>
                             <div class="instruction-step">
                                 <span class="step-number">3</span>
                                 <div class="step-content">
-                                    <strong>导入到新环境</strong>
-                                    <p>在新环境中，进入 Import 面板，上传导出的 ZIP 文件。系统会自动恢复目录结构，并从 arXiv 重新下载 PDF 文件。</p>
+                                    <strong>Import into a new environment</strong>
+                                    <p>In a new environment, go to the Import panel and upload the exported ZIP file. The system will restore the folder structure and re-download PDFs from arXiv.</p>
                                 </div>
                             </div>
                         </div>
@@ -978,75 +978,75 @@
         </div>
     </div>
 
-    <!-- 模态框 -->
+    <!-- Modal -->
     <div id="modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h4 id="modal-title">标题</h4>
+                <h4 id="modal-title">Title</h4>
                 <span class="close">&times;</span>
             </div>
             <div class="modal-body" id="modal-body">
-                <!-- 模态框内容 -->
+                <!-- Modal content -->
             </div>
             <div class="modal-footer">
-                <button id="modal-cancel" class="btn btn-secondary">取消</button>
-                <button id="modal-confirm" class="btn btn-primary">确认</button>
+                <button id="modal-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="modal-confirm" class="btn btn-primary">Confirm</button>
             </div>
         </div>
     </div>
 
-    <!-- 分类右键菜单 -->
+    <!-- Category context menu -->
     <div id="context-menu" class="context-menu">
         <ul>
-            <li id="rename-category"><i class="fas fa-edit"></i> 重命名</li>
-            <li id="add-subcategory"><i class="fas fa-plus"></i> 添加子分类</li>
-            <li id="toggle-pin-category"><i class="fas fa-thumbtack"></i> <span id="pin-text">置顶</span></li>
+            <li id="rename-category"><i class="fas fa-edit"></i> Rename</li>
+            <li id="add-subcategory"><i class="fas fa-plus"></i> Add subcategory</li>
+            <li id="toggle-pin-category"><i class="fas fa-thumbtack"></i> <span id="pin-text">Pin</span></li>
             <li id="change-icon-color" class="has-submenu">
-                <i class="fas fa-palette"></i> 更换图标颜色
+                <i class="fas fa-palette"></i> Change icon color
                 <i class="fas fa-chevron-right submenu-arrow"></i>
                 <div class="color-submenu">
-                    <div class="color-option" data-color="#7d4a9d" style="background: linear-gradient(135deg, #e8d9f2 0%, #dfc8ec 50%, #d6b7e6 100%);" title="紫色（默认）"></div>
-                    <div class="color-option" data-color="#5b8fd8" style="background: linear-gradient(135deg, #d0e8f8 0%, #b8daf2 50%, #a5d0ed 100%);" title="蓝色"></div>
-                    <div class="color-option" data-color="#66bb6a" style="background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 50%, #81c784 100%);" title="绿色"></div>
-                    <div class="color-option" data-color="#ef5350" style="background: linear-gradient(135deg, #ffcdd2 0%, #ef9a9a 50%, #e57373 100%);" title="红色"></div>
-                    <div class="color-option" data-color="#ab47bc" style="background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #ce93d8 100%);" title="深紫色"></div>
-                    <div class="color-option" data-color="#ffa726" style="background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 50%, #ffb74d 100%);" title="橙色"></div>
-                    <div class="color-option" data-color="#26c6da" style="background: linear-gradient(135deg, #b2ebf2 0%, #80deea 50%, #4dd0e1 100%);" title="青色"></div>
-                    <div class="color-option" data-color="#ec407a" style="background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #f48fb1 100%);" title="粉色"></div>
-                    <div class="color-option" data-color="#78909c" style="background: linear-gradient(135deg, #cfd8dc 0%, #b0bec5 50%, #90a4ae 100%);" title="灰色"></div>
+                    <div class="color-option" data-color="#7d4a9d" style="background: linear-gradient(135deg, #e8d9f2 0%, #dfc8ec 50%, #d6b7e6 100%);" title="Purple (default)"></div>
+                    <div class="color-option" data-color="#5b8fd8" style="background: linear-gradient(135deg, #d0e8f8 0%, #b8daf2 50%, #a5d0ed 100%);" title="Blue"></div>
+                    <div class="color-option" data-color="#66bb6a" style="background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 50%, #81c784 100%);" title="Green"></div>
+                    <div class="color-option" data-color="#ef5350" style="background: linear-gradient(135deg, #ffcdd2 0%, #ef9a9a 50%, #e57373 100%);" title="Red"></div>
+                    <div class="color-option" data-color="#ab47bc" style="background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #ce93d8 100%);" title="Deep purple"></div>
+                    <div class="color-option" data-color="#ffa726" style="background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 50%, #ffb74d 100%);" title="Orange"></div>
+                    <div class="color-option" data-color="#26c6da" style="background: linear-gradient(135deg, #b2ebf2 0%, #80deea 50%, #4dd0e1 100%);" title="Cyan"></div>
+                    <div class="color-option" data-color="#ec407a" style="background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #f48fb1 100%);" title="Pink"></div>
+                    <div class="color-option" data-color="#78909c" style="background: linear-gradient(135deg, #cfd8dc 0%, #b0bec5 50%, #90a4ae 100%);" title="Gray"></div>
                 </div>
             </li>
             <li class="menu-divider"></li>
-            <li id="export-bibtex"><i class="fas fa-download"></i> 导出 BibTeX</li>
-            <li id="copy-arxiv-urls"><i class="fas fa-copy"></i> 复制 arXiv URL</li>
-            <li id="delete-category"><i class="fas fa-trash"></i> 删除</li>
+            <li id="export-bibtex"><i class="fas fa-download"></i> Export BibTeX</li>
+            <li id="copy-arxiv-urls"><i class="fas fa-copy"></i> Copy arXiv URLs</li>
+            <li id="delete-category"><i class="fas fa-trash"></i> Delete</li>
         </ul>
     </div>
 
-    <!-- 论文右键菜单 -->
+    <!-- Paper context menu -->
     <div id="paper-context-menu" class="context-menu">
         <ul>
-            <li id="paper-refresh-metadata"><i class="fas fa-sync-alt"></i> 重新抓取元数据</li>
-            <li id="paper-translate"><i class="fas fa-language"></i> 翻译为中文</li>
-            <li id="paper-analyze"><i class="fas fa-brain"></i> AI解读</li>
-            <li id="paper-delete"><i class="fas fa-trash"></i> 删除论文</li>
+            <li id="paper-refresh-metadata"><i class="fas fa-sync-alt"></i> Refresh metadata</li>
+            <li id="paper-translate"><i class="fas fa-language"></i> Translate to Chinese</li>
+            <li id="paper-analyze"><i class="fas fa-brain"></i> AI Analysis</li>
+            <li id="paper-delete"><i class="fas fa-trash"></i> Delete paper</li>
         </ul>
     </div>
 
-    <!-- 加载指示器 -->
+    <!-- Global loading indicator -->
     <div id="loading" class="loading">
         <div class="spinner"></div>
-        <p>处理中...</p>
+        <p>Processing...</p>
     </div>
 
-    <!-- 机构编辑模态框 - 全新设计 -->
+    <!-- Institution edit modal -->
     <div id="institution-modal" class="institution-modal" style="display: none;">
         <div class="institution-modal-overlay" onclick="closeInstitutionModal()"></div>
         <div class="institution-modal-container">
             <div class="institution-modal-header">
                 <div class="institution-modal-title-group">
                     <i class="fas fa-university"></i>
-                    <h3 id="institution-modal-title">添加机构映射</h3>
+                    <h3 id="institution-modal-title">Add institution mapping</h3>
                 </div>
                 <button class="institution-modal-close" onclick="closeInstitutionModal()">
                     <i class="fas fa-times"></i>
@@ -1054,42 +1054,42 @@
             </div>
             
             <div class="institution-modal-body">
-                <!-- 缩写输入 -->
+                <!-- Abbreviation input -->
                 <div class="institution-form-group">
                     <label class="institution-label">
                         <i class="fas fa-tag"></i>
-                        标准缩写
+                        Standard abbreviation
                     </label>
                     <input 
                         type="text" 
                         id="modal-institution-abbr" 
                         class="institution-input" 
-                        placeholder="例如：ZJU、MIT、THU"
+                        placeholder="e.g., ZJU, MIT, THU"
                         autocomplete="off"
                     />
-                    <span class="institution-help">用于在过滤器中显示的简短名称</span>
+                    <span class="institution-help">Short name shown in filters</span>
                 </div>
                 
-                <!-- 变体列表 -->
+                <!-- Variant list -->
                 <div class="institution-form-group">
                     <label class="institution-label">
                         <i class="fas fa-list"></i>
-                        机构全称变体
-                        <span class="variant-count" id="variant-count">0 个</span>
+                        Full-name variants
+                        <span class="variant-count" id="variant-count">0 items</span>
                     </label>
                     <div class="institution-variants-container" id="modal-variants-list">
-                        <!-- 变体标签将在这里显示 -->
+                        <!-- Variant tags will be shown here -->
                     </div>
                 </div>
                 
-                <!-- 添加变体输入 -->
+                <!-- Add variant input -->
                 <div class="institution-form-group">
                     <div class="institution-add-variant">
                         <input 
                             type="text" 
                             id="modal-new-variant" 
                             class="institution-input" 
-                            placeholder="输入机构全称（如 Zhejiang University）后按回车"
+                            placeholder="Type full institution name (e.g., Zhejiang University) and press Enter"
                             autocomplete="off"
                         />
                         <button class="institution-add-btn" onclick="addVariantInModal()">
@@ -1106,27 +1106,27 @@
                     onclick="deleteInstitutionInModal()" 
                     style="display: none;">
                     <i class="fas fa-trash-alt"></i>
-                    删除机构
+                    Delete institution
                 </button>
                 <div class="institution-modal-actions">
                     <button class="institution-btn institution-btn-cancel" onclick="closeInstitutionModal()">
-                        取消
+                        Cancel
                     </button>
                     <button class="institution-btn institution-btn-primary" onclick="saveInstitutionInModal()">
                         <i class="fas fa-check"></i>
-                        保存
+                        Save
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 新手指引模态框 -->
+    <!-- Onboarding modal -->
     <div id="onboarding-modal" class="onboarding-modal" style="display: none;">
         <div class="onboarding-overlay" onclick="closeOnboardingModal()"></div>
         <div class="onboarding-card">
             <div class="onboarding-header">
-                <h2><i class="fas fa-graduation-cap"></i> 欢迎使用 Resophy</h2>
+                <h2><i class="fas fa-graduation-cap"></i> Welcome to Resophy</h2>
                 <button class="onboarding-close" onclick="closeOnboardingModal()">
                     <i class="fas fa-times"></i>
                 </button>
@@ -1137,8 +1137,8 @@
                         <i class="fas fa-cog"></i>
                     </div>
                     <div class="onboarding-step-content">
-                        <h3>1. 配置 AI 功能</h3>
-                        <p>点击 <strong>右上角头像 → Agentic</strong> 设置 LLM API 和 MinerU 服务，这是使用 AI 翻译，AI 解读，Daily Arxiv 的前提。</p>
+                        <h3>1. Configure AI features</h3>
+                        <p>Click <strong>top-right avatar → Agentic</strong> to set LLM API and MinerU services. This is required for AI translation, AI analysis, and Daily arXiv.</p>
                     </div>
                 </div>
                 <div class="onboarding-step">
@@ -1146,8 +1146,8 @@
                         <i class="fas fa-file-pdf"></i>
                     </div>
                     <div class="onboarding-step-content">
-                        <h3>2. 基本操作</h3>
-                        <p>上传 PDF 论文、创建分类管理、使用搜索功能查找论文。点击论文可查看详情，双击打开阅读器。</p>
+                        <h3>2. Basic operations</h3>
+                        <p>Upload PDF papers, create folders to organize them, and use search to find papers. Click a paper to view details, double-click to open the reader.</p>
                     </div>
                 </div>
                 <div class="onboarding-step">
@@ -1156,7 +1156,7 @@
                     </div>
                     <div class="onboarding-step-content">
                         <h3>3. Agentic Tools</h3>
-                        <p>支持 <strong>AI 解读</strong> 和 <strong>AI 翻译</strong> 功能。AI 解读可将论文转换为详细的 Markdown 格式解读文章，AI 翻译可生成中英双语 PDF。在论文列表中选择论文，点击右键菜单或使用批量操作即可使用。</p>
+                        <p>Supports <strong>AI analysis</strong> and <strong>AI translation</strong>. AI analysis converts a paper into a detailed Markdown interpretation; AI translation generates bilingual (EN-ZH) PDFs. In the paper list, select papers and use the context menu or batch actions.</p>
                     </div>
                 </div>
                 <div class="onboarding-step">
@@ -1165,7 +1165,7 @@
                     </div>
                     <div class="onboarding-step-content">
                         <h3>4. Daily arXiv</h3>
-                        <p>自动抓取每日最新论文，支持按机构、地区、关键词过滤。感兴趣的论文可一键导入到主库。</p>
+                        <p>Automatically fetches the latest arXiv papers, with filters by institution, country, and keywords. You can import interesting papers into your main library with one click.</p>
                     </div>
                 </div>
                 <div class="onboarding-step">
@@ -1173,18 +1173,18 @@
                         <i class="fas fa-file-import"></i>
                     </div>
                     <div class="onboarding-step-content">
-                        <h3>5. 从 Zotero 导入</h3>
-                        <p>支持从 Zotero 导入论文库。前往 <strong>右上角头像 → Import</strong>，上传 Zotero 导出的 RDF 文件，系统会自动下载 PDF 并恢复分类结构。</p>
+                        <h3>5. Import from Zotero</h3>
+                        <p>You can import your Zotero library. Go to <strong>top-right avatar → Import</strong>, upload the RDF file exported from Zotero, and the system will automatically download PDFs and restore folder structure.</p>
                     </div>
                 </div>
             </div>
             <div class="onboarding-footer">
                 <label class="onboarding-checkbox">
                     <input type="checkbox" id="onboarding-dont-show">
-                    <span>下次不再提醒</span>
+                    <span>Don't show again</span>
                 </label>
                 <button class="btn btn-primary" onclick="closeOnboardingModal()">
-                    开始使用
+                    Get started
                 </button>
             </div>
         </div>

@@ -1,6 +1,6 @@
 """
-数据导出路由
-处理论文和配置数据的导出功能
+Data export routing
+Export function for processing papers and configuration data
 """
 
 from __future__ import annotations
@@ -20,33 +20,33 @@ from flask import Flask, Response, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
 
-# 导出任务状态存储
+# Export task status storage
 export_tasks: Dict[str, Dict[str, Any]] = {}
 export_tasks_lock = threading.Lock()
 
-# 当前活跃的导出任务ID
+# Currently active export tasksID
 current_export_task_id: Optional[str] = None
 
 
 def _should_exclude_file(rel_path: str) -> bool:
-    """判断文件是否应该被排除（只导出 JSON 元数据和目录结构）"""
-    # 排除临时目录和索引文件（但保留 .avatars）
+    """Determine whether the file should be excluded (export only JSON metadata and directory structure)"""
+    # Exclude temporary directories and index files (but keep .avatars）
     excluded_dirs = ['.daily_arxiv_temp', '.temp']
     excluded_files = ['.search_index.db', '.search_index.db.corrupted']
     
-    # 检查是否在排除的目录中
+    # Check if in excluded directory
     path_parts = rel_path.split(os.sep)
     for excluded_dir in excluded_dirs:
         if excluded_dir in path_parts:
             return True
     
-    # 检查是否是排除的文件
+    # Check if it is an excluded file
     filename = os.path.basename(rel_path)
     if filename in excluded_files:
         return True
     
-    # 只保留 JSON 文件、目录结构和 .avatars
-    # 排除所有 PDF、outputs 目录、_analysis.md、_images 文件夹
+    # only keep JSON files, directory structures and .avatars
+    # exclude all PDF、outputs Table of contents,_analysis.md、_images folder
     if filename.endswith('.pdf'):
         return True
     if 'outputs' in path_parts:
@@ -62,10 +62,10 @@ def _export_papers_folder_to_zip(
     zip_path: str,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ):
-    """将整个 papers 文件夹的 JSON 元数据导出到 ZIP 文件，保留原始目录结构"""
-    print(f"[Export] 开始导出文件夹元数据: {papers_dir}")
+    """will the entire papers of folder JSON Metadata is exported to ZIP file, retaining the original directory structure"""
+    print(f"[Export] Start exporting folder metadata: {papers_dir}")
     
-    # 计算总文件数
+    # Calculate total number of files
     total_files = 0
     for root, dirs, files in os.walk(papers_dir):
         dirs[:] = [d for d in dirs if d not in ['.daily_arxiv_temp', '.temp']]
@@ -75,66 +75,66 @@ def _export_papers_folder_to_zip(
             if not _should_exclude_file(rel_path):
                 total_files += 1
     
-    print(f"[Export] 共找到 {total_files} 个文件")
+    print(f"[Export] Found in total {total_files} files")
     
-    # 开始打包
+    # Start packing
     processed_files = 0
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(papers_dir):
-            # 排除临时目录
+            # Exclude temporary directory
             dirs[:] = [d for d in dirs if d not in ['.daily_arxiv_temp', '.temp']]
             
             for file in files:
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, papers_dir)
                 
-                # 检查是否应该排除
+                # Check if it should be excluded
                 if _should_exclude_file(rel_path):
                     continue
                 
-                # 添加到 ZIP
+                # add to ZIP
                 zip_file_path = f"papers/{rel_path}"
                 try:
                     zipf.write(file_path, zip_file_path)
                     processed_files += 1
                     
                     if progress_callback and processed_files % 10 == 0:
-                        progress_callback(processed_files, total_files, f"正在打包: {rel_path}")
+                        progress_callback(processed_files, total_files, f"Packing: {rel_path}")
                 except Exception as e:
-                    print(f"[Export] 打包文件失败: {file_path}, 错误: {e}")
+                    print(f"[Export] Failed to package file: {file_path}, mistake: {e}")
     
-    print(f"[Export] 打包完成，共处理 {processed_files} 个文件")
+    print(f"[Export] Packaging completed and processed in total {processed_files} files")
 
 
 def register_export_routes(
     app: Flask,
     papers_dir: str,
 ):
-    """注册导出相关路由"""
+    """Register and export related routes"""
     
     @app.route("/api/export/start", methods=["POST"])
     def api_export_start():
-        """开始导出任务"""
+        """Start export task"""
         global current_export_task_id
         
-        # 检查是否已有导出任务在运行
+        # Check if there is already an export task running
         with export_tasks_lock:
             if current_export_task_id and current_export_task_id in export_tasks:
                 task = export_tasks[current_export_task_id]
                 if task["status"] in ["running", "pending"]:
                     return jsonify({
                         "success": False,
-                        "error": "已有导出任务正在运行",
+                        "error": "An export task is already running",
                         "task_id": current_export_task_id
                     }), 400
         
-        # 导出选项固定为只导出 JSON 元数据
-        export_options = {}  # 不再需要选项
+        # Export options fixed to export only JSON metadata
+        export_options = {}  # Options no longer needed
         
-        # 创建任务ID
+        # Create taskID
         task_id = f"export_{int(time.time() * 1000)}"
         
-        # 初始化任务状态
+        # Initialize task status
         with export_tasks_lock:
             export_tasks[task_id] = {
                 "task_id": task_id,
@@ -149,7 +149,7 @@ def register_export_routes(
             }
             current_export_task_id = task_id
         
-        # 启动后台导出任务
+        # Start background export task
         thread = threading.Thread(
             target=_export_task,
             args=(
@@ -164,17 +164,17 @@ def register_export_routes(
         return jsonify({
             "success": True,
             "task_id": task_id,
-            "message": "导出任务已启动"
+            "message": "Export task started"
         })
     
     @app.route("/api/export/status/<task_id>", methods=["GET"])
     def api_export_status(task_id: str):
-        """查询导出任务状态"""
+        """Query export task status"""
         with export_tasks_lock:
             if task_id not in export_tasks:
                 return jsonify({
                     "success": False,
-                    "error": "任务不存在"
+                    "error": "Task does not exist"
                 }), 404
             
             task = export_tasks[task_id]
@@ -193,29 +193,29 @@ def register_export_routes(
     
     @app.route("/api/export/download/<task_id>", methods=["GET"])
     def api_export_download(task_id: str):
-        """下载导出的 ZIP 文件"""
+        """Download the exported ZIP document"""
         with export_tasks_lock:
             if task_id not in export_tasks:
                 return jsonify({
                     "success": False,
-                    "error": "任务不存在"
+                    "error": "Task does not exist"
                 }), 404
             
             task = export_tasks[task_id]
             if task["status"] != "completed":
                 return jsonify({
                     "success": False,
-                    "error": "导出任务未完成"
+                    "error": "Export task not completed"
                 }), 400
             
             zip_path = task.get("zip_path")
             if not zip_path or not os.path.exists(zip_path):
                 return jsonify({
                     "success": False,
-                    "error": "导出文件不存在"
+                    "error": "Export file does not exist"
                 }), 404
         
-        # 生成下载文件名
+        # Generate download file name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         download_filename = f"Resophy_Export_{timestamp}.zip"
         
@@ -228,33 +228,33 @@ def register_export_routes(
     
     @app.route("/api/export/cancel/<task_id>", methods=["POST"])
     def api_export_cancel(task_id: str):
-        """取消导出任务"""
+        """Cancel export task"""
         global current_export_task_id
         
         with export_tasks_lock:
             if task_id not in export_tasks:
                 return jsonify({
                     "success": False,
-                    "error": "任务不存在"
+                    "error": "Task does not exist"
                 }), 404
             
             task = export_tasks[task_id]
             if task["status"] in ["completed", "failed", "cancelled"]:
                 return jsonify({
                     "success": False,
-                    "error": "任务已结束，无法取消"
+                    "error": "The task has ended and cannot be canceled"
                 }), 400
             
-            # 标记为取消
+            # Mark as canceled
             task["status"] = "cancelled"
-            task["error"] = "用户取消"
+            task["error"] = "User cancels"
             
             if current_export_task_id == task_id:
                 current_export_task_id = None
         
         return jsonify({
             "success": True,
-            "message": "导出任务已取消"
+            "message": "Export task canceled"
         })
 
 
@@ -263,7 +263,7 @@ def _export_task(
     papers_dir: str,
     export_options: Dict[str, Any],
 ):
-    """后台导出任务（只导出 JSON 元数据）"""
+    """Background export task (export only JSON metadata)"""
     global current_export_task_id
     
     def update_progress(progress: int, total: int, current_item: str):
@@ -274,53 +274,53 @@ def _export_task(
                 export_tasks[task_id]["current_paper"] = current_item
     
     try:
-        # 更新状态为运行中
+        # Update status is running
         with export_tasks_lock:
             if task_id not in export_tasks:
                 return
             export_tasks[task_id]["status"] = "running"
         
-        print(f"[Export] 开始导出任务: {task_id}")
+        print(f"[Export] Start export task: {task_id}")
         
-        # 创建临时目录
+        # Create temporary directory
         temp_dir = tempfile.mkdtemp(prefix="paper_export_")
         zip_path = os.path.join(temp_dir, "export.zip")
         
         try:
-            # 导出 papers 文件夹的 JSON 元数据
-            print(f"[Export] 开始打包文件夹元数据: {papers_dir}")
+            # Export papers of folder JSON metadata
+            print(f"[Export] Start packaging folder metadata: {papers_dir}")
             _export_papers_folder_to_zip(
                 papers_dir,
                 zip_path,
                 progress_callback=update_progress,
             )
             
-            print(f"[Export] 导出完成: {zip_path}")
+            print(f"[Export] Export completed: {zip_path}")
             
-            # 更新任务状态为完成
+            # Update task status to complete
             with export_tasks_lock:
                 if task_id in export_tasks:
                     export_tasks[task_id]["status"] = "completed"
                     export_tasks[task_id]["zip_path"] = zip_path
-                    export_tasks[task_id]["current_paper"] = "导出完成"
+                    export_tasks[task_id]["current_paper"] = "Export completed"
         
         except Exception as e:
-            print(f"[Export] 导出失败: {e}")
+            print(f"[Export] Export failed: {e}")
             import traceback
             traceback.print_exc()
             
-            # 更新任务状态为失败
+            # Update task status is failed
             with export_tasks_lock:
                 if task_id in export_tasks:
                     export_tasks[task_id]["status"] = "failed"
                     export_tasks[task_id]["error"] = str(e)
             
-            # 清理临时文件
+            # Clean temporary files
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
     
     finally:
-        # 清理当前任务ID
+        # Clean up current tasksID
         with export_tasks_lock:
             if current_export_task_id == task_id:
                 current_export_task_id = None

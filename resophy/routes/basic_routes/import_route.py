@@ -1,6 +1,6 @@
 """
-Zotero RDF 导入路由
-处理从 Zotero 导入论文的功能
+Zotero RDF Import route
+Process from Zotero The function of importing papers
 """
 
 from __future__ import annotations
@@ -55,16 +55,16 @@ class SavePaperMetadataFn(Protocol):
     def __call__(self, pdf_path: str, paper: Paper) -> None: ...
 
 
-# 导入任务状态存储（支持断线重连）
+# Import task status storage (support disconnection and reconnection)
 import_tasks: Dict[str, Dict[str, Any]] = {}
 import_tasks_lock = threading.Lock()
 
-# 当前活跃的导入任务ID（全局只允许一个导入任务）
+# Currently active import tasksID(Only one import task is allowed globally)
 current_import_task_id: Optional[str] = None
 
 
 def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
-    """从 URL 中提取 arXiv ID"""
+    """from URL extracted from arXiv ID"""
     patterns = [
         r"arxiv\.org/pdf/([\d.]+(?:v\d+)?)",
         r"arxiv\.org/abs/([\d.]+(?:v\d+)?)",
@@ -81,8 +81,8 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 
 def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
-    """下载 arXiv PDF（优先使用 export.arxiv.org）"""
-    # 优先尝试 export.arxiv.org
+    """download arXiv PDF(Priority to use export.arxiv.org）"""
+    # Try first export.arxiv.org
     pdf_urls = [
         f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
         f"https://arxiv.org/pdf/{arxiv_id}.pdf",
@@ -90,23 +90,23 @@ def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
 
     for pdf_url in pdf_urls:
         try:
-            print(f"[Import] 正在从 arXiv 下载 PDF: {pdf_url}")
+            print(f"[Import] Removing from arXiv download PDF: {pdf_url}")
             response = requests.get(pdf_url, timeout=60, stream=True)
             response.raise_for_status()
             pdf_content = response.content
             filename = f"{arxiv_id}.pdf"
-            print(f"[Import] 成功下载 PDF, 大小: {len(pdf_content)} bytes")
+            print(f"[Import] Successfully downloaded PDF, size: {len(pdf_content)} bytes")
             return pdf_content, filename
         except requests.exceptions.RequestException as exc:
-            print(f"[Import] 从 {pdf_url} 下载失败: {exc}")
+            print(f"[Import] from {pdf_url} Download failed: {exc}")
             continue
 
-    print(f"[Import] 所有 URL 都下载失败")
+    print(f"[Import] all URL All downloads failed")
     return None
 
 
 def _clean_filename(text: Optional[str]) -> Optional[str]:
-    """清理文件名"""
+    """Clean up filenames"""
     if not text:
         return None
     cleaned = text
@@ -119,22 +119,22 @@ def _clean_filename(text: Optional[str]) -> Optional[str]:
 
 def _parse_category_path(category_str: str) -> List[str]:
     """
-    解析 category 字符串为路径列表
+    parse category String is a list of paths
 
-    例如:
+    For example:
     - "Scene Text Recognition" -> ["Scene Text Recognition"]
     - "Multi Modality/LLaVA" -> ["Multi Modality", "LLaVA"]
-    - "A; B/C" -> 只取第一个最长的路径 ["B", "C"]
+    - "A; B/C" -> Only take the first longest path ["B", "C"]
     """
     if not category_str:
         return []
 
-    # 如果有分号，取第一个（最长的路径）
+    # If there are semicolons, take the first one (longest path)
     parts = category_str.split(";")
     if parts:
         category_str = parts[0].strip()
 
-    # 按 / 分割
+    # according to / division
     path_parts = [p.strip() for p in category_str.split("/") if p.strip()]
     return path_parts
 
@@ -146,16 +146,16 @@ def _find_or_create_category(
     create_category_folder: CreateCategoryFolderFn,
 ) -> Optional[str]:
     """
-    查找或创建分类，返回分类 ID
+    Find or create a category, return to category ID
 
     Args:
-        categories: 分类树数据
-        category_path: 分类路径，如 ["Multi Modality", "LLaVA"]
-        save_categories: 保存分类的函数
-        create_category_folder: 创建分类文件夹的函数
+        categories: Classification tree data
+        category_path: Classification path, such as ["Multi Modality", "LLaVA"]
+        save_categories: function to save categories
+        create_category_folder: Function to create category folders
 
     Returns:
-        分类 ID，失败返回 None
+        Classification ID, return on failure None
     """
     if not category_path:
         return None
@@ -169,46 +169,46 @@ def _find_or_create_category(
         target_name = path[0]
         remaining_path = path[1:]
 
-        # 查找现有分类
+        # Find an existing category
         for child in children:
             if child.get("name") == target_name:
                 if remaining_path:
-                    # 继续查找子分类
+                    # Continue to search for subcategories
                     if "children" not in child:
                         child["children"] = []
                     return find_or_create_in_children(
                         child["children"], remaining_path, current_path + [target_name]
                     )
                 else:
-                    # 找到了目标分类
+                    # Target category found
                     return child.get("id")
 
-        # 没找到，创建新分类
+        # Not found, create a new category
         new_id = str(uuid.uuid4())
         new_category = {"id": new_id, "name": target_name, "children": []}
         children.append(new_category)
 
-        # 创建文件夹
+        # Create folder
         full_path = current_path + [target_name]
         try:
             create_category_folder(full_path)
-            print(f"[Import] 创建分类文件夹: {'/'.join(full_path)}")
+            print(f"[Import] Create category folders: {'/'.join(full_path)}")
         except Exception as e:
-            print(f"[Import] 创建分类文件夹失败: {e}")
+            print(f"[Import] Failed to create category folder: {e}")
 
         if remaining_path:
-            # 继续创建子分类
+            # Continue to create subcategories
             return find_or_create_in_children(
                 new_category["children"], remaining_path, full_path
             )
         else:
             return new_id
 
-    # 从根节点开始查找
+    # Search starting from the root node
     root_children = categories.get("children", [])
     result = find_or_create_in_children(root_children, category_path, [])
 
-    # 保存更新后的分类
+    # Save updated categories
     if result:
         save_categories(categories)
 
@@ -223,26 +223,26 @@ def _find_or_create_category_under_parent(
     create_category_folder: CreateCategoryFolderFn,
 ) -> Optional[str]:
     """
-    在指定父目录下查找或创建分类，返回分类 ID
+    Search or create a category in the specified parent directory and return the category ID
 
-    例如：parent_category_id 对应 "Project A"，category_path 为 ["Multi Modality", "LLaVA"]
-    则会创建 "Project A/Multi Modality/LLaVA"
+    For example:parent_category_id correspond "Project A"，category_path for ["Multi Modality", "LLaVA"]
+    will create "Project A/Multi Modality/LLaVA"
 
     Args:
-        categories: 分类树数据
-        parent_category_id: 父目录ID
-        category_path: 分类路径，如 ["Multi Modality", "LLaVA"]
-        save_categories: 保存分类的函数
-        create_category_folder: 创建分类文件夹的函数
+        categories: Classification tree data
+        parent_category_id: parent directoryID
+        category_path: Classification path, such as ["Multi Modality", "LLaVA"]
+        save_categories: function to save categories
+        create_category_folder: Function to create category folders
 
     Returns:
-        分类 ID，失败返回 None
+        Classification ID, return on failure None
     """
     if not category_path:
-        # 如果没有 category_path，直接返回父目录ID
+        # if not category_path, return directly to the parent directoryID
         return parent_category_id
 
-    # 查找父目录节点
+    # Find parent directory node
     def find_node_by_id(
         node: Dict[str, Any], target_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -256,12 +256,12 @@ def _find_or_create_category_under_parent(
 
     parent_node = find_node_by_id(categories, parent_category_id)
     if not parent_node:
-        # 父目录不存在，回退到根目录
+        # The parent directory does not exist, fallback to the root directory
         return _find_or_create_category(
             categories, category_path, save_categories, create_category_folder
         )
 
-    # 获取父目录的路径（用于创建文件夹）
+    # Get the path of the parent directory (used to create folders)
     def get_path_to_node(
         root: Dict[str, Any], target_id: str, path: List[str] = None
     ) -> Optional[List[str]]:
@@ -279,10 +279,10 @@ def _find_or_create_category_under_parent(
     if not parent_path:
         parent_path = []
     else:
-        # 移除 "Root" 如果存在
+        # Remove "Root" if exists
         parent_path = [p for p in parent_path if p and p != "Root"]
 
-    # 在父目录下查找或创建分类
+    # Find or create categories under parent directory
     def find_or_create_in_children(
         children: List[Dict], path: List[str], current_folder_path: List[str]
     ) -> Optional[str]:
@@ -292,11 +292,11 @@ def _find_or_create_category_under_parent(
         target_name = path[0]
         remaining_path = path[1:]
 
-        # 查找现有分类
+        # Find an existing category
         for child in children:
             if child.get("name") == target_name:
                 if remaining_path:
-                    # 继续查找子分类
+                    # Continue to search for subcategories
                     if "children" not in child:
                         child["children"] = []
                     return find_or_create_in_children(
@@ -305,40 +305,40 @@ def _find_or_create_category_under_parent(
                         current_folder_path + [target_name],
                     )
                 else:
-                    # 找到了目标分类
+                    # Target category found
                     return child.get("id")
 
-        # 没找到，创建新分类
+        # Not found, create a new category
         new_id = str(uuid.uuid4())
         new_category = {"id": new_id, "name": target_name, "children": []}
         children.append(new_category)
 
-        # 创建文件夹
+        # Create folder
         full_folder_path = current_folder_path + [target_name]
         try:
             create_category_folder(full_folder_path)
-            print(f"[Import] 创建分类文件夹: {'/'.join(full_folder_path)}")
+            print(f"[Import] Create category folders: {'/'.join(full_folder_path)}")
         except Exception as e:
-            print(f"[Import] 创建分类文件夹失败: {e}")
+            print(f"[Import] Failed to create category folder: {e}")
 
         if remaining_path:
-            # 继续创建子分类
+            # Continue to create subcategories
             return find_or_create_in_children(
                 new_category["children"], remaining_path, full_folder_path
             )
         else:
             return new_id
 
-    # 确保父目录有 children 列表
+    # Make sure the parent directory has children list
     if "children" not in parent_node:
         parent_node["children"] = []
 
-    # 从父目录开始查找
+    # Search from parent directory
     result = find_or_create_in_children(
         parent_node["children"], category_path, parent_path
     )
 
-    # 保存更新后的分类
+    # Save updated categories
     if result:
         save_categories(categories)
 
@@ -350,7 +350,7 @@ def _get_full_category_path(
     category_id: str,
     path: Optional[List[str]] = None,
 ) -> Optional[List[str]]:
-    """获取分类的完整路径"""
+    """Get the full path of the category"""
     if path is None:
         path = ["Root"]
 
@@ -379,7 +379,7 @@ def register_import_routes(
     paper_store: PaperStore,
     upload_folder: str,
 ) -> None:
-    """注册导入相关的路由"""
+    """Register and import related routes"""
 
     def _load_reading_list() -> list[str]:
         try:
@@ -403,7 +403,7 @@ def register_import_routes(
             _save_reading_list(paper_ids)
 
     def _check_duplicate_in_folder(folder_path: str, title: str) -> bool:
-        """检查文件夹中是否已存在同名论文"""
+        """Check if a paper with the same name already exists in the folder"""
         if not os.path.exists(folder_path):
             return False
 
@@ -411,14 +411,14 @@ def register_import_routes(
         if not clean_title:
             return False
 
-        # 检查是否有同名 PDF 或 JSON
+        # Check if there is a name with the same name PDF or JSON
         expected_pdf = f"{clean_title}.pdf"
         expected_json = f"{clean_title}.json"
 
         for filename in os.listdir(folder_path):
             if filename.lower() == expected_pdf.lower():
                 return True
-            # 也检查 JSON 文件中的标题
+            # Also check JSON title in file
             if filename.endswith(".json"):
                 try:
                     json_path = os.path.join(folder_path, filename)
@@ -434,34 +434,34 @@ def register_import_routes(
         return False
 
     def _check_paper_already_imported(paper_data: Dict[str, Any]) -> bool:
-        """检查论文是否已经导入过（通过 arXiv ID 或标题）"""
-        # 1. 先尝试从 URL 提取 arXiv ID
+        """Check if the paper has been imported (via arXiv ID or title)"""
+        # 1. Try starting with URL extract arXiv ID
         url = paper_data.get("extra", {}).get("url") or paper_data.get("url", "")
         arxiv_id = None
         if "arxiv.org" in url.lower():
             arxiv_id = _extract_arxiv_id_from_url(url)
         
-        # 2. 如果有 arXiv ID，通过 paper_store 查找
+        # 2. if there is arXiv ID,pass paper_store Find
         if arxiv_id:
             existing_entry = paper_store.get_by_arxiv_id(arxiv_id)
             if existing_entry:
-                print(f"[Import] 论文已存在（通过 arXiv ID）: {arxiv_id}")
+                print(f"[Import] The paper already exists (via arXiv ID）: {arxiv_id}")
                 return True
         
-        # 3. 如果没有 arXiv ID，尝试通过标题查找
+        # 3. if not arXiv ID, try to find by title
         title = paper_data.get("title", "").strip()
         if title:
-            # 遍历所有论文，检查标题是否匹配
+            # Go through all papers and check if the titles match
             all_papers = paper_store.iter_all()
             for paper in all_papers:
                 if paper.title and paper.title.strip().lower() == title.lower():
-                    print(f"[Import] 论文已存在（通过标题）: {title[:50]}")
+                    print(f"[Import] The paper already exists (via title): {title[:50]}")
                     return True
         
         return False
 
     def _filter_already_imported_papers(papers_data: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
-        """过滤掉已导入的论文，返回未导入的论文列表和已导入的数量"""
+        """Filter out imported papers and return the list of unimported papers and the number of imported papers"""
         remaining_papers = []
         already_imported_count = 0
         
@@ -474,7 +474,7 @@ def register_import_routes(
         return remaining_papers, already_imported_count
 
     def _update_task_progress(task_id: str, **kwargs):
-        """更新任务进度（线程安全）"""
+        """Update task progress (thread safe)"""
         with import_tasks_lock:
             task = import_tasks.get(task_id)
             if task:
@@ -484,12 +484,12 @@ def register_import_routes(
     def _import_papers_task(
         task_id: str, papers_data: List[Dict[str, Any]], target_category_id: str = ""
     ):
-        """后台导入任务
+        """Background import task
 
         Args:
-            task_id: 任务ID
-            papers_data: 论文数据列表
-            target_category_id: 目标目录ID，如果指定则作为父目录，Zotero 分类结构将在其下创建
+            task_id: TaskID
+            papers_data: Paper data list
+            target_category_id: target directoryID, as the parent directory if specified,Zotero The classification structure will be created under
         """
         global current_import_task_id
 
@@ -502,45 +502,45 @@ def register_import_routes(
         success_count = 0
         failed_count = 0
         skipped_count = 0
-        duplicate_count = 0  # 重复数量
-        others_count = 0  # 进入 Others 的数量
+        duplicate_count = 0  # Number of repeats
+        others_count = 0  # Enter Others quantity
 
-        # 如果指定了目标目录，预先获取其信息
+        # If a target directory is specified, obtain its information in advance
         parent_category_id = None
         parent_category_path = None
         print(
-            f"[Import] 接收到的目标目录ID: '{target_category_id}' (类型: {type(target_category_id).__name__})"
+            f"[Import] Received target directoryID: '{target_category_id}' (type: {type(target_category_id).__name__})"
         )
         if target_category_id:
             categories = get_categories()
-            print(f"[Import] 正在查找目标目录...")
+            print(f"[Import] Looking for target directory...")
             parent_category_path = get_category_path(categories, target_category_id)
-            print(f"[Import] 查找结果: {parent_category_path}")
+            print(f"[Import] Find results: {parent_category_path}")
             if parent_category_path:
                 parent_category_id = target_category_id
                 print(
-                    f"[Import] ✅ 将在目录 '{'/'.join(parent_category_path[1:])}' 下导入，保留 Zotero 分类结构"
+                    f"[Import] ✅ will be in the directory '{'/'.join(parent_category_path[1:])}' Import under, keep Zotero Classification structure"
                 )
             else:
                 print(
-                    f"[Import] ❌ 目标目录不存在: {target_category_id}，将在根目录下按 Zotero 分类导入"
+                    f"[Import] ❌ Target directory does not exist: {target_category_id}, will press in the root directory Zotero Classification import"
                 )
         else:
-            print("[Import] 未指定目标目录，将在根目录下按 Zotero 分类导入")
+            print("[Import] No target directory specified, will press in the root directory Zotero Classification import")
 
         for idx, paper_data in enumerate(papers_data):
-            # 检查是否已取消
+            # Check if canceled
             with import_tasks_lock:
                 task = import_tasks.get(task_id)
                 if task and task.get("cancelled", False):
-                    print(f"[Import] 导入任务已取消")
+                    print(f"[Import] Import task canceled")
                     _update_task_progress(
                         task_id,
                         status="cancelled",
                         progress=int((idx / total) * 100),
                         current=idx,
                         total=total,
-                        message="导入已取消",
+                        message="Import canceled",
                         success_count=success_count,
                         failed_count=failed_count,
                         skipped_count=skipped_count,
@@ -551,14 +551,14 @@ def register_import_routes(
                     return
             
             try:
-                # 更新进度状态
+                # Update progress status
                 _update_task_progress(
                     task_id,
                     status="importing",
                     progress=int((idx / total) * 100),
                     current=idx + 1,
                     total=total,
-                    message=f"正在处理: {paper_data.get('title', '未知标题')[:50]}...",
+                    message=f"Processing: {paper_data.get('title', 'Unknown title')[:50]}...",
                     success_count=success_count,
                     failed_count=failed_count,
                     skipped_count=skipped_count,
@@ -566,32 +566,32 @@ def register_import_routes(
                     others_count=others_count,
                 )
 
-                # 检查 category
+                # examine category
                 category_str = paper_data.get("extra", {}).get(
                     "category"
                 ) or paper_data.get("category")
 
-                # 解析 category 路径
+                # parse category path
                 if category_str:
                     category_path = _parse_category_path(category_str)
                 else:
                     category_path = []
 
-                # 标记是否进入 Others
+                # Mark whether to enter Others
                 is_others = False
 
-                # 如果没有 category 或者 category 就是 "Others"，放到 Others 目录
+                # if not category or category that is "Others", put in Others Table of contents
                 if not category_path or (
                     len(category_path) == 1 and category_path[0].lower() == "others"
                 ):
                     category_path = ["Others"]
                     is_others = True
                     print(
-                        f"[Import] 无分类论文，放入 Others: {paper_data.get('title', '未知')[:50]}"
+                        f"[Import] Uncategorized papers, put in Others: {paper_data.get('title', 'unknown')[:50]}"
                     )
 
-                # 查找或创建分类
-                # 如果指定了父目录，在父目录下创建分类结构
+                # Find or create a category
+                # If a parent directory is specified, create a classification structure under the parent directory
                 categories = get_categories()
                 if parent_category_id:
                     category_id = _find_or_create_category_under_parent(
@@ -610,40 +610,40 @@ def register_import_routes(
                     )
 
                 if not category_id:
-                    print(f"[Import] 创建分类失败: {category_path}")
+                    print(f"[Import] Failed to create category: {category_path}")
                     failed_count += 1
                     continue
 
-                # 获取分类的完整路径（用于 paper_store）
-                categories = get_categories()  # 重新获取更新后的分类
+                # Get the full path to the category (for paper_store）
+                categories = get_categories()  # Retrieve updated categories
                 full_category_path = get_category_path(categories, category_id)
                 if not full_category_path:
                     full_category_path = ["Root"] + category_path
 
-                # 尝试从 arXiv 获取论文
+                # try to start from arXiv Get the paper
                 arxiv_id = None
                 paper_info = None
 
-                # 1. 检查 URL 中是否有 arXiv
+                # 1. examine URL Is there any arXiv
                 url = paper_data.get("extra", {}).get("url") or paper_data.get(
                     "url", ""
                 )
                 if "arxiv.org" in url.lower():
                     arxiv_id = _extract_arxiv_id_from_url(url)
                     if arxiv_id:
-                        print(f"[Import] 从 URL 提取 arXiv ID: {arxiv_id}")
+                        print(f"[Import] from URL extract arXiv ID: {arxiv_id}")
                         paper_info = fetch_paper_by_arxiv_id_fast(arxiv_id)
 
-                # 2. 如果没有 arXiv URL，用标题+作者搜索
+                # 2. if not arXiv URL, use title+Author search
                 if not paper_info:
                     title = paper_data.get("title", "")
                     authors = paper_data.get("authors", "")
                     if title:
-                        # 构造搜索查询
+                        # Construct a search query
                         search_title = f"{title} {authors}" if authors else title
-                        print(f"[Import] 使用标题搜索 arXiv: {search_title[:50]}...")
+                        print(f"[Import] Search using titles arXiv: {search_title[:50]}...")
 
-                        # 提取第一个作者
+                        # Extract the first author
                         first_author = authors.split(",")[0].strip() if authors else ""
                         if first_author:
                             paper_info = search_arxiv_by_title_and_author_fast(
@@ -653,53 +653,53 @@ def register_import_routes(
                         if paper_info:
                             arxiv_id = paper_info.get("arxiv_id")
 
-                # 3. 如果还是找不到，跳过
+                # 3. If still not found, skip
                 if not paper_info or not arxiv_id:
                     print(
-                        f"[Import] 无法从 arXiv 获取论文: {paper_data.get('title', '未知')[:50]}"
+                        f"[Import] Unable to access from arXiv Get the paper: {paper_data.get('title', 'unknown')[:50]}"
                     )
                     skipped_count += 1
                     continue
 
-                # 获取完整的文件夹路径（包含父目录）
-                # full_category_path 格式为 ["Root", "ParentDir", "Category", ...]
-                # 创建文件夹时需要去掉 "Root"
+                # Get full folder path (including parent directory)
+                # full_category_path The format is ["Root", "ParentDir", "Category", ...]
+                # Need to be removed when creating a folder "Root"
                 folder_path_parts = (
                     full_category_path[1:]
                     if len(full_category_path) > 1
                     else category_path
                 )
 
-                # 检查目标目录是否已有同名论文（重复检测）
+                # Check whether the target directory already has a paper with the same name (duplicate detection)
                 category_folder = create_category_folder(folder_path_parts)
                 paper_title = paper_info.get("title", "")
                 if paper_title and _check_duplicate_in_folder(
                     category_folder, paper_title
                 ):
-                    print(f"[Import] 跳过重复论文: {paper_title[:50]}")
+                    print(f"[Import] Skip duplicate papers: {paper_title[:50]}")
                     duplicate_count += 1
                     continue
 
-                # 下载 PDF
+                # download PDF
                 pdf_result = _download_arxiv_pdf(arxiv_id)
                 if not pdf_result:
-                    print(f"[Import] 下载 PDF 失败: {arxiv_id}")
+                    print(f"[Import] download PDF fail: {arxiv_id}")
                     failed_count += 1
                     continue
 
                 pdf_content, pdf_filename = pdf_result
 
-                # 创建分类文件夹并保存 PDF（使用完整路径）
+                # Create category folder and save PDF(use full path)
                 category_folder = create_category_folder(folder_path_parts)
 
-                # 使用论文标题作为文件名
+                # Use the paper title as the file name
                 clean_title = _clean_filename(paper_info.get("title"))
                 if clean_title:
                     pdf_filename = f"{clean_title}.pdf"
 
                 file_path = os.path.join(category_folder, pdf_filename)
 
-                # 处理文件名冲突
+                # Handle file name conflicts
                 counter = 1
                 original_filename = pdf_filename
                 while os.path.exists(file_path):
@@ -708,14 +708,14 @@ def register_import_routes(
                     file_path = os.path.join(category_folder, pdf_filename)
                     counter += 1
 
-                # 保存 PDF
+                # keep PDF
                 with open(file_path, "wb") as f:
                     f.write(pdf_content)
-                print(f"[Import] PDF 已保存: {file_path}")
+                print(f"[Import] PDF saved: {file_path}")
 
-                # 创建 Paper 对象
+                # create Paper object
                 paper_id = str(uuid.uuid4())
-                # 构建 arxiv_url
+                # build arxiv_url
                 arxiv_url = None
                 if arxiv_id:
                     arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
@@ -736,27 +736,27 @@ def register_import_routes(
                     summary=paper_info.get("summary", ""),
                     bibtex="",
                     notes=paper_data.get("notes", ""),
-                    github=None,  # 从 Zotero 导入时，GitHub 为空，但字段存在
-                    homepage=None,  # 从 Zotero 导入时，Homepage 为空，但字段存在
+                    github=None,  # from Zotero When importing,GitHub is empty but the field exists
+                    homepage=None,  # from Zotero When importing,Homepage is empty but the field exists
                     upload_source="zotero_import",
                 )
 
-                # 注册到 paper_store
+                # Register to paper_store
                 registered_paper = paper_store.upsert(
                     new_paper, category_id=category_id, category_path=full_category_path
                 )
 
-                # 保存元数据
+                # Save metadata
                 save_paper_metadata(file_path, registered_paper)
 
-                # 注意：导入的论文不添加到待读列表
+                # Note: Imported papers are not added to the to-read list
 
                 success_count += 1
                 if is_others:
                     others_count += 1
-                print(f"[Import] ✅ 成功导入: {paper_info.get('title', '')[:50]}")
+                print(f"[Import] ✅ Imported successfully: {paper_info.get('title', '')[:50]}")
 
-                # 后台获取 DBLP BibTeX（异步）
+                # Background acquisition DBLP BibTeX(asynchronous)
                 if paper_info.get("title") and paper_info.get("authors"):
                     threading.Thread(
                         target=_fetch_dblp_bibtex_async,
@@ -773,13 +773,13 @@ def register_import_routes(
                     ).start()
 
             except Exception as e:
-                print(f"[Import] ❌ 导入论文失败: {e}")
+                print(f"[Import] ❌ Failed to import paper: {e}")
                 import traceback
 
                 traceback.print_exc()
                 failed_count += 1
 
-        # 导入完成
+        # Import completed
         _update_task_progress(
             task_id,
             status="completed",
@@ -791,14 +791,14 @@ def register_import_routes(
             skipped_count=skipped_count,
             duplicate_count=duplicate_count,
             others_count=others_count,
-            message="导入完成",
+            message="Import completed",
         )
 
-        # 清除当前任务标记
+        # Clear current task mark
         current_import_task_id = None
 
         print(
-            f"[Import] 导入完成: 成功 {success_count}, 失败 {failed_count}, 跳过 {skipped_count}, 重复 {duplicate_count}, Others {others_count}"
+            f"[Import] Import completed: success {success_count}, fail {failed_count}, jump over {skipped_count}, repeat {duplicate_count}, Others {others_count}"
         )
 
     def _fetch_dblp_bibtex_async(
@@ -810,7 +810,7 @@ def register_import_routes(
         category_id: str,
         category_path: List[str],
     ):
-        """异步获取 DBLP BibTeX"""
+        """Asynchronous acquisition DBLP BibTeX"""
         try:
             bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
             if bibtex:
@@ -821,54 +821,54 @@ def register_import_routes(
                         paper, category_id=category_id, category_path=category_path
                     )
                     save_paper_metadata(file_path, paper)
-                    print(f"[Import DBLP] ✅ BibTeX 已更新: {paper_id}")
+                    print(f"[Import DBLP] ✅ BibTeX updated: {paper_id}")
         except Exception as e:
-            print(f"[Import DBLP] ❌ 获取 BibTeX 失败: {e}")
+            print(f"[Import DBLP] ❌ get BibTeX fail: {e}")
 
     @app.route("/api/import/zotero", methods=["POST"])
     def api_import_zotero():
-        """上传并解析 Zotero RDF 文件"""
+        """Upload and parse Zotero RDF document"""
         if "file" not in request.files:
-            return jsonify({"success": False, "error": "未提供文件"}), 400
+            return jsonify({"success": False, "error": "No document provided"}), 400
 
         file = request.files["file"]
         if file.filename == "":
-            return jsonify({"success": False, "error": "未选择文件"}), 400
+            return jsonify({"success": False, "error": "No file selected"}), 400
 
         if not file.filename.lower().endswith(".rdf"):
-            return jsonify({"success": False, "error": "请上传 .rdf 格式的文件"}), 400
+            return jsonify({"success": False, "error": "Please upload .rdf format file"}), 400
 
-        # 获取目标目录参数（可选）
+        # Get target directory parameters (optional)
         target_category_id = request.form.get("target_category_id", "").strip()
-        print(f"[Import] 目标目录ID: {target_category_id or '（按Zotero分类）'}")
+        print(f"[Import] target directoryID: {target_category_id or '(according toZoteroClassification)'}")
 
         try:
-            # 保存临时文件
+            # Save temporary files
             temp_dir = os.path.join(upload_folder, ".temp")
             os.makedirs(temp_dir, exist_ok=True)
 
             temp_filename = f"zotero_{uuid.uuid4().hex[:8]}.rdf"
             temp_path = os.path.join(temp_dir, temp_filename)
             file.save(temp_path)
-            print(f"[Import] RDF 文件已保存: {temp_path}")
+            print(f"[Import] RDF File saved: {temp_path}")
 
-            # 解析 RDF 文件
+            # parse RDF document
             try:
                 from resophy.tools.basic_tools.zotero_parser import ZoteroRDFParser
 
                 parser = ZoteroRDFParser(temp_path)
                 papers = parser.parse()
 
-                # 转换为字典列表
+                # Convert to list of dictionaries
                 papers_data = []
                 for paper in papers:
                     paper_dict = paper.to_dict()
                     papers_data.append(paper_dict)
 
-                print(f"[Import] 解析完成，找到 {len(papers_data)} 篇论文")
+                print(f"[Import] Analysis completed, found {len(papers_data)} papers")
 
             finally:
-                # 清理临时文件
+                # Clean temporary files
                 try:
                     os.remove(temp_path)
                     fixed_path = temp_path.replace(".rdf", "_fixed.rdf")
@@ -878,9 +878,9 @@ def register_import_routes(
                     pass
 
             if not papers_data:
-                return jsonify({"success": False, "error": "未找到任何论文"}), 400
+                return jsonify({"success": False, "error": "No papers found"}), 400
 
-            # 检查是否已有正在进行的导入任务
+            # Check if there is already an import task in progress
             global current_import_task_id
             if current_import_task_id:
                 with import_tasks_lock:
@@ -894,31 +894,31 @@ def register_import_routes(
                             jsonify(
                                 {
                                     "success": False,
-                                    "error": "已有导入任务正在进行中",
+                                    "error": "There is an import task in progress",
                                     "task_id": current_import_task_id,
                                 }
                             ),
                             400,
                         )
 
-            # 检查并过滤已导入的论文（恢复导入功能）
+            # Check and filter imported papers (restore import function)
             remaining_papers, already_imported_count = _filter_already_imported_papers(papers_data)
             
             if not remaining_papers:
                 return jsonify({
                     "success": False,
-                    "error": "所有论文都已导入",
+                    "error": "All papers have been imported",
                     "already_imported": already_imported_count,
                     "total": len(papers_data),
                 }), 400
 
-            # 如果有已导入的论文，记录信息
+            # If there are imported papers, record the information
             resume_message = ""
             if already_imported_count > 0:
-                resume_message = f"检测到 {already_imported_count} 篇论文已导入，将从第 {already_imported_count + 1} 篇开始继续导入"
+                resume_message = f"detected {already_imported_count} papers have been imported and will be {already_imported_count + 1} Chapter starts and continues importing"
                 print(f"[Import] {resume_message}")
 
-            # 创建导入任务
+            # Create import task
             task_id = str(uuid.uuid4())
             current_import_task_id = task_id
 
@@ -928,29 +928,29 @@ def register_import_routes(
                     "progress": 0,
                     "current": 0,
                     "total": len(remaining_papers),
-                    "original_total": len(papers_data),  # 原始总数
-                    "already_imported_count": already_imported_count,  # 已导入数量
+                    "original_total": len(papers_data),  # raw total
+                    "already_imported_count": already_imported_count,  # Imported quantity
                     "success_count": 0,
                     "failed_count": 0,
                     "skipped_count": 0,
                     "duplicate_count": 0,
                     "others_count": 0,
-                    "message": resume_message or "正在准备导入...",
+                    "message": resume_message or "Preparing to import...",
                     "start_time": datetime.now().isoformat(),
                     "last_update": datetime.now().isoformat(),
                     "cancelled": False,
                 }
 
-            # 启动后台导入任务（不使用 daemon=True，确保任务完成）
+            # Start the background import task (do not use daemon=True, ensure the task is completed)
             thread = threading.Thread(
                 target=_import_papers_task,
                 args=(task_id, remaining_papers, target_category_id),
             )
             thread.start()
 
-            message = f"开始导入 {len(remaining_papers)} 篇论文"
+            message = f"Start importing {len(remaining_papers)} papers"
             if already_imported_count > 0:
-                message += f"（已跳过 {already_imported_count} 篇已导入的论文）"
+                message += f"(skipped {already_imported_count} imported papers)"
 
             return jsonify(
                 {
@@ -964,15 +964,15 @@ def register_import_routes(
             )
 
         except Exception as e:
-            print(f"[Import] 解析 RDF 失败: {e}")
+            print(f"[Import] parse RDF fail: {e}")
             import traceback
 
             traceback.print_exc()
-            return jsonify({"success": False, "error": f"解析失败: {str(e)}"}), 500
+            return jsonify({"success": False, "error": f"Parsing failed: {str(e)}"}), 500
 
     @app.route("/api/import/zotero/status")
     def api_import_status():
-        """获取当前导入任务状态（用于页面刷新后恢复）"""
+        """Get the current import task status (for recovery after page refresh)"""
         global current_import_task_id
 
         if not current_import_task_id:
@@ -1005,7 +1005,7 @@ def register_import_routes(
 
     @app.route("/api/import/zotero/progress/<task_id>")
     def api_import_progress(task_id):
-        """获取导入进度（SSE，从任务状态读取）"""
+        """Get import progress (SSE, read from task status)"""
 
         def generate():
             last_status = None
@@ -1014,10 +1014,10 @@ def register_import_routes(
                 with import_tasks_lock:
                     task = import_tasks.get(task_id)
                     if not task:
-                        yield f"data: {json.dumps({'status': 'error', 'message': '任务不存在'})}\n\n"
+                        yield f"data: {json.dumps({'status': 'error', 'message': 'Task does not exist'})}\n\n"
                         return
 
-                    # 构建进度数据
+                    # Build progress data
                     progress_data = {
                         "status": task.get("status"),
                         "progress": task.get("progress", 0),
@@ -1033,7 +1033,7 @@ def register_import_routes(
                         "already_imported_count": task.get("already_imported_count", 0),
                     }
 
-                # 只有状态变化时才发送
+                # Sent only when status changes
                 current_key = (
                     progress_data["status"],
                     progress_data["current"],
@@ -1043,11 +1043,11 @@ def register_import_routes(
                     yield f"data: {json.dumps(progress_data)}\n\n"
                     last_status = current_key
 
-                # 如果完成、出错或取消，结束流
+                # End the flow if completed, on error, or canceled
                 if progress_data["status"] in ["completed", "error", "cancelled"]:
                     break
 
-                # 短暂休眠，避免 CPU 过载
+                # Take a short hibernation to avoid CPU overload
                 time.sleep(0.5)
 
         return Response(
@@ -1062,99 +1062,99 @@ def register_import_routes(
 
     @app.route("/api/import/zotero/cancel/<task_id>", methods=["POST"])
     def api_cancel_import(task_id):
-        """取消导入任务"""
+        """Cancel import task"""
         global current_import_task_id
 
         with import_tasks_lock:
             task = import_tasks.get(task_id)
             if not task:
-                return jsonify({"success": False, "error": "任务不存在"}), 404
+                return jsonify({"success": False, "error": "Task does not exist"}), 404
 
-            # 检查任务状态
+            # Check task status
             status = task.get("status")
             if status in ["completed", "error", "cancelled"]:
-                return jsonify({"success": False, "error": f"任务已{status}"}), 400
+                return jsonify({"success": False, "error": f"Task completed{status}"}), 400
 
-            # 标记为取消
+            # Mark as canceled
             task["cancelled"] = True
             task["status"] = "cancelling"
-            task["message"] = "正在取消导入..."
+            task["message"] = "Canceling import..."
             task["last_update"] = datetime.now().isoformat()
 
-            # 如果这是当前任务，清除标记
+            # If this is the current task, clear the flag
             if current_import_task_id == task_id:
                 current_import_task_id = None
 
-        print(f"[Import] 导入任务 {task_id} 已标记为取消")
-        return jsonify({"success": True, "message": "取消请求已发送"})
+        print(f"[Import] Import tasks {task_id} Marked for cancellation")
+        return jsonify({"success": True, "message": "Cancellation request sent"})
 
     @app.route("/api/import/from-export", methods=["POST"])
     def api_import_from_export():
-        """导入从导出功能生成的 ZIP 文件"""
+        """Import generated from export function ZIP document"""
         import shutil
         import tempfile
         import zipfile
 
         if "file" not in request.files:
-            return jsonify({"success": False, "error": "未提供文件"}), 400
+            return jsonify({"success": False, "error": "No document provided"}), 400
 
         file = request.files["file"]
         if not file or file.filename == "":
-            return jsonify({"success": False, "error": "未选择文件"}), 400
+            return jsonify({"success": False, "error": "No file selected"}), 400
 
-        # 检查文件扩展名
+        # Check file extension
         if not file.filename.lower().endswith(".zip"):
-            return jsonify({"success": False, "error": "仅支持 ZIP 文件"}), 400
+            return jsonify({"success": False, "error": "Only supports ZIP document"}), 400
 
-        # 创建临时目录
+        # Create temporary directory
         temp_dir = tempfile.mkdtemp(prefix="import_export_")
 
         try:
-            # 保存上传的 ZIP 文件
+            # Save uploaded ZIP document
             zip_path = os.path.join(temp_dir, "export.zip")
             file.save(zip_path)
 
-            # 解压 ZIP 文件
+            # Unzip ZIP document
             extract_dir = os.path.join(temp_dir, "extracted")
             os.makedirs(extract_dir, exist_ok=True)
 
-            print(f"[Import] 解压 ZIP 文件到: {extract_dir}")
+            print(f"[Import] Unzip ZIP file to: {extract_dir}")
             with zipfile.ZipFile(zip_path, "r") as zipf:
                 zipf.extractall(extract_dir)
 
-            # 检查是否有 papers 文件夹
+            # Check if there is papers folder
             papers_folder = os.path.join(extract_dir, "papers")
             if not os.path.exists(papers_folder) or not os.path.isdir(papers_folder):
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": "无效的导出文件：缺少 papers 文件夹",
+                            "error": "Invalid export file: missing papers folder",
                         }
                     ),
                     400,
                 )
 
-            # 1. 先复制整个文件夹结构到目标位置（这样目录树立即可见）
-            print(f"[Import] 开始复制文件夹结构到: {upload_folder}")
+            # 1. First copy the entire folder structure to the target location (so the directory tree is immediately visible)
+            print(f"[Import] Start copying folder structure to: {upload_folder}")
             for item in os.listdir(papers_folder):
                 src_path = os.path.join(papers_folder, item)
                 dst_path = os.path.join(upload_folder, item)
 
                 if os.path.isdir(src_path):
-                    # 复制整个目录
+                    # copy entire directory
                     if os.path.exists(dst_path):
-                        # 如果目标目录已存在，合并内容
+                        # If the target directory already exists, merge the contents
                         shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
                     else:
                         shutil.copytree(src_path, dst_path)
                 else:
-                    # 复制文件
+                    # Copy files
                     shutil.copy2(src_path, dst_path)
 
-            print(f"[Import] 文件夹复制完成")
+            print(f"[Import] Folder copy completed")
 
-            # 计算 JSON 文件数量（论文数量）
+            # calculate JSON Number of documents (number of papers)
             total_papers = sum(
                 [
                     len([f for f in files if f.endswith(".json")])
@@ -1162,7 +1162,7 @@ def register_import_routes(
                 ]
             )
 
-            # 检查是否已有正在进行的导入任务
+            # Check if there is already an import task in progress
             global current_import_task_id
             if current_import_task_id:
                 with import_tasks_lock:
@@ -1175,14 +1175,14 @@ def register_import_routes(
                             jsonify(
                                 {
                                     "success": False,
-                                    "error": "已有导入任务正在进行中",
+                                    "error": "There is an import task in progress",
                                     "task_id": current_import_task_id,
                                 }
                             ),
                             400,
                         )
 
-            # 创建导入任务
+            # Create import task
             task_id = str(uuid.uuid4())
             current_import_task_id = task_id
 
@@ -1197,13 +1197,13 @@ def register_import_routes(
                     "skipped_count": 0,
                     "duplicate_count": 0,
                     "others_count": 0,
-                    "message": "文件夹已复制，开始重建论文...",
+                    "message": "Folder copied, start rebuilding paper...",
                     "start_time": datetime.now().isoformat(),
                     "last_update": datetime.now().isoformat(),
                     "cancelled": False,
                 }
 
-            # 2. 启动后台任务重建论文（从 arXiv 下载 PDF）
+            # 2. Start a background task to rebuild the paper (from arXiv download PDF）
             thread = threading.Thread(
                 target=_rebuild_papers_from_json,
                 args=(task_id, upload_folder),
@@ -1211,7 +1211,7 @@ def register_import_routes(
             )
             thread.start()
 
-            # 清理临时目录
+            # Clean up temporary directory
             shutil.rmtree(temp_dir, ignore_errors=True)
 
             return jsonify(
@@ -1219,18 +1219,18 @@ def register_import_routes(
                     "success": True,
                     "task_id": task_id,
                     "total_papers": total_papers,
-                    "message": "文件夹已导入，正在后台重建论文",
+                    "message": "The folder has been imported and the paper is being reconstructed in the background",
                 }
             )
 
         except zipfile.BadZipFile:
-            return jsonify({"success": False, "error": "无效的 ZIP 文件"}), 400
+            return jsonify({"success": False, "error": "Invalid ZIP document"}), 400
         except Exception as e:
-            print(f"导入失败: {e}")
+            print(f"Import failed: {e}")
             import traceback
 
             traceback.print_exc()
-            # 清理临时目录
+            # Clean up temporary directory
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return jsonify({"success": False, "error": str(e)}), 500
@@ -1239,7 +1239,7 @@ def register_import_routes(
         task_id: str,
         papers_folder: str,
     ):
-        """后台任务：从 JSON 元数据重建论文（从 arXiv 下载 PDF）"""
+        """Background task: from JSON Metadata reconstruction paper (from arXiv download PDF）"""
         global current_import_task_id
 
         def update_progress(
@@ -1253,7 +1253,7 @@ def register_import_routes(
             skipped_count=None,
             duplicate_count=None,
         ):
-            """更新任务进度"""
+            """Update task progress"""
             with import_tasks_lock:
                 if task_id in import_tasks:
                     task = import_tasks[task_id]
@@ -1283,7 +1283,7 @@ def register_import_routes(
         duplicate_count = 0
 
         try:
-            # 1. 收集所有 JSON 文件（排除配置文件）
+            # 1. collect all JSON files (exclude configuration files)
             json_files = []
             exclude_files = {
                 "categories.json",
@@ -1295,7 +1295,7 @@ def register_import_routes(
             }
 
             for root, dirs, files in os.walk(papers_folder):
-                # 排除隐藏目录
+                # Exclude hidden directories
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
 
                 for file in files:
@@ -1304,29 +1304,29 @@ def register_import_routes(
                         json_files.append(json_path)
 
             total_papers = len(json_files)
-            print(f"[Import] 找到 {total_papers} 个论文 JSON 文件")
+            print(f"[Import] turn up {total_papers} papers JSON document")
 
             update_progress(
                 status="importing",
                 progress=0,
                 current=0,
                 total=total_papers,
-                message="开始导入论文...",
+                message="Start importing papers...",
             )
 
-            # 2. 逐个处理 JSON 文件
+            # 2. Process one by one JSON document
             for idx, json_path in enumerate(json_files):
-                # 检查是否已取消
+                # Check if canceled
                 with import_tasks_lock:
                     task = import_tasks.get(task_id)
                     if task and task.get("cancelled", False):
-                        print(f"[Import] 导入任务已取消")
+                        print(f"[Import] Import task canceled")
                         update_progress(
                             status="cancelled",
                             progress=int((idx / total_papers) * 100),
                             current=idx,
                             total=total_papers,
-                            message="导入已取消",
+                            message="Import canceled",
                             success_count=success_count,
                             failed_count=failed_count,
                             skipped_count=skipped_count,
@@ -1336,7 +1336,7 @@ def register_import_routes(
                         return
                 
                 try:
-                    # 读取 JSON 元数据
+                    # read JSON metadata
                     with open(json_path, "r", encoding="utf-8") as f:
                         paper_meta = json.load(f)
 
@@ -1345,27 +1345,27 @@ def register_import_routes(
                     arxiv_id = paper_meta.get("arxiv_id", "")
 
                     if not title:
-                        print(f"[Import] 跳过：缺少标题")
+                        print(f"[Import] Skip: Missing title")
                         skipped_count += 1
                         continue
 
-                    # 更新进度
+                    # update progress
                     update_progress(
                         status="importing",
                         progress=int((idx / total_papers) * 100),
                         current=idx,
                         total=total_papers,
-                        message=f"正在导入: {title[:50]}...",
+                        message=f"Importing: {title[:50]}...",
                         success_count=success_count,
                         failed_count=failed_count,
                         skipped_count=skipped_count,
                         duplicate_count=duplicate_count,
                     )
 
-                    # 获取论文所在目录
+                    # Get the directory where the paper is located
                     paper_dir = os.path.dirname(json_path)
 
-                    # 检查该目录下是否已有 PDF
+                    # Check if there is already one in this directory PDF
                     pdf_exists = False
                     expected_pdf_name = os.path.basename(json_path).replace(
                         ".json", ".pdf"
@@ -1373,25 +1373,25 @@ def register_import_routes(
                     expected_pdf_path = os.path.join(paper_dir, expected_pdf_name)
 
                     if os.path.exists(expected_pdf_path):
-                        print(f"[Import] PDF 已存在，跳过下载: {title[:50]}")
-                        # 但仍需要注册到系统
+                        print(f"[Import] PDF Already exists, skip download: {title[:50]}")
+                        # But you still need to register to the system
                         pdf_exists = True
                         pdf_path = expected_pdf_path
 
-                    # 3. 如果 PDF 不存在，从 arXiv 下载
+                    # 3. if PDF does not exist, from arXiv download
                     if not pdf_exists:
                         pdf_content = None
                         pdf_filename = None
 
                         if arxiv_id:
-                            # 有 arXiv ID，直接下载
+                            # have arXiv ID, download directly
                             result = _download_arxiv_pdf(arxiv_id)
                             if result:
                                 pdf_content, pdf_filename = result
                         else:
-                            # 没有 arXiv ID，尝试搜索
+                            # No arXiv ID, try searching
                             if title and authors:
-                                print(f"[Import] 尝试搜索 arXiv: {title[:50]}...")
+                                print(f"[Import] try search arXiv: {title[:50]}...")
                                 paper_info = search_arxiv_by_title_and_author_fast(
                                     title, authors
                                 )
@@ -1399,7 +1399,7 @@ def register_import_routes(
                                     result = _download_arxiv_pdf(paper_info["arxiv_id"])
                                     if result:
                                         pdf_content, pdf_filename = result
-                                        # 更新元数据中的 arXiv ID
+                                        # Update metadata in arXiv ID
                                         paper_meta["arxiv_id"] = paper_info["arxiv_id"]
                                         if not paper_meta.get("arxiv_url"):
                                             paper_meta["arxiv_url"] = paper_info.get(
@@ -1407,26 +1407,26 @@ def register_import_routes(
                                             )
 
                         if not pdf_content:
-                            print(f"[Import] 无法下载 PDF: {title[:50]}")
+                            print(f"[Import] Unable to download PDF: {title[:50]}")
                             failed_count += 1
                             continue
 
-                        # 4. 保存 PDF
+                        # 4. keep PDF
                         pdf_path = expected_pdf_path
                         with open(pdf_path, "wb") as f:
                             f.write(pdf_content)
 
-                    # 5. 更新元数据
+                    # 5. Update metadata
                     paper_meta["file_path"] = pdf_path
                     if not paper_meta.get("id"):
                         paper_meta["id"] = str(uuid.uuid4())
                     paper_meta["upload_source"] = "export_import"
 
-                    # 保存更新后的 JSON
+                    # Save the updated JSON
                     with open(json_path, "w", encoding="utf-8") as f:
                         json.dump(paper_meta, f, ensure_ascii=False, indent=2)
 
-                    # 6. 注册到 paper_store
+                    # 6. Register to paper_store
                     from resophy.core.base_paper import Paper
 
                     new_paper = Paper(
@@ -1458,14 +1458,14 @@ def register_import_routes(
                         analysis_time=paper_meta.get("analysis_time", 0),
                     )
 
-                    # 获取分类路径（相对于 papers_folder）
+                    # Get the classification path (relative to papers_folder）
                     rel_dir = os.path.relpath(paper_dir, papers_folder)
                     category_path_parts = (
                         rel_dir.split(os.sep) if rel_dir != "." else []
                     )
 
                     if category_path_parts:
-                        # 查找或创建分类
+                        # Find or create a category
                         current_categories = get_categories()
                         category_id = _find_or_create_category(
                             current_categories,
@@ -1483,29 +1483,29 @@ def register_import_routes(
                             )
                             save_paper_metadata(pdf_path, new_paper)
                     else:
-                        # 根目录下的论文
+                        # Papers in the root directory
                         paper_store.upsert(
                             new_paper, category_id="root", category_path=["root"]
                         )
                         save_paper_metadata(pdf_path, new_paper)
 
                     success_count += 1
-                    print(f"[Import] ✅ 成功导入: {title[:50]}")
+                    print(f"[Import] ✅ Imported successfully: {title[:50]}")
 
                 except Exception as e:
-                    print(f"[Import] ❌ 处理失败: {json_path}, 错误: {e}")
+                    print(f"[Import] ❌ Processing failed: {json_path}, mistake: {e}")
                     import traceback
 
                     traceback.print_exc()
                     failed_count += 1
 
-            # 导入完成
+            # Import completed
             update_progress(
                 status="completed",
                 progress=100,
                 current=total_papers,
                 total=total_papers,
-                message="导入完成",
+                message="Import completed",
                 success_count=success_count,
                 failed_count=failed_count,
                 skipped_count=skipped_count,
@@ -1513,22 +1513,22 @@ def register_import_routes(
             )
 
             print(
-                f"[Import] 导入完成: 成功 {success_count}, 失败 {failed_count}, 跳过 {skipped_count}, 重复 {duplicate_count}"
+                f"[Import] Import completed: success {success_count}, fail {failed_count}, jump over {skipped_count}, repeat {duplicate_count}"
             )
 
         except Exception as e:
-            print(f"[Import] 导入任务失败: {e}")
+            print(f"[Import] Import task failed: {e}")
             import traceback
 
             traceback.print_exc()
 
             update_progress(
                 status="error",
-                message=f"导入失败: {str(e)}",
+                message=f"Import failed: {str(e)}",
             )
 
         finally:
-            # 清除当前任务标记
+            # Clear current task mark
             current_import_task_id = None
 
     def _import_from_export_task_old(
@@ -1537,7 +1537,7 @@ def register_import_routes(
         extract_dir: str,
         manifest: Dict[str, Any],
     ):
-        """后台任务：导入从导出功能生成的论文"""
+        """Background task: Importing papers generated from the export function"""
         success_count = 0
         failed_count = 0
         skipped_count = 0
@@ -1546,12 +1546,12 @@ def register_import_routes(
         total = len(papers_list)
 
         try:
-            # 恢复分类结构
+            # Restore classification structure
             exported_categories = manifest.get("categories", {})
             current_categories = get_categories()
 
-            # 合并分类结构（简单的追加到根目录）
-            # TODO: 可以更智能地合并分类
+            # Merge classification structure (simple append to root directory)
+            # TODO: Classifications can be merged more intelligently
 
             for idx, paper_info in enumerate(papers_list):
                 try:
@@ -1566,20 +1566,20 @@ def register_import_routes(
                         skipped_count=skipped_count,
                         duplicate_count=duplicate_count,
                         others_count=others_count,
-                        message=f"正在导入: {paper_info['metadata'].get('title', '')[:50]}...",
+                        message=f"Importing: {paper_info['metadata'].get('title', '')[:50]}...",
                     )
 
                     paper_metadata = paper_info["metadata"]
                     category_path_list = paper_info["category_path"]  # ['CS', 'ML']
 
-                    # 确保目标分类存在
+                    # Make sure the target category exists
                     full_category_path = ["root"] + category_path_list
                     category_id = None
 
-                    # 遍历分类路径，创建不存在的分类
+                    # Traverse the classification path and create non-existing categories
                     current_node = current_categories
                     for cat_name in category_path_list:
-                        # 查找子分类
+                        # Find subcategories
                         found = False
                         for child in current_node.get("children", []):
                             if child.get("name") == cat_name:
@@ -1588,9 +1588,9 @@ def register_import_routes(
                                 found = True
                                 break
 
-                        # 如果不存在，创建新分类
+                        # If it does not exist, create a new category
                         if not found:
-                            # 创建新分类
+                            # Create new category
                             new_cat_id = str(uuid.uuid4())
                             new_category = {
                                 "id": new_cat_id,
@@ -1604,31 +1604,31 @@ def register_import_routes(
                             current_node = new_category
                             category_id = new_cat_id
 
-                            # 保存分类树
+                            # Save classification tree
                             save_categories(current_categories)
 
                     if not category_id:
-                        print(f"[Import] ⚠️ 无法创建分类路径: {category_path_list}")
+                        print(f"[Import] ⚠️ Unable to create classification path: {category_path_list}")
                         failed_count += 1
                         continue
 
-                    # 创建分类文件夹
+                    # Create category folders
                     category_folder = create_category_folder(full_category_path)
 
-                    # 检查是否已存在相同的论文
+                    # Check if the same paper already exists
                     paper_id = paper_metadata.get("id")
                     existing_paper = paper_store.get(paper_id) if paper_id else None
                     if existing_paper:
                         print(
-                            f"[Import] 📋 论文已存在，跳过: {paper_metadata.get('title', '')[:50]}"
+                            f"[Import] 📋 The paper already exists, skip: {paper_metadata.get('title', '')[:50]}"
                         )
                         duplicate_count += 1
                         continue
 
-                    # 生成新的 paper_id
+                    # generate new paper_id
                     new_paper_id = str(uuid.uuid4())
 
-                    # 复制 PDF 文件
+                    # copy PDF document
                     pdf_filename = os.path.basename(paper_metadata.get("file_path", ""))
                     if not pdf_filename:
                         pdf_filename = f"{new_paper_id}.pdf"
@@ -1641,15 +1641,15 @@ def register_import_routes(
                     )
 
                     if not os.path.exists(zip_pdf_path):
-                        print(f"[Import] ⚠️ PDF 文件不存在: {zip_pdf_path}")
+                        print(f"[Import] ⚠️ PDF File does not exist: {zip_pdf_path}")
                         skipped_count += 1
                         continue
 
-                    # 复制 PDF 到目标位置
+                    # copy PDF to target location
                     dest_pdf_path = os.path.join(category_folder, pdf_filename)
                     shutil.copy2(zip_pdf_path, dest_pdf_path)
 
-                    # 复制中文翻译（如果有）
+                    # Copy Chinese translation (if available)
                     chinese_path = paper_metadata.get("chinese_version_path")
                     if chinese_path:
                         chinese_filename = os.path.basename(chinese_path)
@@ -1666,7 +1666,7 @@ def register_import_routes(
                             shutil.copy2(zip_chinese_path, dest_chinese_path)
                             paper_metadata["chinese_version_path"] = dest_chinese_path
 
-                    # 复制 AI 解读（如果有）
+                    # copy AI Interpretation (if any)
                     analysis_path = paper_metadata.get("analysis_result_path")
                     if analysis_path:
                         analysis_filename = os.path.basename(analysis_path)
@@ -1683,7 +1683,7 @@ def register_import_routes(
                             shutil.copy2(zip_analysis_path, dest_analysis_path)
                             paper_metadata["analysis_result_path"] = dest_analysis_path
 
-                            # 复制图片文件夹
+                            # Copy picture folder
                             images_folder_name = analysis_filename.replace(
                                 "_analysis.md", "_images"
                             )
@@ -1703,7 +1703,7 @@ def register_import_routes(
                                     shutil.rmtree(dest_images_path)
                                 shutil.copytree(zip_images_path, dest_images_path)
 
-                    # 创建 Paper 对象
+                    # create Paper object
                     new_paper = Paper(
                         id=new_paper_id,
                         title=paper_metadata.get("title", ""),
@@ -1736,29 +1736,29 @@ def register_import_routes(
                         analysis_view_time=paper_metadata.get("analysis_view_time", 0),
                     )
 
-                    # 注册到 paper_store
+                    # Register to paper_store
                     registered_paper = paper_store.upsert(
                         new_paper,
                         category_id=category_id,
                         category_path=full_category_path,
                     )
 
-                    # 保存元数据
+                    # Save metadata
                     save_paper_metadata(dest_pdf_path, registered_paper)
 
                     success_count += 1
                     print(
-                        f"[Import] ✅ 成功导入: {paper_metadata.get('title', '')[:50]}"
+                        f"[Import] ✅ Imported successfully: {paper_metadata.get('title', '')[:50]}"
                     )
 
                 except Exception as e:
-                    print(f"[Import] ❌ 导入论文失败: {e}")
+                    print(f"[Import] ❌ Failed to import paper: {e}")
                     import traceback
 
                     traceback.print_exc()
                     failed_count += 1
 
-            # 导入完成
+            # Import completed
             _update_task_progress(
                 task_id,
                 status="completed",
@@ -1770,38 +1770,38 @@ def register_import_routes(
                 skipped_count=skipped_count,
                 duplicate_count=duplicate_count,
                 others_count=others_count,
-                message="导入完成",
+                message="Import completed",
             )
 
-            # TODO: 恢复待读列表、阅读历史、用户设置
+            # TODO: Restore to-read list, reading history, user settings
             # reading_list = manifest.get("reading_list", [])
             # reading_history = manifest.get("reading_history", {})
             # user_settings = manifest.get("user_settings", {})
 
         except Exception as e:
-            print(f"[Import] ❌ 导入任务失败: {e}")
+            print(f"[Import] ❌ Import task failed: {e}")
             import traceback
 
             traceback.print_exc()
 
             update_progress(
                 status="error",
-                message=f"导入失败: {str(e)}",
+                message=f"Import failed: {str(e)}",
             )
 
         finally:
-            # 清除当前任务标记
+            # Clear current task mark
             global current_import_task_id
             current_import_task_id = None
 
-            # 清理临时目录
+            # Clean up temporary directory
             temp_dir = os.path.dirname(extract_dir)
             if os.path.exists(temp_dir):
                 try:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception as e:
-                    print(f"[Import] 清理临时目录失败: {e}")
+                    print(f"[Import] Failed to clean up temporary directory: {e}")
 
             print(
-                f"[Import] 导入完成: 成功 {success_count}, 失败 {failed_count}, 跳过 {skipped_count}, 重复 {duplicate_count}"
+                f"[Import] Import completed: success {success_count}, fail {failed_count}, jump over {skipped_count}, repeat {duplicate_count}"
             )
