@@ -954,11 +954,16 @@ class DailyArxivManager:
                             paper.thumbnail_path = thumbnail_path
 
                         # 提取机构、homepage 和 github（从 PDF 第一页）
-                        if llm_config.get("llmBaseUrl") and llm_config.get("llmApiKey"):
+                        if (
+                            llm_config.get("llmBaseUrl")
+                            and llm_config.get("llmApiKey")
+                            and llm_config.get("llmModel")
+                        ):
                             extraction_result = self._extract_affiliations(
                                 pdf_path,
                                 llm_config["llmBaseUrl"],
                                 llm_config["llmApiKey"],
+                                llm_config["llmModel"],
                                 prompt=affiliation_prompt,
                             )
                             paper.affiliations = extraction_result.get(
@@ -988,12 +993,14 @@ class DailyArxivManager:
                     if (
                         llm_config.get("llmBaseUrl")
                         and llm_config.get("llmApiKey")
+                        and llm_config.get("llmModel")
                         and paper.abstract
                     ):
                         summary_result = extract_summary_and_keywords_with_llm(
                             paper.abstract,
                             llm_config["llmBaseUrl"],
                             llm_config["llmApiKey"],
+                            llm_config["llmModel"],
                             prompt=summary_prompt,
                         )
                         paper.summary = summary_result.get("summary")
@@ -1303,6 +1310,7 @@ class DailyArxivManager:
         pdf_path: str,
         openai_base_url: str,
         openai_api_key: str,
+        model_name: str,
         prompt: str = None,
     ) -> Dict[str, Any]:
         """提取机构信息、国家、homepage 和 github"""
@@ -1319,6 +1327,7 @@ class DailyArxivManager:
             first_page_text,
             openai_base_url,
             openai_api_key,
+            model_name,
             prompt=prompt,
             settings_file=self.settings_file,
         )
@@ -1363,9 +1372,13 @@ class DailyArxivManager:
         # 保留最近 retention_days 个日期，删除更早的
         dates_to_keep = set(available_dates[:retention_days])
         dates_to_delete = [d for d in available_dates if d not in dates_to_keep]
-        
-        print(f"[DailyArxiv] 将保留以下 {len(dates_to_keep)} 个日期: {sorted(dates_to_keep, reverse=True)}")
-        print(f"[DailyArxiv] 将删除以下 {len(dates_to_delete)} 个过期日期: {sorted(dates_to_delete, reverse=True)}")
+
+        print(
+            f"[DailyArxiv] 将保留以下 {len(dates_to_keep)} 个日期: {sorted(dates_to_keep, reverse=True)}"
+        )
+        print(
+            f"[DailyArxiv] 将删除以下 {len(dates_to_delete)} 个过期日期: {sorted(dates_to_delete, reverse=True)}"
+        )
 
         deleted_count = 0
         for name in os.listdir(self.base_dir):
@@ -1379,16 +1392,20 @@ class DailyArxivManager:
                         deleted_count += 1
                     except Exception as e:
                         print(f"[DailyArxiv] 删除失败: {e}")
-        
+
         print(f"[DailyArxiv] 清理完成，共删除 {deleted_count} 个过期日期目录")
-        
+
         # 验证清理结果
         remaining_dates = self.get_available_dates()
         remaining_count = len(remaining_dates)
-        print(f"[DailyArxiv] 清理后剩余 {remaining_count} 个有论文的日期: {remaining_dates}")
-        
+        print(
+            f"[DailyArxiv] 清理后剩余 {remaining_count} 个有论文的日期: {remaining_dates}"
+        )
+
         if remaining_count > retention_days:
-            print(f"[DailyArxiv] ⚠️ 警告：清理后仍有 {remaining_count} 个日期，超过保留数量 {retention_days}")
+            print(
+                f"[DailyArxiv] ⚠️ 警告：清理后仍有 {remaining_count} 个日期，超过保留数量 {retention_days}"
+            )
 
     def start_scheduler(self):
         """启动调度器"""
@@ -1516,7 +1533,9 @@ class DailyArxivManager:
         # 1. 先检查当前有几天的论文
         available_dates = self.get_available_dates()
         dates_with_papers = len(available_dates)
-        print(f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期: {available_dates}")
+        print(
+            f"[DailyArxiv] 当前已有 {dates_with_papers} 个有论文的日期: {available_dates}"
+        )
 
         # 获取最近 N 个工作日（N = retention_days）
         recent_weekdays = self._get_recent_weekdays(retention_days)
@@ -1570,12 +1589,16 @@ class DailyArxivManager:
 
         # 3. 如果当前论文天数大于设置，先清理多余的（在抓取前清理，避免抓取后超过限制）
         if dates_with_papers > retention_days:
-            print(f"[DailyArxiv] 当前有 {dates_with_papers} 个有论文的日期，超过保留数量 {retention_days}，先清理多余的...")
+            print(
+                f"[DailyArxiv] 当前有 {dates_with_papers} 个有论文的日期，超过保留数量 {retention_days}，先清理多余的..."
+            )
             self.cleanup_old_papers(retention_days)
             # 清理后重新获取日期列表
             available_dates = self.get_available_dates()
             dates_with_papers = len(available_dates)
-            print(f"[DailyArxiv] 清理后剩余 {dates_with_papers} 个有论文的日期: {available_dates}")
+            print(
+                f"[DailyArxiv] 清理后剩余 {dates_with_papers} 个有论文的日期: {available_dates}"
+            )
 
         # 4. 执行抓取
         if dates_to_fetch:
@@ -1596,17 +1619,23 @@ class DailyArxivManager:
             print(f"[DailyArxiv] 所有需要的日期都已完整，无需补充")
 
         # 5. 抓取完成后，再次清理，确保只保留 N 天（这是关键步骤）
-        print(f"[DailyArxiv] 抓取完成，执行最终清理，确保只保留 {retention_days} 天论文...")
+        print(
+            f"[DailyArxiv] 抓取完成，执行最终清理，确保只保留 {retention_days} 天论文..."
+        )
         self.cleanup_old_papers(retention_days)
-        
+
         # 验证清理结果
         final_dates = self.get_available_dates()
         final_count = len(final_dates)
         print(f"[DailyArxiv] 最终保留 {final_count} 个有论文的日期: {final_dates}")
         if final_count > retention_days:
-            print(f"[DailyArxiv] ⚠️ 警告：清理后仍有 {final_count} 个日期，超过保留数量 {retention_days}，可能存在清理逻辑问题")
+            print(
+                f"[DailyArxiv] ⚠️ 警告：清理后仍有 {final_count} 个日期，超过保留数量 {retention_days}，可能存在清理逻辑问题"
+            )
         else:
-            print(f"[DailyArxiv] ✅ 清理完成，当前论文天数 ({final_count}) 符合设置 ({retention_days})")
+            print(
+                f"[DailyArxiv] ✅ 清理完成，当前论文天数 ({final_count}) 符合设置 ({retention_days})"
+            )
 
         print("[DailyArxiv] 定时抓取完成")
 
@@ -1754,6 +1783,7 @@ def extract_affiliations_with_llm(
     first_page_text: str,
     openai_base_url: str,
     openai_api_key: str,
+    model_name: str,
     prompt: str = None,
     settings_file: str = None,
 ) -> Dict[str, Any]:
@@ -1764,6 +1794,7 @@ def extract_affiliations_with_llm(
         first_page_text: PDF 第一页文本
         openai_base_url: OpenAI API 基础 URL
         openai_api_key: OpenAI API 密钥
+        model_name: LLM 模型名称
         prompt: 自定义提示词（可选）
         settings_file: 配置文件路径（可选，用于读取自定义机构映射）
 
@@ -1781,9 +1812,8 @@ def extract_affiliations_with_llm(
         # 获取可用模型
         try:
             models = client.models.list()
-            model = models.data[0].id if models.data else None
-            if not model:
-                print("[DailyArxiv] 无法获取模型列表")
+            if model_name not in [model.id for model in models.data]:
+                print(f"[DailyArxiv] 模型 {model_name} 不存在")
                 return {
                     "affiliations": [],
                     "countries": [],
@@ -1804,12 +1834,12 @@ def extract_affiliations_with_llm(
         full_prompt = system_prompt + first_page_text
         messages = [{"role": "user", "content": full_prompt}]
 
-        print(f"[DailyArxiv] 使用模型 {model} 提取机构信息、homepage 和 github...")
+        print(f"[DailyArxiv] 使用模型 {model_name} 提取机构信息、homepage 和 github...")
 
         # 调用 LLM
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model=model,
+            model=model_name,
             temperature=0.1,
             max_tokens=800,  # 增加 token 数量以支持更多信息
         )
@@ -1970,6 +2000,7 @@ def extract_summary_and_keywords_with_llm(
     abstract: str,
     openai_base_url: str,
     openai_api_key: str,
+    model_name: str,
     prompt: str = None,
 ) -> Dict[str, Any]:
     """
@@ -1979,6 +2010,7 @@ def extract_summary_and_keywords_with_llm(
         abstract: 论文摘要（英文）
         openai_base_url: OpenAI API 基础 URL
         openai_api_key: OpenAI API 密钥
+        model_name: LLM 模型名称
         prompt: 自定义提示词（可选）
 
     Returns:
@@ -1995,9 +2027,8 @@ def extract_summary_and_keywords_with_llm(
         # 获取可用模型
         try:
             models = client.models.list()
-            model = models.data[0].id if models.data else None
-            if not model:
-                print("[DailyArxiv] 无法获取模型列表")
+            if model_name not in [model.id for model in models.data]:
+                print(f"[DailyArxiv] 模型 {model_name} 不存在")
                 return {"summary": None, "keywords": []}
         except Exception as e:
             print(f"[DailyArxiv] 获取模型列表失败: {e}")
@@ -2009,12 +2040,12 @@ def extract_summary_and_keywords_with_llm(
         full_prompt = system_prompt + abstract
         messages = [{"role": "user", "content": full_prompt}]
 
-        print(f"[DailyArxiv] 使用模型 {model} 提取摘要和关键词...")
+        print(f"[DailyArxiv] 使用模型 {model_name} 提取摘要和关键词...")
 
         # 调用 LLM
         chat_completion = client.chat.completions.create(
             messages=messages,
-            model=model,
+            model=model_name,
             temperature=0.3,
             max_tokens=800,
         )
