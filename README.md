@@ -64,7 +64,7 @@ Resophy is a fully open-source, Vibe Coding-oriented modern paper reader that he
 <div align="center" xmlns="http://www.w3.org/1999/html">
 <!-- logo -->
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/76507160-fbbe-44cd-bd0f-8905fdd3611c"  style="vertical-align:middle;">
+  <img src="https://github.com/user-attachments/assets/5fbe6d8f-570a-491d-9c54-1c008b23399d"  style="vertical-align:middle;">
 </p>
 </div>
 
@@ -98,7 +98,7 @@ Resophy is a fully open-source, Vibe Coding-oriented modern paper reader that he
 ## 1. Installation
 
 <div align=center>
-  <img src="https://github.com/user-attachments/assets/5f7b4fc7-4eee-41ee-b098-b212009f77e3">
+  <img src="https://github.com/user-attachments/assets/73d25cfa-5791-4b54-a131-d816f51afebb">
   <div style="margin-top:8px; color: #555; font-size: 16px;">
     Resophy adopts a frontend-backend separated architecture
   </div>
