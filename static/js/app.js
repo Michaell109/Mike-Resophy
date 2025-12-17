@@ -5977,7 +5977,7 @@ function renderHeatmap(year) {
     if (totalEl) {
         const totalHours = Math.floor(totalYearMinutes / 60);
         const timeStr = totalHours > 0 ? `${totalHours}h` : `${totalYearMinutes}m`;
-        totalEl.textContent = `${totalActiveDays} There are reading activities every day, a total of ${timeStr}`;
+        totalEl.textContent = `Reading activities: ${totalActiveDays} days, total reading time ${timeStr}.`;
     }
 }
 
