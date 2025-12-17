@@ -375,13 +375,16 @@ def register_paper_operation_routes(
             paper_obj.filename = os.path.basename(target_file_path)
             paper_obj.file_path = target_file_path
 
-            # Save updated metadata
-            save_paper_metadata(target_file_path, paper_obj)
+            # First update the category information in paper_store
+            # so that the search index sees the latest category when saving metadata.
             paper_store.update_category(
                 paper_id,
                 category_id=target_category_id,
                 category_path=target_path,
             )
+
+            # Save updated metadata and update search index (with the new category)
+            save_paper_metadata(target_file_path, paper_obj)
 
             return jsonify(
                 {
