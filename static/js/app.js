@@ -3786,7 +3786,14 @@ async function deletePaper(paperId, event = null) {
     if (event) {
         event.stopPropagation();
     }
-    
+
+    // In reading-list view, "delete" should only remove from the reading list,
+    // not delete the actual paper file or remove it from its category.
+    if (currentViewMode === 'reading-list') {
+        await removeFromReadingList(paperId);
+        return;
+    }
+
     try {
         // Optimistic update: remove from list first
         papers = papers.filter(p => p.id !== paperId);

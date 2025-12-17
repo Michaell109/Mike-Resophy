@@ -619,18 +619,24 @@ def register_paper_operation_routes(
 
         paper, category_path, category_id = result
 
-        # Check if it is in the temporary directory
-        # method1: examine category_id
-        # method2: Check if the file path contains _ReadingListTemp
-        is_in_temp = (
+        # Check if it is still in the temporary directory used by the reading list.
+        # We require BOTH the category information and the actual file path to match
+        # the temp directory, to avoid accidentally deleting papers that have already
+        # been moved into a normal category.
+        temp_dir = os.path.join(upload_folder, "_ReadingListTemp")
+        is_temp_category = (
             category_id == "reading_list_temp"
             or (
                 category_path
                 and len(category_path) > 1
                 and category_path[1] == "_ReadingListTemp"
             )
-            or (paper.file_path and "_ReadingListTemp" in paper.file_path)
         )
+        is_in_temp_dir = (
+            bool(paper.file_path)
+            and os.path.abspath(paper.file_path).startswith(os.path.abspath(temp_dir))
+        )
+        is_in_temp = is_temp_category and is_in_temp_dir
 
         # Get delete options
         data = request.json or {}
