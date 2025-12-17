@@ -3656,6 +3656,9 @@ function renderSearchResults(panel, q, results) {
                     const category = findCategoryById(categories, categoryId);
                     
                     if (category) {
+                        // Expand the category tree to make sure the target category is visible
+                        expandToCategoryPath(categoryId);
+
                         // Set up first currentPaperId,so renderPapersList will be automatically selected
                         currentPaperId = pid;
                         
