@@ -127,8 +127,8 @@
                     <span id="batch-count">Selected 0 items</span>
                 </div>
                 <div class="batch-actions">
-                    <button class="btn" id="batch-analyze" title="AI Analysis"><i class="fas fa-brain"></i> Analyze</button>
-                    <button class="btn" id="batch-translate" title="Translate to Chinese"><i class="fas fa-language"></i> Translate</button>
+                    <button class="btn" id="batch-analyze" title="AI Interpretation"><i class="fas fa-brain"></i> Analyze</button>
+                    <button class="btn" id="batch-translate" title="AI Translation"><i class="fas fa-language"></i> Translate</button>
                     <button class="btn btn-danger" id="batch-delete" title="Delete"><i class="fas fa-trash"></i> Delete</button>
                     <button class="btn btn-secondary" id="batch-cancel" title="Exit multi-select"><i class="fas fa-times"></i> Cancel</button>
                 </div>
@@ -474,6 +474,30 @@
                     </div>
                 </div>
 
+                <!-- AI Output Language Configuration -->
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-language"></i>
+                        <span>AI Output Language</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                            <i class="fas fa-info-circle"></i> 
+                            Select the output language for AI features. This setting applies to AI translation, AI interpretation, and Daily arXiv summary generation.
+                        </p>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="ai-language">Output Language</label>
+                                <small>Language for AI-generated content</small>
+                            </div>
+                            <select id="ai-language" class="setting-input" style="width: 200px;">
+                                <option value="zh">Chinese</option>
+                                <option value="en">English</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- PDF parsing service configuration -->
                 <div class="setting-card">
                     <div class="setting-card-header">
@@ -498,27 +522,6 @@
                             </div>
                         </div>
                         <div id="mineru-test-result" style="margin-top: 8px; display: none;"></div>
-                    </div>
-                </div>
-
-                <!-- AI analysis prompt configuration -->
-                <div class="setting-card">
-                    <div class="setting-card-header">
-                        <i class="fas fa-comment-dots"></i>
-                        <span>AI Analysis Prompt</span>
-                    </div>
-                    <div class="setting-card-body">
-                        <div class="setting-row full-width">
-                            <div class="setting-info">
-                                <label for="analysis-system-prompt">System Prompt</label>
-                                <small>System prompt for AI analysis (current prompt is shown below, you can modify it)</small>
-                            </div>
-                            <textarea id="analysis-system-prompt" rows="12" placeholder="Loading..." class="setting-textarea"></textarea>
-                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
-                                <i class="fas fa-info-circle"></i> 
-                                <span id="prompt-status-text">Note: changes will be saved as a custom prompt.</span>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -1017,7 +1020,7 @@
                 </div>
             </li>
             <li class="menu-divider"></li>
-            <li id="export-bibtex"><i class="fas fa-download"></i> Export BibTeX</li>
+            <li id="export-bibtex"><i class="fas fa-download"></i> Export bibTeX</li>
             <li id="copy-arxiv-urls"><i class="fas fa-copy"></i> Copy arXiv URLs</li>
             <li id="delete-category"><i class="fas fa-trash"></i> Delete</li>
         </ul>
@@ -1027,8 +1030,8 @@
     <div id="paper-context-menu" class="context-menu">
         <ul>
             <li id="paper-refresh-metadata"><i class="fas fa-sync-alt"></i> Refresh metadata</li>
-            <li id="paper-translate"><i class="fas fa-language"></i> Translate to Chinese</li>
-            <li id="paper-analyze"><i class="fas fa-brain"></i> AI Analysis</li>
+            <li id="paper-translate"><i class="fas fa-language"></i>AI iranslate</li>
+            <li id="paper-analyze"><i class="fas fa-brain"></i> AI interpret</li>
             <li id="paper-delete"><i class="fas fa-trash"></i> Delete paper</li>
         </ul>
     </div>
@@ -1132,6 +1135,20 @@
                 </button>
             </div>
             <div class="onboarding-body">
+                <!-- Language Selection (at the top) -->
+                <div class="onboarding-step" style="border-bottom: 2px solid #e0e0e0; padding-bottom: 20px; margin-bottom: 20px;">
+                    <div class="onboarding-step-icon">
+                        <i class="fas fa-language"></i>
+                    </div>
+                    <div class="onboarding-step-content">
+                        <h3>Select AI Output Language</h3>
+                        <p style="margin-bottom: 12px;">Choose the language for AI-generated content (translation, interpretation, and Daily arXiv summaries):</p>
+                        <select id="onboarding-ai-language" class="setting-input" style="width: 200px; font-size: 14px; padding: 8px;">
+                            <option value="zh">Chinese</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+                </div>
                 <div class="onboarding-step">
                     <div class="onboarding-step-icon">
                         <i class="fas fa-cog"></i>

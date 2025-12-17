@@ -36,16 +36,30 @@ def analyze_paper_task(
     openai_base_url: str,
     openai_api_key: str,
     system_prompt: str,
+    ai_language: str,
     deps: AnalysisDependencies,
 ) -> None:
-    """BackstageAI Interpretation tasks - Two steps:PDF2MD -> LLMInterpretation"""
-    # if not provided system_prompt, use the default value
+    """Background AI interpretation task - two steps: PDF2MD -> LLM interpretation."""
+    # If no system_prompt is provided, select language-specific default prompt.
     if not system_prompt:
-        system_prompt = """Please speak in Chinese markdown For this article, write a long tweet containing detailed content in the style of a public account. The content should be detailed and rich.
-The experimental content must also be sufficient, including ablation experiments, for example. Note that you must use the originalmarkdown Use the pictures and tables to make your official account articles clearer.
-picture,For example, model structure,teaser, or some result diagrams and explanatory diagrams are inserted directly into the corresponding position of the text, do not put them at the end. Pictures are very important for a public account article
+        # Chinese default prompt
+        zh_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+
+实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
+
+图片，比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
 
 INPUT: <MARKDOWN>"""
+
+        # English default prompt
+        en_prompt = """Please write a long, detailed, interested and attractive promotional post for this paper, using English Markdown format. The content must be detailed and rich, and the experimental content must be sufficient, including, for example, ablation studies. Note that you must use original Markdown syntax for images and tables to make your public account article clearer. Images, such as the model structure, a teaser figure, or some result figures and explanatory diagrams, must be inserted directly into the corresponding position within the main body of the text, and should not be placed at the end. Images are very important for a public account style article.
+
+INPUT: <MARKDOWN>"""
+
+        if ai_language and ai_language.lower().startswith("zh"):
+            system_prompt = zh_prompt
+        else:
+            system_prompt = en_prompt
 
     start_time = datetime.now()  # Recording start time
     with deps.analysis_tasks_lock:

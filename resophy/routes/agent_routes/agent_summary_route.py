@@ -192,6 +192,8 @@ def register_agent_summary_routes(
                 save_paper_metadata=save_paper_metadata,
             )
 
+            ai_language = data.get("ai_language", "zh")
+
             thread = threading.Thread(
                 target=analyze_paper_task,
                 args=(
@@ -204,6 +206,7 @@ def register_agent_summary_routes(
                     openai_base_url,
                     openai_api_key,
                     system_prompt,
+                    ai_language,
                     deps,
                 ),
             )

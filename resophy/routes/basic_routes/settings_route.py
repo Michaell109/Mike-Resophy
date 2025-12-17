@@ -288,17 +288,12 @@ def register_settings_routes(
                 settings = {}
             merged = default_agentic_settings.copy()
             merged.update(settings)
-            
-            # If the user has not customized System Prompt, returns the default value for front-end display
-            if not merged.get("analysisSystemPrompt"):
-                default_prompt = """Please speak in Chinese markdown For this article, write a long tweet containing detailed content in the style of a public account. The content should be detailed and rich.
-The experimental content must also be sufficient, including ablation experiments, for example. Note that you must use the originalmarkdown Use the pictures and tables to make your official account articles clearer.
-picture,For example, model structure,teaser, or some result diagrams and explanatory diagrams are inserted directly into the corresponding position of the text, do not put them at the end. Pictures are very important for a public account article
 
-INPUT: <MARKDOWN>"""
-                merged["analysisSystemPrompt"] = default_prompt
-                merged["_isDefaultPrompt"] = True  # Mark this as the default prompt word
-            
+            # Remove prompt fields as they are no longer customizable
+            merged.pop("analysisSystemPrompt", None)
+            merged.pop("analysisSystemPromptZh", None)
+            merged.pop("analysisSystemPromptEn", None)
+
             return jsonify(merged)
 
         data = request.json or {}
@@ -318,7 +313,9 @@ INPUT: <MARKDOWN>"""
                     old_model = old_settings.get("llmModel", "").strip()
                     old_base_url = old_settings.get("llmBaseUrl", "").strip()
                     old_api_key = old_settings.get("llmApiKey", "").strip()
-                    was_llm_configured = bool(old_model and old_base_url and old_api_key)
+                    was_llm_configured = bool(
+                        old_model and old_base_url and old_api_key
+                    )
             except FileNotFoundError:
                 old_settings = {}
             except Exception as exc:
@@ -330,6 +327,12 @@ INPUT: <MARKDOWN>"""
             merged_settings.update(old_settings)  # Apply old settings first
             merged_settings.update(data)  # Reapply new settings (overwrite)
 
+            # Prompt customization is no longer supported - always use built-in prompts based on user language selection
+            # Remove any existing prompt fields to ensure clean state
+            merged_settings.pop("analysisSystemPrompt", None)
+            merged_settings.pop("analysisSystemPromptZh", None)
+            merged_settings.pop("analysisSystemPromptEn", None)
+
             # examine LLM Has the configuration changed?
             llm_config_changed = False
             if was_llm_configured and is_llm_configured:
@@ -337,21 +340,25 @@ INPUT: <MARKDOWN>"""
                 old_model = old_settings.get("llmModel", "").strip()
                 old_base_url = old_settings.get("llmBaseUrl", "").strip()
                 old_api_key = old_settings.get("llmApiKey", "").strip()
-                
+
                 new_model = merged_settings.get("llmModel", "").strip()
                 new_base_url = merged_settings.get("llmBaseUrl", "").strip()
                 new_api_key = merged_settings.get("llmApiKey", "").strip()
-                
+
                 # If any configuration item changes, the configuration is considered to have changed
-                if (old_model != new_model or 
-                    old_base_url != new_base_url or 
-                    old_api_key != new_api_key):
+                if (
+                    old_model != new_model
+                    or old_base_url != new_base_url
+                    or old_api_key != new_api_key
+                ):
                     llm_config_changed = True
                     print(f"[Settings] detected LLM Configuration has changed")
 
             # Save the merged configuration
             print(f"[Settings] keep Agentic set to: {agentic_settings_file}")
-            print(f"[Settings] Configuration content: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}...")
+            print(
+                f"[Settings] Configuration content: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}..."
+            )
             with open(agentic_settings_file, "w", encoding="utf-8") as fp:
                 json.dump(merged_settings, fp, ensure_ascii=False, indent=2)
             print(f"[Settings] ✅ Settings saved")
@@ -359,48 +366,58 @@ INPUT: <MARKDOWN>"""
             # if LLM The configuration is complete and changes, or changes from unconfigured to configured, triggering Daily arXiv crawl
             if is_llm_configured and (llm_config_changed or not was_llm_configured):
                 try:
-                    from resophy.tools.basic_tools.daily_arxiv import get_manager
                     import threading
+
+                    from resophy.tools.basic_tools.daily_arxiv import get_manager
+
                     # get Daily arXiv Set file path (from agentic_settings_file infer)
                     papers_dir = os.path.dirname(agentic_settings_file)
                     daily_arxiv_settings_file = os.path.join(
                         papers_dir, "daily_arxiv_settings.json"
                     )
-                    temp_papers_dir = os.path.join(
-                        papers_dir, ".daily_arxiv_temp"
-                    )
+                    temp_papers_dir = os.path.join(papers_dir, ".daily_arxiv_temp")
                     # get manager Instance (singleton mode, the same instance will be returned)
                     manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
-                    
+
                     # Clear failed status
                     if hasattr(manager, "_llm_api_failed"):
                         manager._llm_api_failed = False
                         manager._llm_api_error_message = ""
                         print("[Settings] cleared Daily arXiv failure status")
-                    
+
                     # Start the scheduler if not already running
                     if not manager._scheduler_running:
                         if start_daily_arxiv_callback:
                             start_daily_arxiv_callback()
                         else:
                             manager.start_scheduler()
-                        print("[Settings] LLM Configuration saved and started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)")
+                        print(
+                            "[Settings] LLM Configuration saved and started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
+                        )
                     else:
                         # The scheduler is already running, trigger a crawl manually
                         def trigger_fetch():
                             try:
                                 manager._do_scheduled_fetch()
-                                print("[Settings] LLM Configuration has been saved and triggered once Daily arXiv crawl")
+                                print(
+                                    "[Settings] LLM Configuration has been saved and triggered once Daily arXiv crawl"
+                                )
                             except Exception as e:
-                                print(f"[Settings] trigger Daily arXiv Fetch failed: {e}")
-                        
+                                print(
+                                    f"[Settings] trigger Daily arXiv Fetch failed: {e}"
+                                )
+
                         # Trigger the fetch in a background thread to avoid blocking the save response
                         thread = threading.Thread(target=trigger_fetch, daemon=True)
                         thread.start()
-                        print("[Settings] LLM Configuration has been saved and triggered in the background Daily arXiv crawl")
+                        print(
+                            "[Settings] LLM Configuration has been saved and triggered in the background Daily arXiv crawl"
+                        )
                 except Exception as e:
                     # If an error occurs when triggering the crawl, it will not affect the saved results.
-                    print(f"[Settings] trigger Daily arXiv An error occurred while fetching (does not affect saving): {e}")
+                    print(
+                        f"[Settings] trigger Daily arXiv An error occurred while fetching (does not affect saving): {e}"
+                    )
 
             return jsonify({"success": True})
         except Exception as exc:
@@ -444,23 +461,29 @@ INPUT: <MARKDOWN>"""
             llm_api_key = data.get("llmApiKey", "").strip()
 
             if not llm_model or not llm_base_url or not llm_api_key:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "Please fill in the complete LLM API configure(Model、Base URL、API Key）",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "Please fill in the complete LLM API configure(Model、Base URL、API Key）",
+                        }
+                    ),
+                    400,
+                )
 
             # import OpenAI client
             try:
                 from openai import OpenAI
             except ImportError:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "OpenAI The library is not installed, please run: pip install openai",
-                    }
-                ), 500
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "OpenAI The library is not installed, please run: pip install openai",
+                        }
+                    ),
+                    500,
+                )
 
             # Create client
             client = OpenAI(
@@ -487,8 +510,12 @@ INPUT: <MARKDOWN>"""
                     if "yes" in reply.lower():
                         # Test successful, clear Daily arXiv failure status and trigger fetching
                         try:
-                            from resophy.tools.basic_tools.daily_arxiv import get_manager
                             import threading
+
+                            from resophy.tools.basic_tools.daily_arxiv import (
+                                get_manager,
+                            )
+
                             # get Daily arXiv Set file path (from agentic_settings_file infer)
                             # agentic_settings_file and daily_arxiv_settings_file in the same directory
                             papers_dir = os.path.dirname(agentic_settings_file)
@@ -499,34 +526,50 @@ INPUT: <MARKDOWN>"""
                                 papers_dir, ".daily_arxiv_temp"
                             )
                             # get manager Instance (singleton mode, the same instance will be returned)
-                            manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+                            manager = get_manager(
+                                temp_papers_dir, daily_arxiv_settings_file
+                            )
                             # Clear failed status
                             if hasattr(manager, "_llm_api_failed"):
                                 manager._llm_api_failed = False
                                 manager._llm_api_error_message = ""
-                                print("[Settings] LLM API Test successful, cleared Daily arXiv failure status")
-                            
+                                print(
+                                    "[Settings] LLM API Test successful, cleared Daily arXiv failure status"
+                                )
+
                             # Start the scheduler if not already running
                             if not manager._scheduler_running:
                                 manager.start_scheduler()
-                                print("[Settings] LLM API Test successful, started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)")
+                                print(
+                                    "[Settings] LLM API Test successful, started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
+                                )
                             else:
                                 # The scheduler is already running, trigger a crawl manually
                                 def trigger_fetch():
                                     try:
                                         manager._do_scheduled_fetch()
-                                        print("[Settings] LLM API Test successful, triggered once Daily arXiv crawl")
+                                        print(
+                                            "[Settings] LLM API Test successful, triggered once Daily arXiv crawl"
+                                        )
                                     except Exception as e:
-                                        print(f"[Settings] trigger Daily arXiv Fetch failed: {e}")
-                                
+                                        print(
+                                            f"[Settings] trigger Daily arXiv Fetch failed: {e}"
+                                        )
+
                                 # Trigger fetching in a background thread to avoid blocking test responses
-                                thread = threading.Thread(target=trigger_fetch, daemon=True)
+                                thread = threading.Thread(
+                                    target=trigger_fetch, daemon=True
+                                )
                                 thread.start()
-                                print("[Settings] LLM API The test is successful and has been triggered in the background Daily arXiv crawl")
+                                print(
+                                    "[Settings] LLM API The test is successful and has been triggered in the background Daily arXiv crawl"
+                                )
                         except Exception as e:
                             # If an error occurs when handling the failure status, it does not affect the test results.
-                            print(f"[Settings] deal with Daily arXiv An error occurred in the failed state (does not affect testing): {e}")
-                        
+                            print(
+                                f"[Settings] deal with Daily arXiv An error occurred in the failed state (does not affect testing): {e}"
+                            )
+
                         return jsonify(
                             {
                                 "success": True,
@@ -595,12 +638,15 @@ INPUT: <MARKDOWN>"""
             mineru_server_url = data.get("mineruServerUrl", "").strip()
 
             if not mineru_server_url:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "Please fill in MinerU Server URL",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "Please fill in MinerU Server URL",
+                        }
+                    ),
+                    400,
+                )
 
             # Remove trailing slash
             mineru_server_url = mineru_server_url.rstrip("/")
@@ -652,11 +698,14 @@ INPUT: <MARKDOWN>"""
             )
 
         except ImportError:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "requests The library is not installed, please run: pip install requests",
-                }
-            ), 500
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "requests The library is not installed, please run: pip install requests",
+                    }
+                ),
+                500,
+            )
         except Exception as exc:
             return jsonify({"success": False, "error": f"test failed: {str(exc)}"}), 500

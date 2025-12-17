@@ -173,7 +173,9 @@ class ArxivPaper:
 
     # Institutional information
     affiliations: List[str] = field(default_factory=list)
-    countries: List[str] = field(default_factory=list)  # list of countries, with affiliations correspond
+    countries: List[str] = field(
+        default_factory=list
+    )  # list of countries, with affiliations correspond
     affiliations_extracted: bool = False
 
     # Project link
@@ -312,7 +314,9 @@ class FetchProgress:
         self.status = "idle"  # idle, fetching, processing, done, error
         self.message = ""
         self.current_paper = None
-        self.current_paper_start_time = None  # The timestamp when the current paper started processing
+        self.current_paper_start_time = (
+            None  # The timestamp when the current paper started processing
+        )
         self.current_paper_pdf_path = None  # Currently downloading PDF file path
         self.papers = []
         self.lock = threading.Lock()
@@ -448,6 +452,9 @@ class DailyArxivManager:
         # LLM Configure callback
         self._get_llm_config: Optional[Callable[[], Dict]] = None
 
+        # User settings callback (for getting aiLanguage)
+        self._get_user_settings: Optional[Callable[[], Dict]] = None
+
         # LLM API Status tracking (for front-end display)
         self._llm_api_failed: bool = False
         self._llm_api_error_message: str = ""
@@ -458,6 +465,10 @@ class DailyArxivManager:
     def set_llm_config_callback(self, callback: Callable[[], Dict]):
         """set get LLM Configured callback function"""
         self._get_llm_config = callback
+
+    def set_user_settings_callback(self, callback: Callable[[], Dict]):
+        """set get user settings callback function (for getting aiLanguage)"""
+        self._get_user_settings = callback
 
     def _load_metadata(self):
         """Load metadata"""
@@ -553,7 +564,9 @@ class DailyArxivManager:
         incomplete_count = 0
         for arxiv_id, download_status in list(status.items()):
             if download_status == "downloading":
-                print(f"[DailyArxiv] Incomplete download detected: {arxiv_id}, clean related files...")
+                print(
+                    f"[DailyArxiv] Incomplete download detected: {arxiv_id}, clean related files..."
+                )
                 safe_id = arxiv_id.replace("/", "_").replace(":", "_")
 
                 # delete PDF document
@@ -589,7 +602,9 @@ class DailyArxivManager:
         if incomplete_count > 0:
             # Save updated status
             self._save_download_status(date_str, category, status)
-            print(f"[DailyArxiv] Cleanup completed, total cleanup {incomplete_count} incomplete downloads")
+            print(
+                f"[DailyArxiv] Cleanup completed, total cleanup {incomplete_count} incomplete downloads"
+            )
 
     def get_available_dates(self) -> List[str]:
         """
@@ -734,7 +749,9 @@ class DailyArxivManager:
 
         try:
             # Get papers until you find papers before today's date
-            print(f"[DailyArxiv] Getting {category} Partition {date_str} All papers of...")
+            print(
+                f"[DailyArxiv] Getting {category} Partition {date_str} All papers of..."
+            )
 
             # Get enough papers at once (up to500articles) and then filter for papers with target date
             max_fetch = 500
@@ -749,7 +766,9 @@ class DailyArxivManager:
 
             all_results = []
             checked_count = 0
-            consecutive_older_count = 0  # Number of papers with earlier dates found consecutively
+            consecutive_older_count = (
+                0  # Number of papers with earlier dates found consecutively
+            )
             min_check_count = 100  # Minimum number of papers examined
             max_consecutive_older = 20  # Maximum number of older papers found consecutively, stopping if exceeded
 
@@ -810,7 +829,10 @@ class DailyArxivManager:
 
             # Print date distribution
             date_info = ", ".join(
-                [f"{d}: {c}Chapter" for d, c in sorted(date_counts.items(), reverse=True)]
+                [
+                    f"{d}: {c}Chapter"
+                    for d, c in sorted(date_counts.items(), reverse=True)
+                ]
             )
             print(f"[DailyArxiv] Distribution of paper publication dates: {date_info}")
 
@@ -843,9 +865,72 @@ class DailyArxivManager:
             # Get custom prompt
             settings = self.get_settings()
             affiliation_prompt = settings.get("affiliationPrompt")
-            summary_prompt = settings.get("summaryPrompt")
             keyword_list = settings.get("keywordList", [])
             max_keywords = settings.get("maxKeywords", 1)
+
+            # Get user language preference (default to Chinese for backward compatibility)
+            ai_language = "zh"
+            if self._get_user_settings:
+                try:
+                    user_settings = self._get_user_settings()
+                    ai_language = user_settings.get("aiLanguage", "zh")
+                except Exception as e:
+                    print(f"[DailyArxiv] Failed to get user settings: {e}")
+
+            # Select summary prompt based on user language
+            summary_prompt = None
+            if ai_language and ai_language.lower().startswith("zh"):
+                summary_prompt = settings.get("summaryPromptZh")
+            else:
+                summary_prompt = settings.get("summaryPromptEn")
+
+            # If no language-specific prompt found, fall back to default
+            if not summary_prompt:
+                # Use built-in default prompt based on language
+                if ai_language and ai_language.lower().startswith("zh"):
+                    # Chinese default prompt
+                    summary_prompt = """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
+
+用中文简要总结这篇文章在解决什么问题、如何解决的，字数控制在 100-200 字。
+
+从我提供的关键词列表中挑选最能代表文章类型的关键词（英文）
+
+按如下 JSON 格式输出结果：
+
+{"summary": "这篇文章主要解决...的问题。作者提出...方法，通过...实现了...", "keywords": ["Keyword"]}
+
+注意
+
+summary 必须中文，简洁、客观。
+
+keywords 必须来自我提供的关键词列表：[{keyword_list}], 最多{max_keywords}个关键词。一定要是符合这篇文章的关键词，不能随意猜测。
+
+直接输出 JSON，不要有其他解释。
+
+现在输入的摘要是：
+"""
+                else:
+                    # English default prompt
+                    summary_prompt = """I will give you an English abstract of an AI paper, and an optional keyword list (in English). You need to:
+
+Briefly summarize in English what problem this paper solves and how it solves it, keep it within 100-200 words.
+
+Select keywords (in English) from the keyword list I provide that best represent the type of paper.
+
+Output the result in the following JSON format:
+
+{"summary": "This paper mainly solves...problem. The authors propose...method, through...achieved...", "keywords": ["Keyword"]}
+
+Notes:
+
+summary must be in English, concise and objective.
+
+keywords must come from the keyword list I provide: [{keyword_list}], at most {max_keywords} keywords. They must be keywords that match this paper, do not guess randomly.
+
+Output JSON directly, no other explanations.
+
+Now the input abstract is:
+"""
 
             # Insert the keyword list and maximum number of keywords into prompt middle
             if summary_prompt:
@@ -865,7 +950,9 @@ class DailyArxivManager:
             print(f"[DailyArxiv] Start processing {len(results)} papers...")
             for i, result in enumerate(results):
                 try:
-                    print(f"[DailyArxiv] processing section {i+1}/{len(results)} papers...")
+                    print(
+                        f"[DailyArxiv] processing section {i+1}/{len(results)} papers..."
+                    )
                     paper = ArxivPaper.from_arxiv_result(
                         result, fetch_category=category
                     )
@@ -915,13 +1002,17 @@ class DailyArxivManager:
 
                             # PDF Completely downloaded, skip
                             skipped_count += 1
-                            progress.update(i + 1, f"[Already exists] {paper.title[:40]}")
+                            progress.update(
+                                i + 1, f"[Already exists] {paper.title[:40]}"
+                            )
                             print(
                                 f"[DailyArxiv] Skip fully downloaded papers: {paper.arxiv_id}"
                             )
                             continue
                         except Exception as e:
-                            print(f"[DailyArxiv] Failed to check for existing papers: {e}")
+                            print(
+                                f"[DailyArxiv] Failed to check for existing papers: {e}"
+                            )
                             import traceback
 
                             traceback.print_exc()
@@ -1020,7 +1111,9 @@ class DailyArxivManager:
 
                 except Exception as e:
                     # Capture exceptions when processing a single paper to avoid affecting subsequent papers
-                    print(f"[DailyArxiv] processing section {i+1}/{len(results)} An error occurred while writing the paper: {e}")
+                    print(
+                        f"[DailyArxiv] processing section {i+1}/{len(results)} An error occurred while writing the paper: {e}"
+                    )
                     print(
                         f"[DailyArxiv] paper ID: {result.entry_id if hasattr(result, 'entry_id') else 'unknown'}"
                     )
@@ -1072,7 +1165,9 @@ class DailyArxivManager:
                 f.seek(max(0, file_size - 1024))  # read last1KB
                 tail = f.read()
                 if b"%%EOF" not in tail:
-                    print(f"[DailyArxiv] PDF Invalid end of file (missing %%EOF）: {pdf_path}")
+                    print(
+                        f"[DailyArxiv] PDF Invalid end of file (missing %%EOF）: {pdf_path}"
+                    )
                     return False
 
             # Try using PyMuPDF Open file to verify integrity (most reliable method)
@@ -1091,7 +1186,9 @@ class DailyArxivManager:
                     _ = page.get_pixmap()  # Try rendering the page
                 except Exception as e:
                     doc.close()
-                    print(f"[DailyArxiv] PDF File cannot render page: {pdf_path}, mistake: {e}")
+                    print(
+                        f"[DailyArxiv] PDF File cannot render page: {pdf_path}, mistake: {e}"
+                    )
                     return False
                 doc.close()
             except ImportError:
@@ -1102,7 +1199,9 @@ class DailyArxivManager:
                     with open(pdf_path, "rb") as f:
                         pdf_reader = PyPDF2.PdfReader(f)
                         if len(pdf_reader.pages) == 0:
-                            print(f"[DailyArxiv] PDF File has no pages (PyPDF2): {pdf_path}")
+                            print(
+                                f"[DailyArxiv] PDF File has no pages (PyPDF2): {pdf_path}"
+                            )
                             return False
                         # Try to access the first page
                         _ = pdf_reader.pages[0]
@@ -1112,7 +1211,9 @@ class DailyArxivManager:
                     )
                     return False
             except Exception as e:
-                print(f"[DailyArxiv] PDF File verification failed: {pdf_path}, mistake: {e}")
+                print(
+                    f"[DailyArxiv] PDF File verification failed: {pdf_path}, mistake: {e}"
+                )
                 return False
 
             return True
@@ -1202,7 +1303,9 @@ class DailyArxivManager:
                     # Check if the file downloaded successfully (basic check: the file exists and is not empty)
                     if os.path.exists(pdf_path):
                         file_size = os.path.getsize(pdf_path)
-                        if file_size == 0 or file_size < 1024:  # less than1KBPossibly an error page
+                        if (
+                            file_size == 0 or file_size < 1024
+                        ):  # less than1KBPossibly an error page
                             print(
                                 f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
                             )
@@ -1249,7 +1352,9 @@ class DailyArxivManager:
                 # Check if the file downloaded successfully (basic check: the file exists and is not empty)
                 if os.path.exists(pdf_path):
                     file_size = os.path.getsize(pdf_path)
-                    if file_size == 0 or file_size < 1024:  # less than1KBPossibly an error page
+                    if (
+                        file_size == 0 or file_size < 1024
+                    ):  # less than1KBPossibly an error page
                         print(
                             f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
                         )
@@ -1353,7 +1458,9 @@ class DailyArxivManager:
         Args:
             retention_days: Number of dates for which papers are retained
         """
-        print(f"[DailyArxiv] Clean up expired papers and keep the latest ones {retention_days} date with paper...")
+        print(
+            f"[DailyArxiv] Clean up expired papers and keep the latest ones {retention_days} date with paper..."
+        )
 
         if not os.path.exists(self.base_dir):
             print(f"[DailyArxiv] The base directory does not exist: {self.base_dir}")
@@ -1361,7 +1468,9 @@ class DailyArxivManager:
 
         # Get the dates of all papers (sorted in descending order, latest first)
         available_dates = self.get_available_dates()
-        print(f"[DailyArxiv] List of dates for which papers are currently available: {available_dates}")
+        print(
+            f"[DailyArxiv] List of dates for which papers are currently available: {available_dates}"
+        )
 
         if len(available_dates) <= retention_days:
             print(
@@ -1393,7 +1502,9 @@ class DailyArxivManager:
                     except Exception as e:
                         print(f"[DailyArxiv] Delete failed: {e}")
 
-        print(f"[DailyArxiv] Cleanup completed, deleted in total {deleted_count} Expiration date directory")
+        print(
+            f"[DailyArxiv] Cleanup completed, deleted in total {deleted_count} Expiration date directory"
+        )
 
         # Verify cleanup results
         remaining_dates = self.get_available_dates()
@@ -1518,7 +1629,9 @@ class DailyArxivManager:
             # Test successful, clear failure status
             self._llm_api_failed = False
             self._llm_api_error_message = ""
-            print("[DailyArxiv] LLM API The test is successful, start fetching papers...")
+            print(
+                "[DailyArxiv] LLM API The test is successful, start fetching papers..."
+            )
         except Exception as e:
             # Update status and record exception information
             self._llm_api_failed = True
@@ -1549,7 +1662,9 @@ class DailyArxivManager:
         # 2.1 If today is a working day, today will always be crawled first (regardless of whether there are already papers, make sure they are complete)
         if is_today_weekday:
             dates_to_fetch.append(today)
-            print(f"[DailyArxiv] Prioritize crawling today ({today}) thesis, ensuring completeness")
+            print(
+                f"[DailyArxiv] Prioritize crawling today ({today}) thesis, ensuring completeness"
+            )
 
         # 2.2 Process each working day in sequence from newest to oldest by date
         # For the most recent date (most recent3within working days), even if there are already papers, continue to crawl (may be incomplete)
@@ -1602,13 +1717,17 @@ class DailyArxivManager:
 
         # 4. Perform crawling
         if dates_to_fetch:
-            print(f"[DailyArxiv] The following dates will be crawled in order: {dates_to_fetch}")
+            print(
+                f"[DailyArxiv] The following dates will be crawled in order: {dates_to_fetch}"
+            )
 
             # Fetch each date in order (newest first)
             for date_str in dates_to_fetch:
                 for category in categories:
                     try:
-                        print(f"[DailyArxiv] crawl {category} Partition {date_str} thesis...")
+                        print(
+                            f"[DailyArxiv] crawl {category} Partition {date_str} thesis..."
+                        )
                         self.fetch_papers(category, date_str=date_str, force=False)
                     except Exception as e:
                         print(f"[DailyArxiv] crawl {category} {date_str} fail: {e}")
@@ -1616,7 +1735,9 @@ class DailyArxivManager:
                     # Interval between partitions to prevent requests from being too fast
                     time.sleep(2)
         else:
-            print(f"[DailyArxiv] All required dates are complete, no additions are needed")
+            print(
+                f"[DailyArxiv] All required dates are complete, no additions are needed"
+            )
 
         # 5. After the fetching is complete, clean it again to ensure that only N days (this is a critical step)
         print(
@@ -1627,7 +1748,9 @@ class DailyArxivManager:
         # Verify cleanup results
         final_dates = self.get_available_dates()
         final_count = len(final_dates)
-        print(f"[DailyArxiv] final reservation {final_count} date with paper: {final_dates}")
+        print(
+            f"[DailyArxiv] final reservation {final_count} date with paper: {final_dates}"
+        )
         if final_count > retention_days:
             print(
                 f"[DailyArxiv] ⚠️ Warning: There are still {final_count} dates, exceeded reserved quantity {retention_days}, there may be a cleaning logic problem"
@@ -1747,7 +1870,9 @@ def generate_pdf_thumbnail(
 
             from PIL import Image
         except ImportError:
-            print(f"[DailyArxiv] Failed to generate thumbnail: Requires installation Pillow (pip install Pillow)")
+            print(
+                f"[DailyArxiv] Failed to generate thumbnail: Requires installation Pillow (pip install Pillow)"
+            )
             doc.close()
             return None
 
@@ -1769,7 +1894,9 @@ def generate_pdf_thumbnail(
         return output_path
 
     except ImportError:
-        print(f"[DailyArxiv] Failed to generate thumbnail: Requires installation PyMuPDF and Pillow")
+        print(
+            f"[DailyArxiv] Failed to generate thumbnail: Requires installation PyMuPDF and Pillow"
+        )
         return None
     except Exception as e:
         print(f"[DailyArxiv] Failed to generate thumbnail: {e}")
@@ -1834,7 +1961,9 @@ def extract_affiliations_with_llm(
         full_prompt = system_prompt + first_page_text
         messages = [{"role": "user", "content": full_prompt}]
 
-        print(f"[DailyArxiv] Use model {model_name} Extract organization information,homepage and github...")
+        print(
+            f"[DailyArxiv] Use model {model_name} Extract organization information,homepage and github..."
+        )
 
         # call LLM
         chat_completion = client.chat.completions.create(
@@ -1869,7 +1998,9 @@ def extract_affiliations_with_llm(
                             "github": None,
                         }
                     else:
-                        print(f"[DailyArxiv] Unable to parse result: {result_content[:200]}")
+                        print(
+                            f"[DailyArxiv] Unable to parse result: {result_content[:200]}"
+                        )
                         return {
                             "affiliations": [],
                             "countries": [],
@@ -1976,7 +2107,9 @@ def extract_affiliations_with_llm(
 
             unique_affiliations = normalized_affiliations
         except Exception as e:
-            print(f"[DailyArxiv] Organization name normalization failed (original name used): {e}")
+            print(
+                f"[DailyArxiv] Organization name normalization failed (original name used): {e}"
+            )
             import traceback
 
             traceback.print_exc()
@@ -2064,7 +2197,9 @@ def extract_summary_and_keywords_with_llm(
             if json_match:
                 result = json.loads(json_match.group())
             else:
-                print(f"[DailyArxiv] Unable to parse abstract and keywords: {result_content[:200]}")
+                print(
+                    f"[DailyArxiv] Unable to parse abstract and keywords: {result_content[:200]}"
+                )
                 return {"summary": None, "keywords": []}
 
         summary = result.get("summary", "")

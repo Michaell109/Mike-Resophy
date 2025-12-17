@@ -41,7 +41,7 @@ parser = argparse.ArgumentParser(description="Resophy")
 parser.add_argument(
     "--papers-dir",
     type=str,
-    default="./test_papers",
+    default="./papers",
     help="Resophy papers directory path (default: ./papers)",
 )
 parser.add_argument(
@@ -79,6 +79,7 @@ DEFAULT_USER_SETTINGS = {
     "avatar": None,  # Avatar file name, e.g. "avatar.jpg"
     "heatmapColorScheme": "green",
     "onboardingDontShow": False,  # Whether to no longer show the新手教程
+    "aiLanguage": "zh",  # AI output language (en/zh), applies to AI translation, AI interpretation, and Daily arXiv summary
 }
 
 # Default Agentic settings (uniform AI feature configuration)
@@ -87,7 +88,8 @@ DEFAULT_AGENTIC_SETTINGS = {
     "llmBaseUrl": "",  # LLM API base URL
     "llmApiKey": "",  # LLM API key
     "mineruServerUrl": "",  # PDF parsing service address
-    "analysisSystemPrompt": "",  # AI interpretation system prompt
+    # Note: System prompts are now built-in and selected based on user's aiLanguage setting
+    # Custom prompts are no longer supported
 }
 
 # Default Daily arXiv settings
@@ -133,7 +135,8 @@ Notes:
 
 Now the input is:
 """,
-    "summaryPrompt": """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
+    # Summary prompts - language-specific (built-in, not customizable)
+    "summaryPromptZh": """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
 
 用中文简要总结这篇文章在解决什么问题、如何解决的，字数控制在 100-200 字。
 
@@ -152,6 +155,26 @@ keywords 必须来自我提供的关键词列表：[{keyword_list}], 最多{max_
 直接输出 JSON，不要有其他解释。
 
 现在输入的摘要是：
+""",
+    "summaryPromptEn": """I will give you an English abstract of an AI paper, and an optional keyword list (in English). You need to:
+
+Briefly summarize in English what problem this paper solves and how it solves it, keep it within 100-200 words.
+
+Select keywords (in English) from the keyword list I provide that best represent the type of paper.
+
+Output the result in the following JSON format:
+
+{"summary": "This paper mainly solves...problem. The authors propose...method, through...achieved...", "keywords": ["Keyword"]}
+
+Notes:
+
+summary must be in English, concise and objective.
+
+keywords must come from the keyword list I provide: [{keyword_list}], at most {max_keywords} keywords. They must be keywords that match this paper, do not guess randomly.
+
+Output JSON directly, no other explanations.
+
+Now the input abstract is:
 """,
 }
 
@@ -366,6 +389,16 @@ def register_routes():
             return {}
 
     daily_arxiv_manager.set_llm_config_callback(get_llm_config)
+
+    # Set user settings callback (for getting aiLanguage)
+    def get_user_settings():
+        try:
+            with open(USER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+
+    daily_arxiv_manager.set_user_settings_callback(get_user_settings)
 
     # Check if LLM configuration is complete
     def is_llm_configured() -> bool:

@@ -1219,7 +1219,7 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     const aStatus = analysisStatus[paper.id];
     let analyzeCol = '';
     if (aStatus && aStatus.status === 'analyzing') {
-        const step = aStatus.step === 'pdf2md' ? 'PDFParsing...' : 'LLMInterpreting...';
+        const step = aStatus.step === 'pdf2md' ? 'PDF Parsing...' : 'AI Interpreting...';
         analyzeCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> ${step}<button class="paper-action-stop" onclick="cancelAnalysis('${paper.id}', event)" title="stop interpretation"><i class="fas fa-times"></i></button></span></div>`;
     } else if (aStatus && aStatus.status === 'queued') {
         analyzeCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-clock"></i> in queue<button class="paper-action-stop" onclick="cancelAnalysis('${paper.id}', event)" title="Cancel queue"><i class="fas fa-times"></i></button></span></div>`;
@@ -4612,6 +4612,17 @@ async function onBatchAnalyze() {
 
 async function onBatchTranslate() {
     if (selectedPaperIds.size === 0) { showMessage('Please select a paper first', 'warning'); return; }
+    
+    // Check user's AI output language setting first
+    const userSettings = await getUserSettings();
+    const aiLanguage = (userSettings && userSettings.aiLanguage) ? userSettings.aiLanguage : 'zh';
+    
+    // If AI output language is English, translation is not needed (papers are already in English)
+    if (aiLanguage && aiLanguage.toLowerCase() === 'en') {
+        showMessage('Current AI output language is English, and the papers are already in English. Translation is not needed.', 'warning');
+        return;
+    }
+    
     const ids = Array.from(selectedPaperIds);
     for (const id of ids) {
         await requestTranslation(id);
@@ -4822,37 +4833,32 @@ function switchTab(tabName) {
 // Save translation settings
 // ========== Agentic set up（unifiedAIFunction configuration）==========
 async function saveAgenticSettings(silent = false) {
-    const promptEl = document.getElementById('analysis-system-prompt');
     const modelEl = document.getElementById('llm-model');
     const baseUrlEl = document.getElementById('llm-base-url');
     const apiKeyEl = document.getElementById('llm-api-key');
     const mineruEl = document.getElementById('mineru-server-url');
     
     // Check if element exists
-    if (!promptEl || !modelEl || !baseUrlEl || !apiKeyEl || !mineruEl) {
+    if (!modelEl || !baseUrlEl || !apiKeyEl || !mineruEl) {
         console.error('Failed to save settings: Settings input element not found');
         if (!silent) {
             showMessage('Save failed: Settings input element not found', 'error');
         }
         return;
     }
-    
-    const promptValue = promptEl.value.trim();
+
     const settings = {
         llmModel: modelEl.value.trim(),
         llmBaseUrl: baseUrlEl.value.trim(),
         llmApiKey: apiKeyEl.value.trim(),
-        mineruServerUrl: mineruEl.value.trim(),
-        // If the user clears the prompt word, it is saved as an empty string.（The backend will use the default value）
-        analysisSystemPrompt: promptValue
+        mineruServerUrl: mineruEl.value.trim()
     };
     
     console.log('[Save settings] ready to save:', {
         llmModel: settings.llmModel ? '***' : '(null)',
         llmBaseUrl: settings.llmBaseUrl ? '***' : '(null)',
         llmApiKey: settings.llmApiKey ? '***' : '(null)',
-        mineruServerUrl: settings.mineruServerUrl ? '***' : '(null)',
-        hasPrompt: !!settings.analysisSystemPrompt
+        mineruServerUrl: settings.mineruServerUrl ? '***' : '(null)'
     });
     
     try {
@@ -4939,45 +4945,6 @@ async function loadAgenticSettings() {
                 mineruEl.value = settings.mineruServerUrl || '';
                 mineruEl.addEventListener('input', autoSaveAgenticSettings);
             }
-            if (promptEl) {
-                // Save default prompt words（for recovery）
-                const defaultPrompt = settings.analysisSystemPrompt || '';
-                const isDefaultPrompt = settings._isDefaultPrompt || false;
-                
-                // show System Prompt（If the backend returns a default value, it will also be displayed）
-                promptEl.value = defaultPrompt;
-                promptEl.placeholder = 'Please enter AI Interpretation of system prompt words...';
-                
-                // Update status text
-                const statusText = document.getElementById('prompt-status-text');
-                if (statusText) {
-                    if (isDefaultPrompt) {
-                        statusText.textContent = 'What is currently displayed is the default prompt word. After modification, it will be saved as a custom prompt word.';
-                        statusText.style.color = '#666';
-                    } else if (defaultPrompt) {
-                        statusText.textContent = 'Currently using a custom prompt word';
-                        statusText.style.color = '#28a745';
-                    } else {
-                        statusText.textContent = 'Tip: After modification, it will be saved as a custom prompt word';
-                        statusText.style.color = '#666';
-                    }
-                }
-                
-                // Monitor input changes and update status
-                promptEl.addEventListener('input', () => {
-                    if (statusText) {
-                        const currentValue = promptEl.value.trim();
-                        if (currentValue) {
-                            statusText.textContent = 'Currently using a custom prompt word';
-                            statusText.style.color = '#28a745';
-                        } else {
-                            statusText.textContent = 'Tip: Leave blank to use the default prompt word';
-                            statusText.style.color = '#666';
-                        }
-                    }
-                    autoSaveAgenticSettings();
-                });
-            }
             
             // Bind test button event
             const testLlmBtn = document.getElementById('test-llm-api');
@@ -4989,9 +4956,34 @@ async function loadAgenticSettings() {
             if (testMineruBtn) {
                 testMineruBtn.addEventListener('click', testMineruAPI);
             }
+            
+            // Load AI language setting from user settings
+            await loadAILanguageSetting();
         }
     } catch (e) {
         console.error('loadAIFunction setting failed:', e);
+    }
+}
+
+// Load AI language setting and bind to select element
+async function loadAILanguageSetting() {
+    try {
+        const userSettings = await getUserSettings();
+        const aiLanguage = userSettings.aiLanguage || 'zh';
+        
+        // Set value in Agentic settings panel
+        const aiLanguageEl = document.getElementById('ai-language');
+        if (aiLanguageEl) {
+            aiLanguageEl.value = aiLanguage;
+                // Bind change event to save setting
+            aiLanguageEl.addEventListener('change', async () => {
+                const selectedLanguage = aiLanguageEl.value;
+                await saveUserSettings({ aiLanguage: selectedLanguage });
+                console.log('[Settings] AI language saved:', selectedLanguage);
+            });
+        }
+    } catch (e) {
+        console.error('Failed to load AI language setting:', e);
     }
 }
 
@@ -6441,6 +6433,16 @@ async function requestTranslation(paperId, event) {
     const paper = papers.find(p => p.id === paperId);
     if (!paper) {
         showMessage('Paper not found', 'error');
+        return;
+    }
+    
+    // Check user's AI output language setting
+    const userSettings = await getUserSettings();
+    const aiLanguage = (userSettings && userSettings.aiLanguage) ? userSettings.aiLanguage : 'zh';
+    
+    // If AI output language is English, translation is not needed (papers are already in English)
+    if (aiLanguage && aiLanguage.toLowerCase() === 'en') {
+        showMessage('Current AI output language is English, and the paper is already in English. Translation is not needed.', 'warning');
         return;
     }
     
@@ -7897,7 +7899,7 @@ async function requestAnalysis(paperId, event) {
     // Check if interpretation results already exist
     const hasResult = paper.has_analysis_result;
     if (hasResult) {
-        if (!confirm('This paper already hasAIInterpret the results, reinterpret?')) {
+        if (!confirm('This paper already has an AI Interpretation, reinterpret?')) {
             return;
         }
     }
@@ -7969,7 +7971,11 @@ async function processAnalysisQueue() {
             throw new Error('Settings not configured');
         }
 
-        // Call backendAPI（use newAgenticUnified configuration）
+        // Get user AI language preference (default to English)
+        const userSettings = await getUserSettings();
+        const aiLanguage = (userSettings && userSettings.aiLanguage) ? userSettings.aiLanguage : 'zh';
+
+        // Always send empty system_prompt, backend will use built-in prompt based on ai_language
         const response = await fetch('/api/paper/analyze', {
             method: 'POST',
             headers: {
@@ -7980,7 +7986,8 @@ async function processAnalysisQueue() {
                 mineru_server_url: settings.mineruServerUrl,
                 openai_base_url: settings.llmBaseUrl,
                 openai_api_key: settings.llmApiKey,
-                system_prompt: settings.analysisSystemPrompt || ''
+                system_prompt: '',
+                ai_language: aiLanguage
             })
         });
 
@@ -8143,7 +8150,7 @@ function updatePaperStatusDisplay(paperId) {
         const aStatus = analysisStatus[paperId];
         let analyzeColHtml = '';
         if (aStatus && aStatus.status === 'analyzing') {
-            const step = aStatus.step === 'pdf2md' ? 'PDFParsing...' : 'LLMInterpreting...';
+            const step = aStatus.step === 'pdf2md' ? 'PDF Parsing...' : 'AI Interpreting...';
             analyzeColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> ${step}<button class="paper-action-stop" onclick="cancelAnalysis('${paperId}', event)" title="stop interpretation"><i class="fas fa-times"></i></button></span>`;
         } else if (aStatus && aStatus.status === 'queued') {
             analyzeColHtml = `<span class="paper-action-status processing"><i class="fas fa-clock"></i> in queue<button class="paper-action-stop" onclick="cancelAnalysis('${paperId}', event)" title="Cancel queue"><i class="fas fa-times"></i></button></span>`;
@@ -10714,7 +10721,7 @@ function updateProgressUI(category, progress) {
             // Check if the download time exceeds30Second
             if (elapsedSeconds > 30 && !dailyArxivSlowDownloadNotified[category]) {
                 // Show slow download prompt（Use standalone notificationsID, avoid comparing withLLM APIFailure prompt conflict）
-                showRoundedNotification('download arXiv The paper is too long, please check proxy Whether to set.', 'warning', true, 'daily-arxiv-slow-download-notification');
+                showRoundedNotification('The paper is too long to download from arXiv. Please check the proxy settings.', 'warning', true, 'daily-arxiv-slow-download-notification');
                 dailyArxivSlowDownloadNotified[category] = true;
             }
         } else {
@@ -12979,9 +12986,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ========== Newbie guide function ==========
-function showOnboardingModal() {
+async function showOnboardingModal() {
     const modal = document.getElementById('onboarding-modal');
     if (modal) {
+        // Load current AI language setting and set it in the onboarding modal
+        try {
+            const userSettings = await getUserSettings();
+            const aiLanguage = userSettings.aiLanguage || 'zh';
+            const onboardingLanguageEl = document.getElementById('onboarding-ai-language');
+            if (onboardingLanguageEl) {
+                onboardingLanguageEl.value = aiLanguage;
+            }
+        } catch (e) {
+            console.error('[Onboarding] Failed to load AI language setting:', e);
+        }
+        
         modal.style.display = 'flex';
         // Prevent background from scrolling
         document.body.style.overflow = 'hidden';
@@ -12994,6 +13013,7 @@ function showOnboardingModal() {
 async function closeOnboardingModal() {
     const modal = document.getElementById('onboarding-modal');
     const checkbox = document.getElementById('onboarding-dont-show');
+    const languageEl = document.getElementById('onboarding-ai-language');
     
     if (modal) {
         modal.style.display = 'none';
@@ -13001,7 +13021,24 @@ async function closeOnboardingModal() {
         document.body.style.overflow = '';
     }
     
-    // If the user checked"Don’t remind me next time", save to user settings
+    // Save AI language setting if changed
+    if (languageEl) {
+        try {
+            const selectedLanguage = languageEl.value;
+            await saveUserSettings({ aiLanguage: selectedLanguage });
+            console.log('[Onboarding] AI language saved:', selectedLanguage);
+            
+            // Update Agentic settings panel if it's open
+            const aiLanguageEl = document.getElementById('ai-language');
+            if (aiLanguageEl) {
+                aiLanguageEl.value = selectedLanguage;
+            }
+        } catch (e) {
+            console.error('[Onboarding] Failed to save AI language setting:', e);
+        }
+    }
+    
+    // If the user checked"Don't remind me next time", save to user settings
     if (checkbox && checkbox.checked) {
         try {
             await saveUserSettings({ onboardingDontShow: true });
