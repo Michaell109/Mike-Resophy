@@ -33,14 +33,16 @@ def register_agent_summary_routes(
 ) -> None:
     @app.route("/api/paper/analyze", methods=["POST"])
     def api_analyze_paper():
-        """AI解读PDF论文 - 启动后台任务"""
+        """AI InterpretationPDFpaper - Start background task"""
         try:
             data = request.json or {}
             paper_id = data.get("paper_id")
             mineru_server_url = data.get("mineru_server_url")
             openai_base_url = data.get("openai_base_url")
             openai_api_key = data.get("openai_api_key")
-            system_prompt = data.get("system_prompt", "")  # 允许为空，使用默认值
+            system_prompt = data.get(
+                "system_prompt", ""
+            )  # Allow empty, use default value
 
             if (
                 not paper_id
@@ -48,10 +50,13 @@ def register_agent_summary_routes(
                 or not openai_base_url
                 or not openai_api_key
             ):
-                return jsonify({"success": False, "error": "缺少必要参数"}), 400
+                return (
+                    jsonify({"success": False, "error": "Missing required parameters"}),
+                    400,
+                )
 
-            # 在启动任务前测试 API 连接
-            # 测试 LLM API - 如果请求中没有提供模型名称，从配置文件中读取
+            # Test before starting a task API connect
+            # test LLM API - If no model name is provided in the request, read from the configuration file
             llm_model = data.get("openai_model", "").strip()
             if not llm_model and agentic_settings_file:
                 try:
@@ -68,7 +73,7 @@ def register_agent_summary_routes(
                     jsonify(
                         {
                             "success": False,
-                            "error": "缺少 LLM 模型名称，请在请求中提供 openai_model 或在设置中配置 llmModel",
+                            "error": "Lack LLM Model name, please provide it in the request openai_model Or configure in settings llmModel",
                         }
                     ),
                     400,
@@ -82,20 +87,20 @@ def register_agent_summary_routes(
                     jsonify(
                         {
                             "success": False,
-                            "error": f"LLM API 测试失败: {llm_error}",
+                            "error": f"LLM API test failed: {llm_error}",
                         }
                     ),
                     400,
                 )
 
-            # 测试 MinerU API
+            # test MinerU API
             mineru_success, mineru_error = test_mineru_api(mineru_server_url)
             if not mineru_success:
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": f"MinerU API 测试失败: {mineru_error}",
+                            "error": f"MinerU API test failed: {mineru_error}",
                         }
                     ),
                     400,
@@ -111,20 +116,20 @@ def register_agent_summary_routes(
                             jsonify(
                                 {
                                     "success": False,
-                                    "error": "该论文已有解读任务在运行",
+                                    "error": "There is already an interpretation task running for this paper",
                                     "task_id": task_id,
                                 }
                             ),
                             400,
                         )
 
-            # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+            # First try from paper_store Find papers in（support _ReadingListTemp Table of contents）
             entry = paper_store.get_entry(paper_id)
             if entry:
                 paper = entry.paper
                 category_path = list(entry.category_path)
             else:
-                # 如果 paper_store 中找不到，使用递归搜索分类树
+                # if paper_store Not found in , use recursive search of classification tree
                 categories = get_categories()
 
                 def search_paper_recursive(node):
@@ -150,13 +155,16 @@ def register_agent_summary_routes(
                         break
 
                 if not result:
-                    return jsonify({"success": False, "error": "论文未找到"}), 404
+                    return jsonify({"success": False, "error": "Paper not found"}), 404
 
                 paper, category_path = result
             pdf_path = paper.file_path
 
             if not pdf_path or not os.path.exists(pdf_path):
-                return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+                return (
+                    jsonify({"success": False, "error": "PDFFile does not exist"}),
+                    404,
+                )
 
             pdf_dir = os.path.dirname(pdf_path)
             pdf_filename = os.path.basename(pdf_path)
@@ -184,6 +192,8 @@ def register_agent_summary_routes(
                 save_paper_metadata=save_paper_metadata,
             )
 
+            ai_language = data.get("ai_language", "zh")
+
             thread = threading.Thread(
                 target=analyze_paper_task,
                 args=(
@@ -196,6 +206,7 @@ def register_agent_summary_routes(
                     openai_base_url,
                     openai_api_key,
                     system_prompt,
+                    ai_language,
                     deps,
                 ),
             )
@@ -203,22 +214,31 @@ def register_agent_summary_routes(
             thread.start()
 
             return jsonify(
-                {"success": True, "message": "解读任务已启动", "task_id": task_id}
+                {
+                    "success": True,
+                    "message": "Interpretation task has started",
+                    "task_id": task_id,
+                }
             )
 
         except Exception as exc:  # noqa: BLE001
-            print(f"启动解读任务失败: {exc}")
+            print(f"Failed to start interpretation task: {exc}")
             import traceback
 
             traceback.print_exc()
             return (
-                jsonify({"success": False, "error": f"启动解读任务失败: {str(exc)}"}),
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Failed to start interpretation task: {str(exc)}",
+                    }
+                ),
                 500,
             )
 
     @app.route("/api/paper/analyze/active", methods=["GET"])
     def api_get_active_analysis():
-        """获取所有进行中的解读任务"""
+        """Get all ongoing interpretation tasks"""
         with analysis_tasks_lock:
             active_tasks = []
             for task_id, task_info in analysis_tasks.items():
@@ -236,10 +256,10 @@ def register_agent_summary_routes(
 
     @app.route("/api/paper/analyze/<task_id>/logs", methods=["GET"])
     def api_get_analysis_logs(task_id):
-        """获取解读任务的日志"""
+        """Get the log of the interpretation task"""
         with analysis_tasks_lock:
             if task_id not in analysis_tasks:
-                return jsonify({"success": False, "error": "任务不存在"}), 404
+                return jsonify({"success": False, "error": "Task does not exist"}), 404
 
             task_info = analysis_tasks[task_id]
             with task_info["log_lock"]:
@@ -258,16 +278,21 @@ def register_agent_summary_routes(
 
     @app.route("/api/paper/analyze/<task_id>/cancel", methods=["POST"])
     def api_cancel_analysis(task_id):
-        """取消解读任务"""
+        """Cancel interpretation task"""
         with analysis_tasks_lock:
             if task_id not in analysis_tasks:
-                return jsonify({"success": False, "error": "任务不存在"}), 404
+                return jsonify({"success": False, "error": "Task does not exist"}), 404
 
             task_info = analysis_tasks[task_id]
 
             if task_info["status"] in ["completed", "failed", "cancelled"]:
                 return (
-                    jsonify({"success": False, "error": "任务已结束，无法取消"}),
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "The task has ended and cannot be canceled",
+                        }
+                    ),
                     400,
                 )
 
@@ -280,22 +305,24 @@ def register_agent_summary_routes(
                     process.kill()
                     process.wait()
                 except Exception as exc:  # noqa: BLE001
-                    print(f"终止进程失败: {exc}")
+                    print(f"Failed to terminate process: {exc}")
 
             task_info["status"] = "cancelled"
-            task_info["result"] = {"success": False, "error": "解读已取消"}
+            task_info["result"] = {"success": False, "error": "Interpretation canceled"}
 
-            return jsonify({"success": True, "message": "解读任务已取消"})
+            return jsonify(
+                {"success": True, "message": "Interpretation task has been canceled"}
+            )
 
     @app.route("/api/paper/<paper_id>/analysis/result")
     def api_get_analysis_result(paper_id):
-        """获取解读结果文件"""
-        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        """Get interpretation result file"""
+        # First try from paper_store Find papers in（support _ReadingListTemp Table of contents）
         entry = paper_store.get_entry(paper_id)
         if entry:
             paper = entry.paper
         else:
-            # 如果 paper_store 中找不到，使用递归搜索分类树
+            # if paper_store Not found in , use recursive search of classification tree
             categories = get_categories()
 
             def search_paper_recursive(node):
@@ -321,13 +348,13 @@ def register_agent_summary_routes(
                     break
 
             if not result:
-                return jsonify({"error": "论文未找到"}), 404
+                return jsonify({"error": "Paper not found"}), 404
 
             paper, _ = result
         pdf_path = paper.file_path
 
         if not pdf_path or not os.path.exists(pdf_path):
-            return jsonify({"error": "PDF文件不存在"}), 404
+            return jsonify({"error": "PDFFile does not exist"}), 404
 
         pdf_dir = os.path.dirname(pdf_path)
         base_name = os.path.splitext(os.path.basename(pdf_path))[0]
@@ -350,7 +377,7 @@ def register_agent_summary_routes(
                                 break
 
         if not result_file or not os.path.exists(result_file):
-            return jsonify({"error": "解读结果文件不存在"}), 404
+            return jsonify({"error": "Interpretation results file does not exist"}), 404
 
         try:
             with open(result_file, "r", encoding="utf-8") as f:
@@ -359,17 +386,17 @@ def register_agent_summary_routes(
                 {"success": True, "content": content, "file_path": result_file}
             )
         except Exception as exc:  # noqa: BLE001
-            return jsonify({"error": f"读取结果文件失败: {str(exc)}"}), 500
+            return jsonify({"error": f"Failed to read result file: {str(exc)}"}), 500
 
     @app.route("/api/paper/<paper_id>/analysis/image")
     def api_get_analysis_image(paper_id):
-        """获取解读结果中的图片"""
-        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        """Get pictures from interpretation results"""
+        # First try from paper_store Find papers in（support _ReadingListTemp Table of contents）
         entry = paper_store.get_entry(paper_id)
         if entry:
             paper = entry.paper
         else:
-            # 如果 paper_store 中找不到，使用递归搜索分类树
+            # if paper_store Not found in , use recursive search of classification tree
             categories = get_categories()
 
             def search_paper_recursive(node):
@@ -395,17 +422,17 @@ def register_agent_summary_routes(
                     break
 
             if not result:
-                return jsonify({"error": "论文未找到"}), 404
+                return jsonify({"error": "Paper not found"}), 404
 
             paper, _ = result
         pdf_path = paper.file_path
 
         if not pdf_path or not os.path.exists(pdf_path):
-            return jsonify({"error": "PDF文件不存在"}), 404
+            return jsonify({"error": "PDFFile does not exist"}), 404
 
         image_path = request.args.get("path")
         if not image_path:
-            return jsonify({"error": "未提供图片路径"}), 400
+            return jsonify({"error": "Image path not provided"}), 400
 
         pdf_dir = os.path.dirname(pdf_path)
         base_name = os.path.splitext(os.path.basename(pdf_path))[0]
@@ -444,6 +471,6 @@ def register_agent_summary_routes(
                                 break
 
         if not image_file or not os.path.exists(image_file):
-            return jsonify({"error": "图片文件不存在"}), 404
+            return jsonify({"error": "Image file does not exist"}), 404
 
         return send_file(image_file, mimetype="image/jpeg")

@@ -67,7 +67,7 @@ def register_upload_from_pdf_routes(
                 data = json.load(f)
                 return data.get("papers", [])
         except Exception as exc:  # noqa: BLE001
-            print(f"读取待读列表失败: {exc}")
+            print(f"Failed to read to-be-read list: {exc}")
             return []
 
     def _save_reading_list(paper_ids: list[str]) -> None:
@@ -75,7 +75,7 @@ def register_upload_from_pdf_routes(
             with open(reading_list_file, "w", encoding="utf-8") as f:
                 json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
         except Exception as exc:  # noqa: BLE001
-            print(f"保存待读列表失败: {exc}")
+            print(f"Failed to save to-read list: {exc}")
 
     def _add_to_reading_list(paper_id: str) -> None:
         paper_ids = _load_reading_list()
@@ -91,18 +91,18 @@ def register_upload_from_pdf_routes(
         category_path: list[str],
         category_folder: str,
     ):
-        """后台处理：使用新的统一接口处理 PDF 上传（两阶段：先 arXiv，后 DBLP）"""
+        """Background processing: Use new unified interface processing PDF Upload (two stages: first arXiv,back DBLP）"""
         try:
-            print(f"[后台] 开始处理PDF元数据: {file_path}")
+            print(f"[Backstage] Start processingPDFmetadata: {file_path}")
 
-            # 【阶段1】快速获取 arXiv 信息（不等待 DBLP）
+            # 【stage1】Get it quickly arXiv message(no wait DBLP）
             paper_info = process_uploaded_pdf_fast(file_path, original_filename)
 
             if not paper_info:
-                print("[后台] 无法获取论文信息，保持原始文件名")
+                print("[Backstage] Unable to obtain paper information, keep original file name")
                 paper_info = {}
 
-            # 根据标题重命名文件
+            # Rename files based on title
             current_filename = os.path.basename(file_path)
             new_filename = current_filename
             new_file_path = file_path
@@ -123,13 +123,13 @@ def register_upload_from_pdf_routes(
 
                     try:
                         os.rename(file_path, new_file_path)
-                        print(f"[后台] 文件已重命名为: {new_filename}")
+                        print(f"[Backstage] File has been renamed to: {new_filename}")
                     except Exception as exc:  # noqa: BLE001
-                        print(f"[后台] 重命名文件失败: {exc}")
+                        print(f"[Backstage] Failed to rename file: {exc}")
                         new_file_path = file_path
                         new_filename = current_filename
 
-            # 【阶段1】立即更新 Paper 对象（arXiv 信息）
+            # 【stage1】Update now Paper object(arXiv information)
             paper = paper_store.get(paper_id)
             if paper:
                 paper.filename = new_filename
@@ -137,7 +137,7 @@ def register_upload_from_pdf_routes(
                 paper.title = paper_info.get("title") or paper.title
                 paper.authors = paper_info.get("authors", "")
                 paper.arxiv_id = paper_info.get("arxiv_id")
-                # 如果有 arxiv_id，设置 arxiv_url
+                # if there is arxiv_id,set up arxiv_url
                 if paper_info.get("arxiv_id"):
                     paper.arxiv_url = (
                         paper_info.get("arxiv_url")
@@ -148,20 +148,20 @@ def register_upload_from_pdf_routes(
                 paper.year = paper_info.get("year", "")
                 paper.abstract = paper_info.get("abstract", "")
                 paper.summary = paper_info.get("summary", "")
-                paper.bibtex = ""  # 暂时为空
+                paper.bibtex = ""  # Temporarily empty
                 paper.keywords = paper_info.get("keywords", "")
                 paper.subject = paper_info.get("subject", "")
 
-                # 保存更新后的 paper（arXiv 信息）
+                # Save the updated paper（arXiv information)
                 paper_store.upsert(
                     paper, category_id=category_id, category_path=category_path
                 )
                 save_paper_metadata(new_file_path, paper)
-                print(f"[后台 阶段1] ✅ arXiv 信息已更新: {new_filename}")
+                print(f"[Backstage stage1] ✅ arXiv Information has been updated: {new_filename}")
 
-                # 【阶段2】后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）
+                # 【stage2】Background acquisition BibTeX(priority DBLP, use after failure arXiv）
                 if paper_info.get("title") and paper_info.get("authors"):
-                    print(f"[后台 阶段2] 开始获取 BibTeX...")
+                    print(f"[Backstage stage2] Start getting BibTeX...")
                     arxiv_id = paper_info.get("arxiv_id")
                     bibtex = fetch_bibtex_from_dblp(
                         title=paper_info["title"],
@@ -174,16 +174,16 @@ def register_upload_from_pdf_routes(
                             paper, category_id=category_id, category_path=category_path
                         )
                         save_paper_metadata(new_file_path, paper)
-                        print(f"[后台 阶段2] ✅ BibTeX 已更新")
+                        print(f"[Backstage stage2] ✅ BibTeX updated")
                     else:
-                        print(f"[后台 阶段2] ❌ 未获取到 BibTeX")
+                        print(f"[Backstage stage2] ❌ Not obtained BibTeX")
 
-                print(f"[后台] 论文元数据处理完成: {new_filename}")
+                print(f"[Backstage] Paper metadata processing completed: {new_filename}")
             else:
-                print(f"[后台] 警告: 找不到 paper {paper_id}")
+                print(f"[Backstage] warn: not found paper {paper_id}")
 
         except Exception as exc:  # noqa: BLE001
-            print(f"[后台] 处理PDF元数据失败: {exc}")
+            print(f"[Backstage] deal withPDFMetadata failed: {exc}")
             import traceback
 
             traceback.print_exc()
@@ -204,7 +204,7 @@ def register_upload_from_pdf_routes(
 
         categories = get_categories()
 
-        # 特殊处理：待读列表的category_id
+        # Special handling: To-be-read listcategory_id
         if category_id == "reading_list_temp":
             category_path = ["Root", "_ReadingListTemp"]
         else:
@@ -212,11 +212,11 @@ def register_upload_from_pdf_routes(
             if not category_path:
                 return jsonify({"success": False, "error": "Category not found"})
 
-        category_folder = create_category_folder(category_path[1:])  # 跳过 Root
+        category_folder = create_category_folder(category_path[1:])  # jump over Root
         filename = secure_filename(file.filename)
         file_path = os.path.join(category_folder, filename)
 
-        # 处理文件名冲突
+        # Handle file name conflicts
         counter = 1
         original_filename = filename
         while os.path.exists(file_path):
@@ -225,11 +225,11 @@ def register_upload_from_pdf_routes(
             file_path = os.path.join(category_folder, filename)
             counter += 1
 
-        # 立即保存文件
+        # Save file now
         file.save(file_path)
-        print(f"文件已保存: {file_path}")
+        print(f"File saved: {file_path}")
 
-        # 创建占位符 Paper 对象（使用原始文件名）
+        # Create placeholder Paper Object (using original filename)
         paper_id = str(uuid.uuid4())
         paper_info = {
             "id": paper_id,
@@ -237,7 +237,7 @@ def register_upload_from_pdf_routes(
             "original_filename": file.filename,
             "file_path": file_path,
             "upload_date": datetime.now().isoformat(),
-            "title": os.path.splitext(file.filename)[0],  # 临时使用文件名作为标题
+            "title": os.path.splitext(file.filename)[0],  # Temporarily use filename as title
             "authors": "",
             "arxiv_id": None,
             "arxiv_published_date": None,
@@ -259,16 +259,16 @@ def register_upload_from_pdf_routes(
 
         paper = Paper.from_dict(paper_info)
         if not paper:
-            return jsonify({"success": False, "error": "创建论文对象失败"}), 500
+            return jsonify({"success": False, "error": "Failed to create thesis object"}), 500
 
-        # 立即注册 paper（让用户看到）
+        # Register now paper(Let users see)
         registered_paper = paper_store.upsert(
             paper, category_id=category_id, category_path=category_path
         )
         save_paper_metadata(file_path, registered_paper)
         _add_to_reading_list(registered_paper.id)
 
-        # 启动后台线程处理元数据
+        # Start a background thread to process metadata
         thread = threading.Thread(
             target=_process_pdf_metadata_background,
             args=(
@@ -283,5 +283,5 @@ def register_upload_from_pdf_routes(
         )
         thread.start()
 
-        print(f"[立即返回] 论文已添加，后台处理中: {filename}")
+        print(f"[Return immediately] The paper has been added and is being processed in the background: {filename}")
         return jsonify({"success": True, "paper": registered_paper.to_dict()})

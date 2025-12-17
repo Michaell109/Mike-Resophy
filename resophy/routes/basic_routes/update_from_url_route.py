@@ -39,7 +39,7 @@ class SavePaperMetadataFn(Protocol):
 
 
 def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
-    """从 URL 中提取 arXiv ID"""
+    """from URL extracted from arXiv ID"""
     patterns = [
         r"arxiv\.org/pdf/([\d.]+(?:v\d+)?)",
         r"arxiv\.org/abs/([\d.]+(?:v\d+)?)",
@@ -56,8 +56,8 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 
 def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
-    """下载 arXiv PDF（优先使用 export.arxiv.org）"""
-    # 优先尝试 export.arxiv.org
+    """download arXiv PDF(Priority to use export.arxiv.org）"""
+    # Try first export.arxiv.org
     pdf_urls = [
         f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
         f"https://arxiv.org/pdf/{arxiv_id}.pdf",
@@ -65,21 +65,21 @@ def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
 
     for pdf_url in pdf_urls:
         try:
-            print(f"正在从 arXiv 下载 PDF: {pdf_url}")
+            print(f"Removing from arXiv download PDF: {pdf_url}")
             response = requests.get(pdf_url, timeout=30, stream=True)
             response.raise_for_status()
             content_type = response.headers.get("Content-Type", "")
             if "pdf" not in content_type.lower():
-                print(f"警告: Content-Type 不是 PDF: {content_type}")
+                print(f"warn: Content-Type no PDF: {content_type}")
             pdf_content = response.content
             filename = f"{arxiv_id}.pdf"
-            print(f"成功下载 PDF, 大小: {len(pdf_content)} bytes")
+            print(f"Successfully downloaded PDF, size: {len(pdf_content)} bytes")
             return pdf_content, filename
         except requests.exceptions.RequestException as exc:
-            print(f"从 {pdf_url} 下载失败: {exc}")
+            print(f"from {pdf_url} Download failed: {exc}")
             continue
 
-    print(f"所有 URL 都下载失败")
+    print(f"all URL All downloads failed")
     return None
 
 
@@ -111,7 +111,7 @@ def register_update_from_url_routes(
                 data = json.load(f)
                 return data.get("papers", [])
         except Exception as exc:  # noqa: BLE001
-            print(f"读取待读列表失败: {exc}")
+            print(f"Failed to read to-be-read list: {exc}")
             return []
 
     def _save_reading_list(paper_ids: list[str]) -> None:
@@ -119,7 +119,7 @@ def register_update_from_url_routes(
             with open(reading_list_file, "w", encoding="utf-8") as f:
                 json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
         except Exception as exc:  # noqa: BLE001
-            print(f"保存待读列表失败: {exc}")
+            print(f"Failed to save to-read list: {exc}")
 
     def _add_to_reading_list(paper_id: str) -> None:
         paper_ids = _load_reading_list()
@@ -136,9 +136,9 @@ def register_update_from_url_routes(
         category_id: str,
         category_path: list[str],
     ):
-        """后台获取 DBLP BibTeX 并更新论文"""
+        """Background acquisition DBLP BibTeX and update the paper"""
         try:
-            print(f"[后台 DBLP] 开始获取 BibTeX: {title[:50]}...")
+            print(f"[Backstage DBLP] Start getting BibTeX: {title[:50]}...")
             bibtex = fetch_bibtex_from_dblp(title, authors, arxiv_id)
 
             if bibtex:
@@ -149,55 +149,55 @@ def register_update_from_url_routes(
                         paper, category_id=category_id, category_path=category_path
                     )
                     save_paper_metadata(file_path, paper)
-                    print(f"[后台 DBLP] ✅ BibTeX 已更新: {paper_id}")
+                    print(f"[Backstage DBLP] ✅ BibTeX updated: {paper_id}")
                 else:
-                    print(f"[后台 DBLP] ❌ 找不到论文: {paper_id}")
+                    print(f"[Backstage DBLP] ❌ Paper not found: {paper_id}")
             else:
-                print(f"[后台 DBLP] ❌ 未获取到 BibTeX")
+                print(f"[Backstage DBLP] ❌ Not obtained BibTeX")
         except Exception as exc:
-            print(f"[后台 DBLP] ❌ 获取 BibTeX 失败: {exc}")
+            print(f"[Backstage DBLP] ❌ get BibTeX fail: {exc}")
 
     @app.route("/api/upload/arxiv", methods=["POST"])
     def api_upload_arxiv():
-        """从 arXiv URL 下载并导入 PDF（快速返回，DBLP 后台获取）"""
+        """from arXiv URL Download and import PDF(quick return,DBLP background acquisition)"""
         try:
             data = request.json or {}
             arxiv_url = data.get("arxiv_url", "").strip()
             category_id = data.get("category_id")
-            use_temp_dir = data.get("use_temp_dir", False)  # 是否使用待读列表临时目录
+            use_temp_dir = data.get("use_temp_dir", False)  # Whether to use the temporary directory of the to-be-read list
 
             if not arxiv_url:
-                return jsonify({"success": False, "error": "未提供 arXiv URL"}), 400
+                return jsonify({"success": False, "error": "Not provided arXiv URL"}), 400
 
-            # 如果使用 temp 目录，直接使用 temp 目录路径
+            # If using temp Directory, use directly temp directory path
             if use_temp_dir:
                 category_folder = reading_list_temp_dir
                 category_path = ["Root", "_ReadingListTemp"]
-                category_id = "reading_list_temp"  # 使用特殊 ID
+                category_id = "reading_list_temp"  # Use special ID
             else:
                 if not category_id:
-                    return jsonify({"success": False, "error": "未选择分类"}), 400
+                    return jsonify({"success": False, "error": "No category selected"}), 400
 
                 categories = get_categories()
                 category_path = get_category_path(categories, category_id)
 
                 if not category_path:
-                    return jsonify({"success": False, "error": "分类未找到"}), 404
+                    return jsonify({"success": False, "error": "Category not found"}), 404
 
                 category_folder = create_category_folder(category_path[1:])
 
             arxiv_id = _extract_arxiv_id_from_url(arxiv_url)
             if not arxiv_id:
                 return (
-                    jsonify({"success": False, "error": "无法从 URL 中提取 arXiv ID"}),
+                    jsonify({"success": False, "error": "Unable to access from URL extracted from arXiv ID"}),
                     400,
                 )
 
-            print(f"提取的 arXiv ID: {arxiv_id}")
+            print(f"extracted arXiv ID: {arxiv_id}")
 
             result = _download_arxiv_pdf(arxiv_id)
             if not result:
-                return jsonify({"success": False, "error": "下载 PDF 失败"}), 500
+                return jsonify({"success": False, "error": "download PDF fail"}), 500
 
             pdf_content, filename = result
             file_path = os.path.join(category_folder, filename)
@@ -213,16 +213,16 @@ def register_update_from_url_routes(
             with open(file_path, "wb") as f:
                 f.write(pdf_content)
 
-            print(f"PDF 已保存到: {file_path}")
+            print(f"PDF saved to: {file_path}")
 
-            # 【快速获取】仅从 arXiv API 获取信息，不等待 DBLP
+            # 【Get it quickly】only from arXiv API Get information without waiting DBLP
             metadata = fetch_paper_by_arxiv_id_fast(arxiv_id)
 
             if not metadata:
-                print(f"警告: 无法从 arXiv API 获取信息")
+                print(f"warn: Unable to access from arXiv API Get information")
                 metadata = {"arxiv_id": arxiv_id}
             else:
-                print(f"成功从 arXiv API 获取论文信息: {metadata.get('title')}")
+                print(f"successfully from arXiv API Get paper information: {metadata.get('title')}")
 
             new_filename = filename
             if metadata.get("title"):
@@ -243,12 +243,12 @@ def register_update_from_url_routes(
                         os.rename(file_path, new_file_path)
                         file_path = new_file_path
                         filename = new_filename
-                        print(f"文件已重命名为: {filename}")
+                        print(f"File has been renamed to: {filename}")
                     except Exception as exc:  # noqa: BLE001
-                        print(f"重命名文件失败: {exc}")
+                        print(f"Failed to rename file: {exc}")
 
             paper_id = str(uuid.uuid4())
-            # 构建 arXiv URL（优先使用用户提供的 URL，否则根据 arxiv_id 构建）
+            # Build arXiv URL(Priority is given to using user-provided URL, otherwise according to arxiv_id build)
             if arxiv_url.startswith("http"):
                 final_arxiv_url = arxiv_url
             else:
@@ -264,14 +264,14 @@ def register_update_from_url_routes(
                 "authors": metadata.get("authors", ""),
                 "arxiv_id": arxiv_id,
                 "arxiv_url": metadata.get("arxiv_url")
-                or final_arxiv_url,  # 优先使用 metadata 中的 URL，否则使用构建的 URL
+                or final_arxiv_url,  # priority use metadata in URL, otherwise use the built URL
                 "arxiv_published_date": metadata.get("published_date"),
                 "affiliation": metadata.get("affiliation", ""),
                 "year": metadata.get("year", ""),
                 "journal": "",
                 "abstract": metadata.get("abstract", ""),
                 "summary": metadata.get("summary", ""),
-                "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
+                "bibtex": "",  # Temporarily empty, obtained in the background DBLP post-fill
                 "keywords": metadata.get("keywords", ""),
                 "subject": metadata.get("subject", ""),
                 "notes": "",
@@ -283,9 +283,9 @@ def register_update_from_url_routes(
 
             paper = Paper.from_dict(paper_info)
             if not paper:
-                return jsonify({"success": False, "error": "创建论文对象失败"}), 500
+                return jsonify({"success": False, "error": "Failed to create thesis object"}), 500
 
-            # 如果使用 temp 目录，标记来源
+            # If using temp table of contents, tagged sources
             if use_temp_dir:
                 paper.upload_source = "reading_list_url"
 
@@ -295,14 +295,14 @@ def register_update_from_url_routes(
             save_paper_metadata(file_path, registered_paper)
             _add_to_reading_list(registered_paper.id)
 
-            # 【后台获取 BibTeX（优先 DBLP，失败后使用 arXiv）】
+            # 【Background acquisition BibTeX(priority DBLP, use after failure arXiv）】
             if metadata.get("title"):
                 thread = threading.Thread(
                     target=_fetch_dblp_bibtex_background,
                     args=(
                         paper_id,
                         metadata["title"],
-                        metadata.get("authors", ""),  # authors 可以为空
+                        metadata.get("authors", ""),  # authors Can be empty
                         arxiv_id,
                         file_path,
                         category_id,
@@ -311,13 +311,13 @@ def register_update_from_url_routes(
                     daemon=True,
                 )
                 thread.start()
-                print(f"[立即返回] 论文已添加，BibTeX 后台获取中...")
+                print(f"[Return immediately] Paper has been added,BibTeX Getting in the background...")
 
             return jsonify({"success": True, "paper": registered_paper.to_dict()})
 
         except Exception as exc:  # noqa: BLE001
-            print(f"从 arXiv 导入失败: {exc}")
+            print(f"from arXiv Import failed: {exc}")
             import traceback
 
             traceback.print_exc()
-            return jsonify({"success": False, "error": f"导入失败: {str(exc)}"}), 500
+            return jsonify({"success": False, "error": f"Import failed: {str(exc)}"}), 500

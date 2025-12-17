@@ -1,8 +1,8 @@
 """
-SQLite 搜索索引模块
+SQLite Search index module
 
-提供论文搜索索引的数据库管理功能，使用 SQLite FTS5 全文搜索。
-数据库文件存储在 papers-dir 目录下。
+Provides database management functions for paper search and indexing, using SQLite FTS5 Full text search.
+Database files are stored in papers-dir directory.
 """
 
 from __future__ import annotations
@@ -18,40 +18,40 @@ from resophy.core.base_paper import Paper
 
 
 class SearchIndex:
-    """线程安全的 SQLite 搜索索引管理器"""
+    """Thread safe SQLite Search Index Manager"""
 
     def __init__(self, db_path: str):
         """
-        初始化搜索索引
+        Initialize search index
 
         Args:
-            db_path: SQLite 数据库文件路径
+            db_path: SQLite Database file path
         """
         self.db_path = db_path
         self._lock = threading.RLock()
-        self._rebuild_callback = None  # 重建索引的回调函数
-        self._is_rebuilding = False  # 是否正在重建索引
-        self._rebuild_lock = threading.Lock()  # 重建操作的锁
-        self._last_checkpoint_time = 0  # 上次 checkpoint 的时间戳
-        self._checkpoint_interval = 300  # 每 5 分钟执行一次 checkpoint
+        self._rebuild_callback = None  # Rebuild index callback function
+        self._is_rebuilding = False  # Whether the index is being rebuilt
+        self._rebuild_lock = threading.Lock()  # Rebuild operation lock
+        self._last_checkpoint_time = 0  # last time checkpoint timestamp
+        self._checkpoint_interval = 300  # Every 5 Execute once every minute checkpoint
         self._init_database()
 
     def set_rebuild_callback(self, callback):
-        """设置重建索引的回调函数"""
+        """Set the callback function for rebuilding the index"""
         self._rebuild_callback = callback
 
     def _maybe_checkpoint(self, force: bool = False) -> None:
         """
-        定期执行 WAL checkpoint，防止 WAL 文件过大导致数据库损坏
+        Execute regularly WAL checkpoint,prevent WAL Database corruption due to excessive file size
 
         Args:
-            force: 是否强制执行 checkpoint（忽略时间间隔）
+            force: Whether to enforce checkpoint（Ignore time interval）
         """
         import time
 
         current_time = time.time()
 
-        # 如果距离上次 checkpoint 超过间隔时间，或者强制执行
+        # If it's been a long time since last time checkpoint Exceeds the interval time, or enforces execution
         if (
             force
             or (current_time - self._last_checkpoint_time) >= self._checkpoint_interval
@@ -59,28 +59,28 @@ class SearchIndex:
             try:
                 conn = sqlite3.connect(self.db_path, timeout=30.0)
                 try:
-                    # 执行被动 checkpoint（不会阻塞其他连接）
+                    # Execution passive checkpoint（Does not block other connections）
                     conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
                     self._last_checkpoint_time = current_time
                 finally:
                     conn.close()
             except Exception as e:
-                # checkpoint 失败不影响主操作，只记录日志
-                print(f"WAL checkpoint 失败: {e}")
+                # checkpoint Failure does not affect the main operation, only logs are recorded
+                print(f"WAL checkpoint fail: {e}")
 
     def _extract_context_snippet(
         self, text: str, query: str, context_chars: int = 150
     ) -> str:
         """
-        提取包含关键词的上下文片段
+        Extract context fragments containing keywords
 
         Args:
-            text: 原始文本
-            query: 搜索关键词
-            context_chars: 关键词前后各提取的字符数（默认150）
+            text: original text
+            query: Search keywords
+            context_chars: The number of characters extracted before and after the keyword（default150）
 
         Returns:
-            包含关键词的上下文片段，如果未找到关键词则返回文本开头
+            A context fragment containing the keyword, or returning to the beginning of the text if the keyword is not found
         """
         if not text or not query:
             return text[: context_chars * 2] if text else ""
@@ -88,37 +88,37 @@ class SearchIndex:
         text_lower = text.lower()
         query_lower = query.lower().strip()
 
-        # 首先尝试查找完整查询短语
+        # First try to find the complete query phrase
         match = None
         escaped_query = re.escape(query_lower)
         match = re.search(escaped_query, text_lower)
 
-        # 如果找不到完整短语，尝试查找所有单词都出现的位置
+        # If you can't find the complete phrase, try to find where all the words occur
         if not match:
             query_words = [w.strip() for w in query_lower.split() if w.strip()]
             if len(query_words) > 1:
-                # 查找所有单词都出现的位置（单词之间可以有其他字符）
-                # 构建正则表达式：单词1...单词2...单词3（顺序出现）
+                # Find all occurrences of a word（There can be other characters between words）
+                # Building regular expressions: words1...word2...word3（appear sequentially）
                 pattern = r"\b.*\b".join(re.escape(w) for w in query_words)
                 match = re.search(pattern, text_lower, re.IGNORECASE)
 
-            # 如果还是找不到，尝试查找第一个单词
+            # If still not found, try to find the first word
             if not match and query_words:
                 first_word = query_words[0]
                 match = re.search(re.escape(first_word), text_lower)
 
-        # 对于中文，如果还是找不到，尝试查找中文字符（不区分顺序）
+        # For Chinese, if it still cannot be found, try to find Chinese characters（No distinction between order）
         if not match:
-            # 检测是否包含中文字符
+            # Detect whether it contains Chinese characters
             chinese_chars = [
                 char for char in query_lower if "\u4e00" <= char <= "\u9fff"
             ]
             if chinese_chars:
-                # 尝试查找第一个中文字符的位置
+                # Try to find the position of the first Chinese character
                 first_char = chinese_chars[0]
                 match = re.search(re.escape(first_char), text_lower)
 
-        # 如果仍然找不到，返回文本开头
+        # If still not found, return to the beginning of the text
         if not match:
             return (
                 text[: context_chars * 2] + "..."
@@ -126,33 +126,33 @@ class SearchIndex:
                 else text
             )
 
-        # 获取匹配位置
+        # Get matching position
         start_pos = match.start()
         end_pos = match.end()
 
-        # 计算上下文范围
+        # Compute context scope
         snippet_start = max(0, start_pos - context_chars)
         snippet_end = min(len(text), end_pos + context_chars)
 
-        # 提取片段
+        # Extract fragments
         snippet = text[snippet_start:snippet_end]
 
-        # 如果片段不是从文本开头开始，添加省略号
+        # If the fragment does not start at the beginning of the text, add an ellipsis
         if snippet_start > 0:
             snippet = "..." + snippet
-        # 如果片段不是到文本结尾，添加省略号
+        # If the fragment does not go to the end of the text, add an ellipsis
         if snippet_end < len(text):
             snippet = snippet + "..."
 
         return snippet
 
     def _check_database_integrity(self) -> bool:
-        """检查数据库完整性"""
+        """Check database integrity"""
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             try:
                 cursor = conn.cursor()
-                # 执行完整性检查
+                # Perform integrity check
                 cursor.execute("PRAGMA integrity_check")
                 result = cursor.fetchone()
                 return result and result[0] == "ok"
@@ -163,10 +163,10 @@ class SearchIndex:
 
     def _try_repair_fts5_index(self) -> bool:
         """
-        尝试修复 FTS5 索引同步问题（轻量级修复）
+        try to fix FTS5 Index synchronization problem（Lightweight fix）
 
         Returns:
-            True 如果修复成功，False 如果修复失败需要完全重建
+            True If the repair is successful,False If repair fails a complete rebuild is required
         """
         try:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -174,12 +174,12 @@ class SearchIndex:
             conn.execute("PRAGMA synchronous=FULL")
             try:
                 cursor = conn.cursor()
-                # 删除旧的触发器
+                # Delete old triggers
                 cursor.execute("DROP TRIGGER IF EXISTS papers_fts_insert")
                 cursor.execute("DROP TRIGGER IF EXISTS papers_fts_delete")
                 cursor.execute("DROP TRIGGER IF EXISTS papers_fts_update")
 
-                # 尝试删除并重建 FTS5 索引
+                # Try deleting and rebuilding FTS5 index
                 cursor.execute("DROP TABLE IF EXISTS papers_fts")
                 cursor.execute(
                     """
@@ -195,7 +195,7 @@ class SearchIndex:
                     """
                 )
 
-                # 重新创建触发器，自动更新 FTS 索引
+                # Re-create trigger, update automatically FTS index
                 cursor.execute(
                     """
                     CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
@@ -221,7 +221,7 @@ class SearchIndex:
                     """
                 )
 
-                # 重新从 papers 表填充 FTS5 索引
+                # Restart from papers table filling FTS5 index
                 cursor.execute(
                     """
                     INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
@@ -229,76 +229,76 @@ class SearchIndex:
                     """
                 )
                 conn.commit()
-                print("FTS5 索引同步修复成功")
+                print("FTS5 Index synchronization repair successful")
                 return True
             finally:
                 conn.close()
         except Exception as e:
-            print(f"FTS5 索引修复失败，需要完全重建: {e}")
+            print(f"FTS5 Index repair failed and requires a full rebuild: {e}")
             return False
 
     def _repair_database(self) -> None:
-        """修复损坏的数据库：先尝试轻量级修复，失败则删除并重建"""
-        # 如果已经在重建中，跳过
+        """Repair a damaged database: try a lightweight repair first, delete and rebuild if that fails"""
+        # If already rebuilding, skip
         with self._rebuild_lock:
             if self._is_rebuilding:
                 return
 
-            print(f"检测到数据库问题，正在尝试修复: {self.db_path}")
+            print(f"Database problem detected, trying to fix it: {self.db_path}")
             try:
-                # 先尝试轻量级修复（仅修复 FTS5 索引同步问题）
+                # Try a lightweight fix first（Repair only FTS5 Index synchronization problem）
                 if self._try_repair_fts5_index():
-                    print("索引同步问题已修复")
+                    print("Index sync issue fixed")
                     return
 
-                # 如果轻量级修复失败，执行完全重建
-                print("轻量级修复失败，执行完全重建...")
+                # If lightweight repair fails, perform a full rebuild
+                print("Lightweight repair failed, perform a full rebuild...")
 
-                # 备份损坏的数据库
+                # Back up corrupted database
                 if os.path.exists(self.db_path):
                     backup_path = self.db_path + ".corrupted"
                     if os.path.exists(backup_path):
                         os.remove(backup_path)
                     os.rename(self.db_path, backup_path)
-                    print(f"已备份损坏的数据库到: {backup_path}")
+                    print(f"The corrupted database has been backed up to: {backup_path}")
 
-                # 删除损坏的数据库文件
+                # Delete corrupt database files
                 if os.path.exists(self.db_path):
                     os.remove(self.db_path)
 
-                # 重新初始化数据库
+                # Reinitialize the database
                 self._init_database()
-                print("数据库修复完成，需要重建索引")
+                print("The database repair is completed and the index needs to be rebuilt.")
 
-                # 如果有重建回调，调用它（异步，不阻塞）
+                # If there is a rebuild callback, call it（Asynchronous, non-blocking）
                 if self._rebuild_callback:
-                    print("触发索引重建（后台执行）...")
+                    print("Trigger index rebuild（background execution）...")
                     import threading
 
                     threading.Thread(target=self._rebuild_callback, daemon=True).start()
             except Exception as e:
-                print(f"修复数据库失败: {e}")
+                print(f"Repair database failed: {e}")
                 import traceback
 
                 traceback.print_exc()
 
     def _init_database(self) -> None:
-        """初始化数据库表结构"""
+        """Initialize database table structure"""
         with self._lock:
-            # 使用 WAL 模式提高并发性能
+            # use WAL Patterns improve concurrency performance
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             try:
-                # 启用 WAL 模式（Write-Ahead Logging）
+                # enable WAL model（Write-Ahead Logging）
                 conn.execute("PRAGMA journal_mode=WAL")
-                # 设置同步模式为 FULL（更安全，避免数据损坏）
+                # Set the sync mode to FULL（More secure against data corruption）
                 conn.execute("PRAGMA synchronous=FULL")
-                # 设置缓存大小
+                # Set cache size
                 conn.execute("PRAGMA cache_size=-64000")  # 64MB
-                # 设置 WAL 自动 checkpoint（当 WAL 文件超过 10MB 时自动 checkpoint）
+                # set up WAL automatic checkpoint（when WAL File exceeds 10MB automatically checkpoint）
                 conn.execute("PRAGMA wal_autocheckpoint=10000")  # 10MB
                 cursor = conn.cursor()
 
-                # 创建论文元数据表（包含 notes 字段，用于全文搜索备注）
+                # Create a paper metadata table（Include notes Field for full-text search notes）
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS papers (
@@ -315,14 +315,14 @@ class SearchIndex:
                     """
                 )
 
-                # 如果是旧版本数据库，可能还没有 notes 列，这里做一次轻量级迁移
+                # If it is an old version database, it may not be available yet notes Column, do a lightweight migration here
                 cursor.execute("PRAGMA table_info(papers)")
-                columns = [row[1] for row in cursor.fetchall()]  # 第二列是列名
+                columns = [row[1] for row in cursor.fetchall()]  # The second column is the column name
                 if "notes" not in columns:
                     cursor.execute("ALTER TABLE papers ADD COLUMN notes TEXT")
 
-                # 创建全文搜索虚拟表（FTS5），包含备注字段
-                # 旧版本的 papers_fts 可能没有 notes 列，先检查一下
+                # Create a full-text search virtual table（FTS5）, including the remarks field
+                # old version papers_fts probably not notes column, check first
                 cursor.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='papers_fts'"
                 )
@@ -331,7 +331,7 @@ class SearchIndex:
                     cursor.execute("PRAGMA table_info(papers_fts)")
                     fts_columns = [row[1] for row in cursor.fetchall()]
                     if "notes" not in fts_columns:
-                        # 旧的 FTS 表没有 notes，直接删除，稍后重新创建并重建索引
+                        # old-fashioned FTS table no notes, delete directly, re-create and rebuild the index later
                         cursor.execute("DROP TABLE IF EXISTS papers_fts")
 
                 cursor.execute(
@@ -348,7 +348,7 @@ class SearchIndex:
                     """
                 )
 
-                # 创建触发器，自动更新 FTS 索引
+                # Create triggers to update automatically FTS index
                 cursor.execute(
                     """
                     CREATE TRIGGER IF NOT EXISTS papers_fts_insert AFTER INSERT ON papers BEGIN
@@ -376,7 +376,7 @@ class SearchIndex:
                     """
                 )
 
-                # 创建索引以加速查询
+                # Create indexes to speed up queries
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_papers_category ON papers(category_id)"
                 )
@@ -387,11 +387,11 @@ class SearchIndex:
 
     def index_paper(self, paper: Paper, category_id: Optional[str] = None) -> None:
         """
-        索引一篇论文
+        Index a paper
 
         Args:
-            paper: Paper 对象
-            category_id: 论文所属分类ID
+            paper: Paper object
+            category_id: Category of the paperID
         """
         with self._lock:
             try:
@@ -420,7 +420,7 @@ class SearchIndex:
                     conn.commit()
                 finally:
                     conn.close()
-                # 定期执行 checkpoint 以防止 WAL 文件过大
+                # Execute regularly checkpoint to prevent WAL File too large
                 self._maybe_checkpoint()
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
@@ -431,17 +431,17 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"索引论文时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database problem detected while indexing papers（Maybe the index is out of sync）: {e}")
                     self._repair_database()
                 else:
                     raise
 
     def remove_paper(self, paper_id: str) -> None:
         """
-        从索引中删除论文
+        Remove paper from index
 
         Args:
-            paper_id: 论文ID
+            paper_id: paperID
         """
         with self._lock:
             try:
@@ -464,18 +464,18 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"删除论文时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database problem detected when deleting paper（Maybe the index is out of sync）: {e}")
                     self._repair_database()
                 else:
                     raise
 
     def update_paper_category(self, paper_id: str, category_id: Optional[str]) -> None:
         """
-        更新论文的分类
+        Update the classification of the paper
 
         Args:
-            paper_id: 论文ID
-            category_id: 新的分类ID
+            paper_id: paperID
+            category_id: new categoryID
         """
         with self._lock:
             try:
@@ -501,7 +501,7 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"更新分类时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database issue detected while updating categories（Maybe the index is out of sync）: {e}")
                     self._repair_database()
                 else:
                     raise
@@ -513,23 +513,23 @@ class SearchIndex:
         limit: int = 100,
     ) -> List[Dict]:
         """
-        搜索论文
+        Search papers
 
         Args:
-            query: 搜索关键词
-            category_id: 限定搜索的分类ID（可选）
-            limit: 返回结果数量限制
+            query: Search keywords
+            category_id: Limit search categoriesID（Optional）
+            limit: Limit on the number of results returned
 
         Returns:
-            搜索结果列表，每个结果包含：
-            - id: 论文ID
-            - title: 标题
-            - authors: 作者
-            - abstract: 摘要
-            - filename: 文件名
-            - category_id: 分类ID
-            - matched_fields: 匹配的字段列表
-            - similarity: 相似度分数
+            List of search results, each result contains:
+            - id: paperID
+            - title: title
+            - authors: author
+            - abstract: summary
+            - filename: file name
+            - category_id: ClassificationID
+            - matched_fields: List of matching fields
+            - similarity: similarity score
         """
         with self._lock:
             conn = None
@@ -539,27 +539,27 @@ class SearchIndex:
                 conn.execute("PRAGMA synchronous=FULL")
                 cursor = conn.cursor()
 
-                # 构建 FTS 查询
+                # build FTS Query
                 query_cleaned = query.strip()
 
-                # 如果查询为空，直接返回空结果
+                # If the query is empty, empty results will be returned directly.
                 if not query_cleaned:
                     return []
 
-                # 检测是否包含中文字符
+                # Detect whether it contains Chinese characters
                 has_chinese = any(
                     "\u4e00" <= char <= "\u9fff" for char in query_cleaned
                 )
 
-                # 转义查询中的特殊字符
-                # FTS5 中的特殊字符：", *, AND, OR, NOT, NEAR
+                # Escape special characters in queries
+                # FTS5 Special characters in:", *, AND, OR, NOT, NEAR
                 query_cleaned_escaped = query_cleaned.replace('"', '""')
 
-                # 对于中文查询，使用 LIKE 查询（FTS5 对中文支持不好）
-                # 对于英文查询，使用 FTS5 全文搜索
+                # For Chinese queries, use LIKE Query（FTS5 Poor support for Chinese）
+                # For English queries, use FTS5 Full text search
                 if has_chinese:
-                    # 使用 LIKE 查询，支持部分匹配
-                    # 转义 LIKE 中的特殊字符：%, _
+                    # use LIKE Query, supports partial matching
+                    # escape LIKE Special characters in:%, _
                     like_query = query_cleaned.replace("%", "\\%").replace("_", "\\_")
 
                     if category_id:
@@ -650,7 +650,7 @@ class SearchIndex:
                     cursor.execute(sql, params)
                     rows = cursor.fetchall()
                 else:
-                    # 对于英文查询，使用 FTS5 全文搜索（保持原有逻辑）
+                    # For English queries, use FTS5 Full text search（Keep the original logic）
                     fts_query = f'"{query_cleaned_escaped}"'
 
                     if category_id:
@@ -694,13 +694,13 @@ class SearchIndex:
                     cursor.execute(sql, params)
                     rows = cursor.fetchall()
 
-                # 处理结果
+                # Processing results
                 query_lower = query.lower()
                 results = []
                 for row in rows:
                     pid, title, authors, abstract, notes, filename, cat_id, rank = row
 
-                    # 确定真实命中的字段（包括备注 notes）
+                    # Determine the field of the true hit（Include notes notes）
                     matched_fields = []
                     abstract_snippet = None
                     notes_snippet = None
@@ -710,19 +710,19 @@ class SearchIndex:
                         matched_fields.append("authors")
                     if abstract and query_lower in (abstract or "").lower():
                         matched_fields.append("abstract")
-                        # 提取包含关键词的上下文片段
+                        # Extract context fragments containing keywords
                         abstract_snippet = self._extract_context_snippet(
                             abstract, query, context_chars=150
                         )
                     if notes and query_lower in (notes or "").lower():
                         matched_fields.append("notes")
-                        # 提取包含关键词的上下文片段
+                        # Extract context fragments containing keywords
                         notes_snippet = self._extract_context_snippet(
                             notes, query, context_chars=150
                         )
 
-                    # 不再做"默认认为命中 title"的 fallback，
-                    # 这样前端看到的 matched_fields 一定是真实包含 query 的字段集合
+                    # no more"Hit by default title"of fallback，
+                    # This is what you see on the front end matched_fields It must truly contain query set of fields
 
                     similarity = max(0.5, 1.0 - abs(rank) / 20.0) if rank else 0.5
 
@@ -737,10 +737,10 @@ class SearchIndex:
                         "matched_fields": matched_fields,
                         "similarity": similarity,
                     }
-                    # 如果提取了摘要片段，添加到结果中
+                    # If a snippet was extracted, add it to the results
                     if abstract_snippet:
                         result_item["abstract_snippet"] = abstract_snippet
-                    # 如果提取了备注片段，添加到结果中
+                    # If the note fragment is extracted, add it to the result
                     if notes_snippet:
                         result_item["notes_snippet"] = notes_snippet
 
@@ -750,20 +750,20 @@ class SearchIndex:
 
             except sqlite3.DatabaseError as e:
                 error_msg = str(e).lower()
-                # 检测数据库损坏或 FTS5 索引不同步的错误
+                # Detect database corruption or FTS5 Index out of sync error
                 is_db_error = (
                     "malformed" in error_msg
                     or "corrupt" in error_msg
-                    or "missing row" in error_msg  # FTS5 同步错误
-                    or "fts5" in error_msg  # FTS5 相关错误
+                    or "missing row" in error_msg  # FTS5 Sync error
+                    or "fts5" in error_msg  # FTS5 Related errors
                 )
                 if is_db_error:
-                    # 搜索时遇到数据库损坏或索引不同步，不立即触发重建（避免阻塞）
-                    # 只记录错误并返回空结果，重建会在后台进行
+                    # Database corruption or index out-of-sync is encountered during search, and reconstruction is not triggered immediately.（avoid blocking）
+                    # Only log errors and return empty results, rebuilding will occur in the background
                     if not self._is_rebuilding:
-                        print(f"搜索时检测到数据库问题（可能是索引不同步）: {e}")
-                        print("正在后台修复数据库和重建索引，请稍后重试搜索...")
-                        # 异步触发修复和重建，不阻塞搜索
+                        print(f"Database problem detected while searching（Maybe the index is out of sync）: {e}")
+                        print("The database is being repaired and indexes are being rebuilt in the background, please try the search again later....")
+                        # Trigger repair and rebuild asynchronously without blocking searches
                         import threading
 
                         threading.Thread(
@@ -778,39 +778,39 @@ class SearchIndex:
 
     def rebuild_index(self, papers: List[Tuple[Paper, Optional[str]]]) -> None:
         """
-        重建整个索引
+        Rebuild the entire index
 
         Args:
-            papers: 论文列表，每个元素是 (Paper, category_id) 元组
+            papers: list of papers, each element is (Paper, category_id) tuple
         """
-        # 防止重复重建
+        # Prevent repeated rebuilds
         with self._rebuild_lock:
             if self._is_rebuilding:
-                print("索引重建已在进行中，跳过本次重建")
+                print("Index rebuild is already in progress, skip this rebuild")
                 return
             self._is_rebuilding = True
 
         try:
             with self._lock:
-                # 如果数据库损坏，先修复
+                # If the database is damaged, repair it first
                 if not self._check_database_integrity():
-                    print("检测到数据库损坏，先修复...")
+                    print("Database corruption detected, repair first...")
                     self._repair_database()
 
             try:
                 conn = sqlite3.connect(
                     self.db_path, timeout=60.0
-                )  # 重建索引需要更长时间
+                )  # Rebuilding indexes takes longer
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA synchronous=FULL")
                 try:
                     cursor = conn.cursor()
 
-                    # 清空现有数据
+                    # Clear existing data
                     cursor.execute("DELETE FROM papers")
                     cursor.execute("DELETE FROM papers_fts")
 
-                    # 批量插入
+                    # Batch insert
                     for paper, category_id in papers:
                         cursor.execute(
                             """
@@ -830,7 +830,7 @@ class SearchIndex:
                             ),
                         )
 
-                    # 重建 FTS 索引
+                    # reconstruction FTS index
                     cursor.execute(
                         """
                         INSERT INTO papers_fts(rowid, id, title, authors, abstract, notes)
@@ -839,9 +839,9 @@ class SearchIndex:
                     )
 
                     conn.commit()
-                    # 重建后执行完整 checkpoint
+                    # Complete execution after rebuilding checkpoint
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                    print(f"搜索索引重建完成，共索引 {len(papers)} 篇论文")
+                    print(f"Search index reconstruction completed, total indexing {len(papers)} papers")
                 finally:
                     conn.close()
             except sqlite3.DatabaseError as e:
@@ -853,30 +853,30 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"重建索引时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database problem detected while rebuilding index（Maybe the index is out of sync）: {e}")
                     self._repair_database()
-                    # 修复后重新尝试（重置标志后递归调用）
+                    # Repair and try again（Called recursively after resetting the flag）
                     if papers:
                         with self._rebuild_lock:
                             self._is_rebuilding = False
                         self.rebuild_index(papers)
-                    return  # 递归调用后直接返回，不再执行 finally
+                    return  # Return directly after the recursive call and no longer execute finally
                 else:
                     raise
         finally:
-            # 重置重建标志（确保无论成功或失败都会重置）
+            # reset rebuild flag（Make sure it resets regardless of success or failure）
             with self._rebuild_lock:
                 self._is_rebuilding = False
 
     def get_paper_count(self, category_id: Optional[str] = None) -> int:
         """
-        获取论文数量
+        Get the number of papers
 
         Args:
-            category_id: 分类ID（可选）
+            category_id: ClassificationID（Optional）
 
         Returns:
-            论文数量
+            Number of papers
         """
         with self._lock:
             try:
@@ -904,14 +904,14 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"获取论文数量时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database issue detected when getting number of papers（Maybe the index is out of sync）: {e}")
                     self._repair_database()
                     return 0
                 else:
                     raise
 
     def clear(self) -> None:
-        """清空所有索引数据"""
+        """Clear all index data"""
         with self._lock:
             try:
                 conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -934,7 +934,7 @@ class SearchIndex:
                     or "fts5" in error_msg
                 )
                 if is_db_error:
-                    print(f"清空索引时检测到数据库问题（可能是索引不同步）: {e}")
+                    print(f"Database problem detected when clearing index（Maybe the index is out of sync）: {e}")
                     self._repair_database()
                 else:
                     raise

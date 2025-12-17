@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 解读 - Resophy</title>
+    <title>AI Interpretation - Resophy</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
@@ -129,7 +129,7 @@
             }
         }
         
-        /* Markdown 样式优化 */
+        /* Markdown Style optimization */
         .markdown-viewer h1 { 
             font-size: 2.5em; 
             margin-bottom: 0.5em;
@@ -309,7 +309,7 @@
             to { transform: rotate(360deg); }
         }
         
-        /* 滚动条美化 */
+        /* Scrollbar styling */
         ::-webkit-scrollbar {
             width: 10px;
             height: 10px;
@@ -332,14 +332,14 @@
 <body>
     <div class="header">
         <div class="header-content">
-            <button id="close-btn" class="btn" title="关闭当前标签页 (Ctrl+W / Esc)">
-                <i class="fas fa-arrow-left"></i> 返回
+            <button id="close-btn" class="btn" title="Close current tab (Ctrl+W / Esc)">
+                <i class="fas fa-arrow-left"></i> Back
             </button>
-            <div class="title">AI 解读阅读器</div>
+            <div class="title">AI Analysis Reader</div>
             <div style="width:80px"></div>
         </div>
     </div>
-    <div id="loading" class="loading">正在加载 AI 解读内容...</div>
+    <div id="loading" class="loading">Loading AI analysis...</div>
     <div id="container" class="container" style="display:none;">
         <div class="content">
             <div id="md" class="markdown-viewer"></div>
@@ -421,13 +421,13 @@
             try {
                 const res = await fetch(`/api/paper/${paperId}/analysis/result`);
                 const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || '加载失败');
+                if (!res.ok || !json.success) throw new Error(json.error || 'Failed to load');
                 const md = rewriteImages(json.content || '');
                 renderMarkdown(md);
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('container').style.display = 'block';
             } catch (e) {
-                document.getElementById('loading').textContent = `加载失败：${e.message}`;
+                document.getElementById('loading').textContent = `Failed to load: ${e.message}`;
             }
         }
 
@@ -443,16 +443,16 @@
             });
         }
 
-        // 记录阅读时间
+        // Record reading time
         let readStartTime = null;
         let readTimeInterval = null;
-        let lastRecordedSeconds = 0; // 记录上次已记录的秒数
-        let lastActivityTime = null; // 最后一次用户活动时间
-        let isTimerActive = true; // 计时器是否激活（用于区分用户无活动状态）
-        let activityCheckInterval = null; // 活动检测定时器
-        const INACTIVITY_THRESHOLD = 60000; // 无活动阈值：1分钟（毫秒）
+        let lastRecordedSeconds = 0; // Record the number of seconds last recorded
+        let lastActivityTime = null; // Last user activity time
+        let isTimerActive = true; // Whether the timer is activated (used to distinguish user inactivity)
+        let activityCheckInterval = null; // Activity detection timer
+        const INACTIVITY_THRESHOLD = 60000; // No activity threshold:1Minutes (milliseconds)
         
-        // 格式化日期为 YYYY-MM-DD（使用本地时间，避免时区问题）
+        // Format the date as YYYY-MM-DD(Use local time to avoid time zone issues)
         function formatDateLocal(date) {
             const d = date || new Date();
             const year = d.getFullYear();
@@ -461,22 +461,22 @@
             return `${year}-${month}-${day}`;
         }
         
-        // 记录用户活动
+        // Log user activity
         function recordUserActivity() {
             const now = Date.now();
             const wasInactive = !isTimerActive;
             lastActivityTime = now;
             
-            // 如果之前是非活动状态，现在恢复活动，需要重新开始计时
+            // If it was inactive before and is now active, the timing needs to be restarted.
             if (wasInactive) {
-                console.log('检测到用户活动，恢复计时');
+                console.log('User activity detected, timer resumed');
                 isTimerActive = true;
-                // 重新设置计时起点，但保留已记录的秒数
+                // Reset the starting point of timing, but keep the number of recorded seconds
                 readStartTime = now;
             }
         }
         
-        // 检测用户是否长时间无活动
+        // Detect if the user has been inactive for a long time
         function checkUserActivity() {
             if (!lastActivityTime || !isTimerActive) {
                 return;
@@ -485,18 +485,18 @@
             const now = Date.now();
             const timeSinceLastActivity = now - lastActivityTime;
             
-            // 如果超过阈值且计时器还在活动状态，则暂停计时
+            // If the threshold is exceeded and the timer is still active, the timing is paused
             if (timeSinceLastActivity > INACTIVITY_THRESHOLD && isTimerActive) {
-                console.log('检测到用户无活动超过1分钟，暂停计时');
+                console.log('Detected user inactivity for more than1minutes, pause timing');
                 isTimerActive = false;
-                // 保存当前的阅读时间
+                // Save current reading time
                 if (readStartTime) {
-                    const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000); // 使用最后活动时间
+                    const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000); // Use last active time
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
-                        console.log('保存无活动前的阅读时间:', incrementSeconds, '秒');
-                        // 发送增量到后端
+                        console.log('Save reading time before inactivity:', incrementSeconds, 'Second');
+                        // Send delta to backend
                         fetch(`/api/paper/${paperId}/analysis-view-time`, {
                             method: 'POST',
                             headers: {
@@ -505,9 +505,9 @@
                             body: JSON.stringify({
                                 increment: incrementSeconds
                             })
-                        }).catch(err => console.error('记录阅读时间失败:', err));
+                        }).catch(err => console.error('Failed to record reading time:', err));
                         
-                        // 记录到每日阅读数据
+                        // Record daily reading data
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds += incrementSeconds;
                     }
@@ -515,42 +515,42 @@
             }
         }
         
-        // 启动用户活动监听
+        // Start user activity monitoring
         function startActivityMonitoring() {
-            // 监听各种用户活动事件
+            // Monitor various user activity events
             const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
             
             activityEvents.forEach(eventType => {
                 document.addEventListener(eventType, recordUserActivity, { passive: true });
             });
             
-            // 初始化最后活动时间
+            // Initialize last activity time
             lastActivityTime = Date.now();
             isTimerActive = true;
             
-            // 每10秒检查一次用户活动状态
+            // Every10Check user activity status once every second
             activityCheckInterval = setInterval(checkUserActivity, 10000);
             
-            console.log('用户活动监控已启动');
+            console.log('User activity monitoring is started');
         }
         
-        // 停止用户活动监听
+        // Stop user activity monitoring
         function stopActivityMonitoring() {
             if (activityCheckInterval) {
                 clearInterval(activityCheckInterval);
                 activityCheckInterval = null;
             }
-            console.log('用户活动监控已停止');
+            console.log('User activity monitoring has stopped');
         }
         
-        // 记录每日阅读时间到服务器（同时保存到 localStorage 作为备份）
+        // Record daily reading time to the server (also save to localStorage as backup)
         function recordDailyReadingTime(seconds) {
             if (seconds <= 0) return;
             
             const today = formatDateLocal(new Date());
-            const minutes = Math.ceil(seconds / 60); // 秒转分钟，向上取整
+            const minutes = Math.ceil(seconds / 60); // Seconds to minutes, rounded up
             
-            // 发送到服务器
+            // Send to server
             fetch('/api/settings/reading-history/record', {
                 method: 'POST',
                 headers: {
@@ -559,13 +559,13 @@
                 body: JSON.stringify({ minutes, date: today })
             }).then(response => {
                 if (response.ok) {
-                    console.log(`记录每日阅读时间到服务器: ${minutes} 分钟`);
+                    console.log(`Record daily reading time to the server: ${minutes} minute`);
                 }
             }).catch(err => {
-                console.error('记录每日阅读时间失败:', err);
+                console.error('Failed to record daily reading time:', err);
             });
             
-            // 同时保存到 localStorage 作为备份
+            // Also save to localStorage as backup
             try {
                 const key = 'dailyReadingData';
                 let data = {};
@@ -575,7 +575,7 @@
                 }
                 data[today] = (data[today] || 0) + minutes;
                 
-                // 只保留过去 400 天的数据
+                // only keep the past 400 days of data
                 const cutoffDate = new Date();
                 cutoffDate.setDate(cutoffDate.getDate() - 400);
                 const cutoffStr = formatDateLocal(cutoffDate);
@@ -586,7 +586,7 @@
                 });
                 localStorage.setItem(key, JSON.stringify(data));
             } catch (e) {
-                console.error('保存到 localStorage 失败:', e);
+                console.error('save to localStorage fail:', e);
             }
         }
         
@@ -594,63 +594,63 @@
             readStartTime = Date.now();
             lastRecordedSeconds = 0;
             isTimerActive = true;
-            console.log('开始记录阅读时间');
+            console.log('Start recording reading time');
             
-            // 启动用户活动监控
+            // Enable user activity monitoring
             startActivityMonitoring();
             
-            // 每30秒记录一次阅读时间（发送增量）
+            // Every30Record reading time every second (send increment)
             readTimeInterval = setInterval(function() {
-                // 只有在用户活动状态下才记录时间
+                // Only record time when user is active
                 if (readStartTime && isTimerActive) {
                     const now = Date.now();
-                    const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
+                    const elapsed = Math.floor((now - readStartTime) / 1000); // Second
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
-                        // 发送增量到后端记录
+                        // Send delta to backend record
                         fetch(`/api/paper/${paperId}/analysis-view-time`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({
-                                increment: incrementSeconds  // 发送增量而不是累计
+                                increment: incrementSeconds  // Send delta instead of cumulative
                             })
-                        }).catch(err => console.error('记录阅读时间失败:', err));
+                        }).catch(err => console.error('Failed to record reading time:', err));
                         
-                        // 记录增量到每日阅读数据
+                        // Record increments to daily reading data
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds = elapsed;
                     }
                 }
-            }, 30000); // 每30秒记录一次
+            }, 30000); // Every30Record once every second
         }
         
         function stopReadingTimer() {
-            // 停止用户活动监控
+            // Stop user activity monitoring
             stopActivityMonitoring();
             
             if (readStartTime && isTimerActive) {
-                // 只有在活动状态下才计算并保存时间
+                // Calculate and save time only when active
                 const now = Date.now();
-                const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
+                const elapsed = Math.floor((now - readStartTime) / 1000); // Second
                 const incrementSeconds = elapsed - lastRecordedSeconds;
-                console.log('停止记录阅读时间, 本次增量:', incrementSeconds, '秒');
+                console.log('Stop recording reading time, This increment:', incrementSeconds, 'Second');
                 
                 if (incrementSeconds > 0) {
-                    // 发送最后的增量到后端
+                    // Send the final increment to the backend
                     fetch(`/api/paper/${paperId}/analysis-view-time`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            increment: incrementSeconds  // 发送增量
+                            increment: incrementSeconds  // Send delta
                         })
-                    }).catch(err => console.error('记录阅读时间失败:', err));
+                    }).catch(err => console.error('Failed to record reading time:', err));
                     
-                    // 记录增量到每日阅读数据
+                    // Record increments to daily reading data
                     recordDailyReadingTime(incrementSeconds);
                 }
             }
@@ -670,12 +670,12 @@
         loadContent();
         startReadingTimer();
         
-        // 页面关闭或离开时停止计时
+        // Stop timing when page is closed or navigated away
         window.addEventListener('beforeunload', function() {
             stopReadingTimer();
         });
         
-        // 页面隐藏时停止计时（切换标签页等）
+        // Stop timing when page is hidden (switching tabs, etc.)
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
                 stopReadingTimer();

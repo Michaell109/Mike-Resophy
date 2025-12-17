@@ -37,65 +37,67 @@ from resophy.routes.basic_routes.upload_from_pdf_route import (
 )
 from resophy.tools.basic_tools import category_manager, paper_repository
 
-# 解析命令行参数
-parser = argparse.ArgumentParser(description="PaperAgent - 论文管理与阅读系统")
+parser = argparse.ArgumentParser(description="Resophy")
 parser.add_argument(
     "--papers-dir",
     type=str,
     default="./papers",
-    help="论文存储目录路径（默认: ./papers）",
+    help="Resophy papers directory path (default: ./papers)",
 )
 parser.add_argument(
     "--host",
     type=str,
     default="0.0.0.0",
-    help="服务器监听地址（默认: 0.0.0.0）",
+    help="Server listening address (default: 0.0.0.0)",
 )
-parser.add_argument("--port", type=int, default=7190, help="服务器监听端口（默认: 7190")
-parser.add_argument("--debug", action="store_true", help="启用调试模式")
+parser.add_argument(
+    "--port", type=int, default=7191, help="Server listening port (default: 7190)"
+)
+parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB max file size
 
-# 配置文件存储路径（将在 main 函数中根据参数设置）
+# Configuration file storage path (will be set in main function according to parameters)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = None  # 将在 main 中设置
-CATEGORIES_FILE = None  # 将在 main 中设置
-READING_LIST_FILE = None  # 将在 main 中设置
-USER_SETTINGS_FILE = None  # 用户设置（名字、头像等）
-READING_HISTORY_FILE = None  # 每日阅读历史
-AGENTIC_SETTINGS_FILE = None  # AI 功能设置（统一的LLM配置）
-DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv 设置
-AVATARS_DIR = None  # 头像图片目录
-TEMP_PAPERS_DIR = None  # Daily arXiv 临时论文目录
-READING_LIST_TEMP_DIR = None  # 待读列表临时论文目录
-SEARCH_INDEX_DB = None  # 搜索索引数据库路径
-search_index = None  # 搜索索引实例
-# 不再使用统一的papers_db.json文件，改为每个PDF一个JSON文件
-
-# 默认用户设置
+UPLOAD_FOLDER = None  # Will be set in main
+CATEGORIES_FILE = None  # Will be set in main
+READING_LIST_FILE = None  # Will be set in main
+USER_SETTINGS_FILE = None  # User settings (name, avatar, etc.)
+READING_HISTORY_FILE = None  # Daily reading history
+AGENTIC_SETTINGS_FILE = None  # AI feature settings (uniform LLM configuration)
+DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv settings
+AVATARS_DIR = None  # Avatar image directory
+TEMP_PAPERS_DIR = None  # Daily arXiv temporary paper directory
+READING_LIST_TEMP_DIR = None  # Reading list temporary paper directory
+SEARCH_INDEX_DB = None  # Search index database path
+search_index = None  # Search index instance
+# No longer use the unified papers_db.json file, use one JSON file for each PDF
+# Default user settings
 DEFAULT_USER_SETTINGS = {
     "name": "Paper Reader",
-    "avatar": None,  # 头像文件名，如 "avatar.jpg"
+    "avatar": None,  # Avatar file name, e.g. "avatar.jpg"
     "heatmapColorScheme": "green",
-    "onboardingDontShow": False,  # 是否不再显示新手教程
+    "onboardingDontShow": False,  # Whether to no longer show the新手教程
+    "aiLanguage": "zh",  # AI output language (en/zh), applies to AI translation, AI interpretation, and Daily arXiv summary
 }
 
-# 默认 Agentic 设置（统一的AI功能配置）
+# Default Agentic settings (uniform AI feature configuration)
 DEFAULT_AGENTIC_SETTINGS = {
-    "llmModel": "",  # LLM 模型名称
-    "llmBaseUrl": "",  # LLM API 基础 URL
-    "llmApiKey": "",  # LLM API 密钥
-    "mineruServerUrl": "",  # PDF 解析服务地址
-    "analysisSystemPrompt": "",  # AI 解读的系统提示词
+    "llmModel": "",  # LLM model name
+    "llmBaseUrl": "",  # LLM API base URL
+    "llmApiKey": "",  # LLM API key
+    "mineruServerUrl": "",  # PDF parsing service address
+    # Note: System prompts are now built-in and selected based on user's aiLanguage setting
+    # Custom prompts are no longer supported
 }
 
-# 默认 Daily arXiv 设置
+# Default Daily arXiv settings
 DEFAULT_DAILY_ARXIV_SETTINGS = {
-    "categories": ["cs.CV"],  # arXiv 分区列表
-    "checkIntervalMinutes": 30,  # 检查间隔（分钟）
-    "retentionDays": 2,  # 保留论文天数
-    "maxKeywords": 2,  # 最多关键词数量（1-3）
+    "categories": ["cs.CV"],  # arXiv category list
+    "checkIntervalMinutes": 30,  # Check interval (minutes)
+    "retentionDays": 2,  # Retention days for papers
+    "maxKeywords": 2,  # Maximum number of keywords (1-3)
     "keywordList": [
         "LLM",
         "MLLM",
@@ -108,7 +110,7 @@ DEFAULT_DAILY_ARXIV_SETTINGS = {
         "Embodied AI & Robotics",
         "Audio & Speech",
         "ML Fundamentals & RL",
-    ],  # 关键词列表
+    ],  # Keyword list
     "affiliationPrompt": """I will provide you with the first-page information of a paper. You need to extract all affiliations (institution names) from it and also extract the homepage and GitHub repo URL if there is. For affiliations, do not include author names. If an affiliation includes details such as region, department, school, or college, those should be omitted. Only keep the main institution name (e.g., School of Computer Science, Fudan University → Fudan University).
 
 Additional rules:
@@ -133,7 +135,8 @@ Notes:
 
 Now the input is:
 """,
-    "summaryPrompt": """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
+    # Summary prompts - language-specific (built-in, not customizable)
+    "summaryPromptZh": """我会给你一篇 AI 文章的英文摘要，以及一个可选关键词列表（英文）。你需要：
 
 用中文简要总结这篇文章在解决什么问题、如何解决的，字数控制在 100-200 字。
 
@@ -153,9 +156,29 @@ keywords 必须来自我提供的关键词列表：[{keyword_list}], 最多{max_
 
 现在输入的摘要是：
 """,
+    "summaryPromptEn": """I will give you an English abstract of an AI paper, and an optional keyword list (in English). You need to:
+
+Briefly summarize in English what problem this paper solves and how it solves it, keep it within 100-200 words.
+
+Select keywords (in English) from the keyword list I provide that best represent the type of paper.
+
+Output the result in the following JSON format:
+
+{"summary": "This paper mainly solves...problem. The authors propose...method, through...achieved...", "keywords": ["Keyword"]}
+
+Notes:
+
+summary must be in English, concise and objective.
+
+keywords must come from the keyword list I provide: [{keyword_list}], at most {max_keywords} keywords. They must be keywords that match this paper, do not guess randomly.
+
+Output JSON directly, no other explanations.
+
+Now the input abstract is:
+""",
 }
 
-# 全局变量（将在 init_app 中初始化）
+# Global variables (will be initialized in init_app)
 init_categories = None
 get_categories = None
 save_categories = None
@@ -172,10 +195,10 @@ scan_papers_in_directory = paper_repository.scan_papers_in_directory
 
 
 def save_paper_metadata(pdf_path: str, paper_data) -> None:
-    """保存论文元数据并更新搜索索引"""
+    """Save paper metadata and update search index"""
     paper_repository.save_paper_metadata(pdf_path, paper_data)
 
-    # 更新搜索索引
+    # Update search index
     if search_index:
         try:
             if isinstance(paper_data, Paper):
@@ -184,13 +207,13 @@ def save_paper_metadata(pdf_path: str, paper_data) -> None:
                 paper = Paper.from_dict(paper_data) if paper_data else None
 
             if paper:
-                # 优先从 paper_store 获取最新的分类ID（最准确）
+                # First try to get the latest category ID from paper_store (most accurate)
                 category_id = None
                 entry = paper_store.get_entry(paper.id)
                 if entry:
                     category_id = entry.category_id
 
-                # 如果 paper_store 中没有，尝试从论文数据获取
+                # If paper_store does not have it, try to get it from the paper data
                 if not category_id:
                     if hasattr(paper, "category_id") and paper.category_id:
                         category_id = paper.category_id
@@ -199,12 +222,12 @@ def save_paper_metadata(pdf_path: str, paper_data) -> None:
 
                 search_index.index_paper(paper, category_id)
         except Exception as e:
-            print(f"更新搜索索引失败: {e}")
+            print(f"Failed to update search index: {e}")
 
 
 def delete_paper_files(pdf_path: str) -> None:
-    """删除论文文件并从搜索索引中移除"""
-    # 先获取论文ID（如果可能）
+    """Delete paper files and remove from search index"""
+    # First try to get the paper ID (if possible)
     paper_id = None
     try:
         paper = load_paper_metadata(pdf_path)
@@ -213,28 +236,28 @@ def delete_paper_files(pdf_path: str) -> None:
     except Exception:
         pass
 
-    # 删除文件
+    # Delete files
     paper_repository.delete_paper_files(pdf_path)
 
-    # 从搜索索引中删除
+    # Remove from search index
     if paper_id and search_index:
         try:
             search_index.remove_paper(paper_id)
         except Exception as e:
-            print(f"从搜索索引删除失败: {e}")
+            print(f"Failed to remove from search index: {e}")
 
 
 def init_app(papers_dir=None):
-    """初始化应用配置和目录"""
+    """Initialize application configuration and directories"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE
     global USER_SETTINGS_FILE, READING_HISTORY_FILE, AGENTIC_SETTINGS_FILE, AVATARS_DIR
     global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR, READING_LIST_TEMP_DIR
     global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
-    # 设置论文目录
+    # Set paper directory
     if papers_dir:
-        # 如果指定了相对路径，则相对于当前工作目录
+        # If a relative path is specified, it is relative to the current working directory
         if not os.path.isabs(papers_dir):
             UPLOAD_FOLDER = os.path.abspath(papers_dir)
         else:
@@ -242,7 +265,7 @@ def init_app(papers_dir=None):
     else:
         UPLOAD_FOLDER = os.path.join(BASE_DIR, "papers")
 
-    # 配置文件都放在论文目录下
+    # Configuration files are all in the paper directory
     CATEGORIES_FILE = os.path.join(UPLOAD_FOLDER, "categories.json")
     READING_LIST_FILE = os.path.join(UPLOAD_FOLDER, "reading_list.json")
     USER_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "user_settings.json")
@@ -254,41 +277,41 @@ def init_app(papers_dir=None):
     READING_LIST_TEMP_DIR = os.path.join(UPLOAD_FOLDER, "_ReadingListTemp")
     SEARCH_INDEX_DB = os.path.join(UPLOAD_FOLDER, ".search_index.db")
 
-    # 确保必要的目录存在
+    # Ensure necessary directories exist
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(AVATARS_DIR, exist_ok=True)
     os.makedirs(TEMP_PAPERS_DIR, exist_ok=True)
     os.makedirs(READING_LIST_TEMP_DIR, exist_ok=True)
 
-    # 初始化搜索索引
+    # Initialize search index
     search_index = SearchIndex(SEARCH_INDEX_DB)
 
-    # 初始化待读列表文件
+    # Initialize reading list file
     if not os.path.exists(READING_LIST_FILE):
         with open(READING_LIST_FILE, "w", encoding="utf-8") as f:
             json.dump({"papers": []}, f, ensure_ascii=False, indent=2)
 
-    # 初始化用户设置文件
+    # Initialize user settings file
     if not os.path.exists(USER_SETTINGS_FILE):
         with open(USER_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_USER_SETTINGS, f, ensure_ascii=False, indent=2)
 
-    # 初始化阅读历史文件
+    # Initialize reading history file
     if not os.path.exists(READING_HISTORY_FILE):
         with open(READING_HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump({}, f, ensure_ascii=False, indent=2)
 
-    # 初始化 Agentic 设置文件（统一的AI功能配置）
+    # Initialize Agentic settings file (uniform AI feature configuration)
     if not os.path.exists(AGENTIC_SETTINGS_FILE):
         with open(AGENTIC_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_AGENTIC_SETTINGS, f, ensure_ascii=False, indent=2)
 
-    # 初始化 Daily arXiv 设置文件
+    # Initialize Daily arXiv settings file
     if not os.path.exists(DAILY_ARXIV_SETTINGS_FILE):
         with open(DAILY_ARXIV_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_DAILY_ARXIV_SETTINGS, f, ensure_ascii=False, indent=2)
 
-    # 基础工具函数绑定
+    # Bind basic tool functions
     init_categories = partial(category_manager.init_categories, CATEGORIES_FILE)
     get_categories = partial(category_manager.get_categories, CATEGORIES_FILE)
     save_categories = partial(category_manager.save_categories, CATEGORIES_FILE)
@@ -299,29 +322,29 @@ def init_app(papers_dir=None):
         paper_repository.get_papers_in_category, UPLOAD_FOLDER
     )
 
-    print(f"论文目录: {UPLOAD_FOLDER}")
-    print(f"分类配置: {CATEGORIES_FILE}")
-    print(f"待读列表: {READING_LIST_FILE}")
-    print(f"用户设置: {USER_SETTINGS_FILE}")
-    print(f"阅读历史: {READING_HISTORY_FILE}")
-    print(f"AI功能设置: {AGENTIC_SETTINGS_FILE}")
-    print(f"Daily arXiv设置: {DAILY_ARXIV_SETTINGS_FILE}")
-    print(f"头像目录: {AVATARS_DIR}")
-    print(f"Daily arXiv临时目录: {TEMP_PAPERS_DIR}")
-    print(f"搜索索引数据库: {SEARCH_INDEX_DB}")
+    print(f"Paper directory: {UPLOAD_FOLDER}")
+    print(f"Category configuration: {CATEGORIES_FILE}")
+    print(f"Reading list: {READING_LIST_FILE}")
+    print(f"User settings: {USER_SETTINGS_FILE}")
+    print(f"Reading history: {READING_HISTORY_FILE}")
+    print(f"Agentic settings: {AGENTIC_SETTINGS_FILE}")
+    print(f"Daily arXiv settings: {DAILY_ARXIV_SETTINGS_FILE}")
+    print(f"Avatar directory: {AVATARS_DIR}")
+    print(f"Daily arXiv temporary directory: {TEMP_PAPERS_DIR}")
+    print(f"Search index database: {SEARCH_INDEX_DB}")
 
 
-# 翻译任务管理
+# Translation task management
 translation_tasks = (
     {}
 )  # {task_id: {paper_id, process, logs, status, start_time, log_lock}}
-translation_tasks_lock = threading.Lock()  # 保护翻译任务字典
+translation_tasks_lock = threading.Lock()  # Protect translation task dictionary
 
-# AI解读任务管理
+# AI interpretation task management
 analysis_tasks = (
     {}
 )  # {task_id: {paper_id, process, logs, status, start_time, log_lock, step}}
-analysis_tasks_lock = threading.Lock()  # 保护解读任务字典
+analysis_tasks_lock = threading.Lock()  # Protect interpretation task dictionary
 
 
 @app.route("/")
@@ -330,7 +353,7 @@ def index():
 
 
 def register_routes():
-    """注册所有路由（必须在 init_app 之后调用）"""
+    """Register all routes (must be called after init_app)"""
     register_category_routes(
         app,
         get_categories=get_categories,
@@ -352,12 +375,12 @@ def register_routes():
         search_index=search_index,
     )
 
-    # 先注册 Daily arXiv 路由，获取 manager 实例
+    # First register Daily arXiv routes, get manager instance
     from resophy.tools.basic_tools.daily_arxiv import get_manager
 
     daily_arxiv_manager = get_manager(TEMP_PAPERS_DIR, DAILY_ARXIV_SETTINGS_FILE)
 
-    # 设置 LLM 配置回调
+    # Set LLM configuration callback
     def get_llm_config():
         try:
             with open(AGENTIC_SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -367,7 +390,17 @@ def register_routes():
 
     daily_arxiv_manager.set_llm_config_callback(get_llm_config)
 
-    # 检查 LLM 配置是否完整
+    # Set user settings callback (for getting aiLanguage)
+    def get_user_settings():
+        try:
+            with open(USER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+
+    daily_arxiv_manager.set_user_settings_callback(get_user_settings)
+
+    # Check if LLM configuration is complete
     def is_llm_configured() -> bool:
         llm_config = get_llm_config()
         return bool(
@@ -376,20 +409,22 @@ def register_routes():
             and llm_config.get("llmModel")
         )
 
-    # 启动 Daily arXiv 的回调函数
+    # Start Daily arXiv callback function
     def start_daily_arxiv_if_configured():
-        """如果 LLM 配置完整，启动 Daily arXiv 调度器"""
+        """If LLM configuration is complete, start Daily arXiv scheduler"""
         if is_llm_configured() and not daily_arxiv_manager._scheduler_running:
             daily_arxiv_manager.start_scheduler()
-            print("[DailyArxiv] LLM 配置已完整，调度器已启动")
+            print(
+                "[DailyArxiv] LLM configuration is complete, scheduler has been started"
+            )
 
-    # 只有在 LLM 配置完整时才启动调度器
+    # Only start scheduler if LLM configuration is complete
     if is_llm_configured():
         daily_arxiv_manager.start_scheduler()
-        print("[DailyArxiv] LLM 配置已完整，调度器已启动")
+        print("[DailyArxiv] LLM configuration is complete, scheduler has been started")
     else:
         print(
-            "[DailyArxiv] LLM 配置不完整，调度器未启动。请在设置中配置 LLM API 后手动启动。"
+            "[DailyArxiv] LLM configuration is incomplete, scheduler has not been started. Please configure LLM API in settings and start manually."
         )
 
     register_daily_arxiv_routes(
@@ -427,8 +462,8 @@ def register_routes():
         save_paper_metadata=save_paper_metadata,
         get_paper_json_path=get_paper_json_path,
         delete_paper_files=delete_paper_files,
-        extract_pdf_metadata=None,  # 不再需要，使用新的 upload_paper 模块
-        search_arxiv_by_title=None,  # 不再需要，使用新的 upload_paper 模块
+        extract_pdf_metadata=None,  # No longer needed, use new upload_paper module
+        search_arxiv_by_title=None,  # No longer needed, use new upload_paper module
         reading_list_file=READING_LIST_FILE,
         upload_folder=UPLOAD_FOLDER,
         paper_store=paper_store,
@@ -502,7 +537,7 @@ def register_routes():
 
 @app.route("/viewer/<paper_id>")
 def pdf_viewer(paper_id):
-    """PDF阅读器页面"""
+    """PDF reader page"""
     use_chinese = request.args.get("chinese", "false").lower() == "true"
     paper_title = None
     paper = paper_store.get(paper_id)
@@ -518,38 +553,38 @@ def pdf_viewer(paper_id):
 
 @app.route("/viewer/analysis/<paper_id>")
 def analysis_viewer(paper_id):
-    """AI 解读 Markdown 全屏查看页面"""
+    """AI interpretation Markdown full-screen view page"""
     return render_template("analysis_viewer.html", paper_id=paper_id)
 
 
 if __name__ == "__main__":
-    # 解析命令行参数
+    # Parse command line arguments
     args = parser.parse_args()
 
-    # 初始化应用（配置论文目录等）
+    # Initialize application (configure paper directory etc.)
     init_app(papers_dir=args.papers_dir)
 
-    # 注册路由（必须在 init_app 之后）
+    # Register routes (must be called after init_app)
     register_routes()
 
-    # 初始化分类系统
+    # Initialize category system
     init_categories()
 
-    # 重建搜索索引（在后台线程中执行，避免阻塞启动）
+    # Rebuild search index (in background thread to avoid blocking startup)
     def rebuild_search_index():
-        """在后台线程中重建搜索索引"""
+        """Rebuild search index in background thread to avoid blocking startup"""
         import threading
         import time
 
         def _rebuild():
-            time.sleep(1)  # 等待1秒，确保其他初始化完成
-            print("开始重建搜索索引...")
+            time.sleep(1)  # Wait 1 second to ensure other initialization is complete
+            print("Start rebuilding search index...")
             try:
                 categories = get_categories()
                 papers_with_categories = []
 
                 def collect_papers(node, category_path):
-                    """递归收集所有论文"""
+                    """Recursively collect all papers"""
                     node_path = get_category_path(categories, node.get("id"))
                     if node_path and len(node_path) > 1:
                         directory_path = os.path.join(UPLOAD_FOLDER, *node_path[1:])
@@ -570,14 +605,14 @@ if __name__ == "__main__":
 
                 if papers_with_categories:
                     print(
-                        f"开始重建搜索索引，共 {len(papers_with_categories)} 篇论文..."
+                        f"Start rebuilding search index, {len(papers_with_categories)} papers..."
                     )
                     search_index.rebuild_index(papers_with_categories)
-                    # 完成信息已在 rebuild_index 内部输出，这里不再重复
+                    # Information completed in rebuild_index, no need to repeat here
                 else:
-                    print("没有找到论文，跳过索引重建")
+                    print("No papers found, skip index reconstruction")
             except Exception as e:
-                print(f"重建搜索索引失败: {e}")
+                print(f"Failed to rebuild search index: {e}")
                 import traceback
 
                 traceback.print_exc()
@@ -585,19 +620,19 @@ if __name__ == "__main__":
         thread = threading.Thread(target=_rebuild, daemon=True)
         thread.start()
 
-    # 设置重建索引回调（在定义 rebuild_search_index 之后）
+    # Set rebuild index callback (after defining rebuild_search_index)
     if search_index:
         search_index.set_rebuild_callback(rebuild_search_index)
 
-    # 重建搜索索引
+    # Rebuild search index
     rebuild_search_index()
 
-    # 添加获取 papers 目录路径的 API
+    # Add API to get papers directory path
     @app.route("/api/papers-dir", methods=["GET"])
     def get_papers_dir():
-        """获取 papers 目录的绝对路径"""
+        """Get absolute path of papers directory"""
         return jsonify({"success": True, "path": os.path.abspath(UPLOAD_FOLDER)})
 
-    # 论文数据现在直接存储在PDF文件旁边的JSON文件中
-    print(f"启动服务器: http://{args.host}:{args.port}")
+    # Paper data is now directly stored in the JSON file next to the PDF file
+    print(f"Start server: http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=args.debug)

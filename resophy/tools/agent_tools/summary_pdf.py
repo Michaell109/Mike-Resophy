@@ -36,18 +36,32 @@ def analyze_paper_task(
     openai_base_url: str,
     openai_api_key: str,
     system_prompt: str,
+    ai_language: str,
     deps: AnalysisDependencies,
 ) -> None:
-    """后台AI解读任务 - 两步：PDF2MD -> LLM解读"""
-    # 如果没有提供 system_prompt，使用默认值
+    """Background AI interpretation task - two steps: PDF2MD -> LLM interpretation."""
+    # If no system_prompt is provided, select language-specific default prompt.
     if not system_prompt:
-        system_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+        # Chinese default prompt
+        zh_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+
 实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
-图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
+
+图片，比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
 
 INPUT: <MARKDOWN>"""
 
-    start_time = datetime.now()  # 记录开始时间
+        # English default prompt
+        en_prompt = """Please write a long, detailed, interested and attractive promotional post for this paper, using English Markdown format. The content must be detailed and rich, and the experimental content must be sufficient, including, for example, ablation studies. Note that you must use original Markdown syntax for images and tables to make your public account article clearer. Images, such as the model structure, a teaser figure, or some result figures and explanatory diagrams, must be inserted directly into the corresponding position within the main body of the text, and should not be placed at the end. Images are very important for a public account style article.
+
+INPUT: <MARKDOWN>"""
+
+        if ai_language and ai_language.lower().startswith("zh"):
+            system_prompt = zh_prompt
+        else:
+            system_prompt = en_prompt
+
+    start_time = datetime.now()  # Recording start time
     with deps.analysis_tasks_lock:
         task_info = deps.analysis_tasks[task_id]
         task_info["status"] = "running"
@@ -57,7 +71,7 @@ INPUT: <MARKDOWN>"""
         process = None
 
     def read_output(pipe, label):
-        """实时读取子进程输出"""
+        """Read subprocess output in real time"""
         try:
             for line in iter(pipe.readline, ""):
                 if line:
@@ -66,7 +80,7 @@ INPUT: <MARKDOWN>"""
                     with log_lock:
                         log_lines.append(f"[{label}] {line}")
         except Exception as e:  # noqa: BLE001
-            print(f"读取输出时出错: {e}")
+            print(f"Error while reading output: {e}")
         finally:
             pipe.close()
 
@@ -76,7 +90,7 @@ INPUT: <MARKDOWN>"""
             deps.analysis_tasks[task_id]["step"] = "pdf2md"
             with log_lock:
                 log_lines.append("=" * 50)
-                log_lines.append("第一步：开始将PDF解析为Markdown...")
+                log_lines.append("Step one: start toPDFparsed asMarkdown...")
                 log_lines.append("=" * 50)
 
         os.chdir(pdf_dir)
@@ -93,8 +107,8 @@ INPUT: <MARKDOWN>"""
             mineru_server_url,
         ]
 
-        print(f"执行PDF2MD命令: {' '.join(cmd)}")
-        print(f"工作目录: {pdf_dir}")
+        print(f"implementPDF2MDOrder: {' '.join(cmd)}")
+        print(f"working directory: {pdf_dir}")
 
         process = subprocess.Popen(
             cmd,
@@ -125,7 +139,7 @@ INPUT: <MARKDOWN>"""
         stderr_thread.join(timeout=1)
 
         if return_code != 0:
-            raise Exception(f"PDF2MD失败 (退出码: {return_code})")
+            raise Exception(f"PDF2MDfail (exit code: {return_code})")
 
         base_name = os.path.splitext(pdf_filename)[0]
         outputs_dir = os.path.join(pdf_dir, "outputs")
@@ -144,10 +158,10 @@ INPUT: <MARKDOWN>"""
                 pdf_output_dir = candidate
 
         if not pdf_output_dir or not os.path.exists(pdf_output_dir):
-            raise Exception("未找到PDF解析输出目录")
+            raise Exception("not foundPDFparse output directory")
 
         with log_lock:
-            log_lines.append(f"找到输出目录: {pdf_output_dir}")
+            log_lines.append(f"Find the output directory: {pdf_output_dir}")
 
         vlm_items = os.listdir(pdf_output_dir)
         md_file = None
@@ -162,32 +176,34 @@ INPUT: <MARKDOWN>"""
                 if os.path.isdir(item_path):
                     shutil.rmtree(item_path)
                     with log_lock:
-                        log_lines.append(f"删除目录: {item}")
+                        log_lines.append(f"delete directory: {item}")
                 else:
                     os.remove(item_path)
                     with log_lock:
-                        log_lines.append(f"删除文件: {item}")
+                        log_lines.append(f"Delete files: {item}")
 
         if not md_file:
-            raise Exception("未找到生成的Markdown文件")
+            raise Exception("Generated not foundMarkdowndocument")
 
         with log_lock:
             log_lines.append("=" * 50)
-            log_lines.append("第一步完成：PDF已解析为Markdown")
-            log_lines.append(f"Markdown文件: {md_file}")
+            log_lines.append(
+                "The first step is completed:PDFhas been parsed asMarkdown"
+            )
+            log_lines.append(f"Markdowndocument: {md_file}")
             log_lines.append("=" * 50)
 
         with deps.analysis_tasks_lock:
             deps.analysis_tasks[task_id]["step"] = "llm_analysis"
             with log_lock:
                 log_lines.append("=" * 50)
-                log_lines.append("第二步：开始LLM解读...")
+                log_lines.append("Step 2: StartLLMInterpretation...")
                 log_lines.append("=" * 50)
 
         with open(md_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
 
-        # 1. 移除 # References 后的所有内容（大小写不敏感）
+        # 1. Remove # References Everything after (case insensitive)
         references_pattern = re.compile(
             r"^#\s+references?\s*$", re.IGNORECASE | re.MULTILINE
         )
@@ -196,7 +212,7 @@ INPUT: <MARKDOWN>"""
             markdown_content = markdown_content[: match.start()]
             with log_lock:
                 log_lines.append(
-                    f"已移除 References 部分（从第 {match.start()} 个字符开始）"
+                    f"Removed References part (from section {match.start()} characters starting)"
                 )
 
         from openai import OpenAI
@@ -210,14 +226,14 @@ INPUT: <MARKDOWN>"""
             models = client.models.list()
             model = models.data[0].id if models.data else None
             if not model:
-                raise Exception("无法获取模型列表")
+                raise Exception("Unable to get model list")
         except Exception as e:  # noqa: BLE001
-            raise Exception(f"获取模型列表失败: {str(e)}") from e
+            raise Exception(f"Failed to get model list: {str(e)}") from e
 
-        # 2. 尝试获取模型的最大长度（仅在成功获取时才进行截断）
+        # 2. Try to get the maximum length of the model (only truncate if successful)
         max_input_tokens = None
         try:
-            # 尝试从模型信息中获取 context_length / max_model_len / max_tokens
+            # Try to get from model information context_length / max_model_len / max_tokens
             model_info = None
             for m in models.data:
                 if m.id == model:
@@ -225,7 +241,7 @@ INPUT: <MARKDOWN>"""
                     break
 
             if model_info:
-                # 不同 API 提供商的字段名可能不同
+                # different API Provider field names may differ
                 if hasattr(model_info, "context_length"):
                     max_input_tokens = model_info.context_length
                 elif hasattr(model_info, "max_model_len"):
@@ -234,50 +250,52 @@ INPUT: <MARKDOWN>"""
                     max_input_tokens = model_info.max_tokens
         except Exception as e:  # noqa: BLE001
             with log_lock:
-                log_lines.append(f"无法从模型信息获取最大长度: {e}，将跳过截断逻辑")
+                log_lines.append(
+                    f"Unable to get maximum length from model information: {e}, will skip the truncation logic"
+                )
 
-        # 只有在成功获取到 max_input_tokens 时才进行截断；否则完全不截断
+        # Only after successfully obtaining max_input_tokens Truncated only when；Otherwise, it will not be truncated at all.
         if max_input_tokens is not None:
-            # 计算最大文本字符数（token 数 * 3，粗略估算：1 token ≈ 3-4 字符，保守取 3）
+            # Calculate the maximum number of text characters (token number * 3, rough estimate:1 token ≈ 3-4 character, conservatively 3）
             max_text_chars = max_input_tokens * 3
 
-            # 估算 system_prompt 的字符数（不包含 <MARKDOWN> 占位符）
+            # Estimate system_prompt The number of characters (excluding <MARKDOWN> placeholder)
             system_prompt_without_placeholder = system_prompt.replace("<MARKDOWN>", "")
             system_prompt_chars = len(system_prompt_without_placeholder)
 
-            # 计算 markdown 内容的最大允许字符数
+            # calculate markdown Maximum number of characters allowed for content
             max_markdown_chars = (
                 max_text_chars - system_prompt_chars - 100
-            )  # 留 100 字符的缓冲
+            )  # Keep 100 character buffer
 
             original_markdown_length = len(markdown_content)
             if original_markdown_length > max_markdown_chars:
-                # 截断 markdown 内容
+                # Truncate markdown content
                 markdown_content = markdown_content[:max_markdown_chars]
                 with log_lock:
                     log_lines.append(
-                        f"Markdown 内容过长（{original_markdown_length} 字符），已截断至 {max_markdown_chars} 字符"
+                        f"Markdown Content is too long ({original_markdown_length} characters), truncated to {max_markdown_chars} character"
                     )
                     log_lines.append(
-                        f"模型最大输入 token: {max_input_tokens}，估算最大文本字符数: {max_text_chars}"
+                        f"Model maximum input token: {max_input_tokens}, estimating the maximum number of text characters: {max_text_chars}"
                     )
             else:
                 with log_lock:
                     log_lines.append(
-                        f"Markdown 内容长度: {original_markdown_length} 字符，在限制范围内（最大: {max_markdown_chars} 字符）"
+                        f"Markdown content length: {original_markdown_length} characters, within limits (maximum: {max_markdown_chars} character)"
                     )
         else:
             with log_lock:
                 log_lines.append(
-                    "未能从模型信息获取最大长度，将不对 Markdown 内容进行截断（可能存在超长风险）"
+                    "Failed to get maximum length from model information, will not be correct Markdown The content is truncated (there may be risks of overlength)"
                 )
 
         prompt = system_prompt.replace("<MARKDOWN>", markdown_content)
         messages = [{"role": "user", "content": prompt}]
 
         with log_lock:
-            log_lines.append(f"使用模型: {model}")
-            log_lines.append("开始调用LLM API...")
+            log_lines.append(f"Use model: {model}")
+            log_lines.append("Start callingLLM API...")
 
         chat_completion = client.chat.completions.create(
             messages=messages,
@@ -294,18 +312,18 @@ INPUT: <MARKDOWN>"""
 
         with log_lock:
             log_lines.append("=" * 50)
-            log_lines.append("第二步完成：LLM解读完成")
-            log_lines.append(f"结果文件: {result_file}")
+            log_lines.append("The second step is completed:LLMInterpretation completed")
+            log_lines.append(f"result file: {result_file}")
             log_lines.append("=" * 50)
 
-        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        # First try from paper_store Find papers in (supports _ReadingListTemp Table of contents)
         entry = paper_store.get_entry(paper_id)
         if entry:
             paper = entry.paper
             paper.mark_analysis_result(result_file)
             deps.save_paper_metadata(pdf_path, paper)
         else:
-            # 如果 paper_store 中找不到，使用递归搜索分类树
+            # if paper_store Not found in , use recursive search of classification tree
             categories = deps.get_categories()
 
             def search_and_update_paper(node):
@@ -330,7 +348,7 @@ INPUT: <MARKDOWN>"""
         end_time = datetime.now()
         analysis_duration = int((end_time - start_time).total_seconds())
 
-        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        # First try from paper_store Find papers in (supports _ReadingListTemp Table of contents)
         entry = paper_store.get_entry(paper_id)
         if entry:
             paper = entry.paper
@@ -341,7 +359,7 @@ INPUT: <MARKDOWN>"""
             if path and os.path.exists(path):
                 deps.save_paper_metadata(path, paper)
         else:
-            # 如果 paper_store 中找不到，使用递归搜索分类树
+            # if paper_store Not found in , use recursive search of classification tree
             categories = deps.get_categories()
 
             def search_and_update_analysis_time(node):
@@ -380,12 +398,12 @@ INPUT: <MARKDOWN>"""
             deps.analysis_tasks[task_id]["status"] = "failed"
             deps.analysis_tasks[task_id]["result"] = {
                 "success": False,
-                "error": "解读超时",
+                "error": "Interpretation timeout",
             }
         if process:
             process.kill()
     except Exception as e:  # noqa: BLE001
-        print(f"解读过程出错: {str(e)}")
+        print(f"An error occurred during interpretation: {str(e)}")
         import traceback
 
         traceback.print_exc()
@@ -393,7 +411,7 @@ INPUT: <MARKDOWN>"""
             deps.analysis_tasks[task_id]["status"] = "failed"
             deps.analysis_tasks[task_id]["result"] = {
                 "success": False,
-                "error": f"解读失败: {str(e)}",
+                "error": f"Interpretation failed: {str(e)}",
             }
         if process:
             process.kill()

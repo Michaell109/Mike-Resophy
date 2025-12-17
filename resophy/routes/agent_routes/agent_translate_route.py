@@ -33,7 +33,7 @@ def register_agent_translate_routes(
 ) -> None:
     @app.route("/api/paper/translate", methods=["POST"])
     def api_translate_paper():
-        """翻译PDF论文 - 启动后台任务"""
+        """translatePDFpaper - Start background task"""
         try:
             data = request.json or {}
             paper_id = data.get("paper_id")
@@ -47,9 +47,9 @@ def register_agent_translate_routes(
                 or not openai_base_url
                 or not openai_api_key
             ):
-                return jsonify({"success": False, "error": "缺少必要参数"}), 400
+                return jsonify({"success": False, "error": "Missing required parameters"}), 400
 
-            # 在启动任务前测试 LLM API 连接
+            # Test before starting a task LLM API connect
             llm_success, llm_error = test_llm_api(
                 openai_model, openai_base_url, openai_api_key
             )
@@ -58,7 +58,7 @@ def register_agent_translate_routes(
                     jsonify(
                         {
                             "success": False,
-                            "error": f"LLM API 测试失败: {llm_error}",
+                            "error": f"LLM API test failed: {llm_error}",
                         }
                     ),
                     400,
@@ -74,20 +74,20 @@ def register_agent_translate_routes(
                             jsonify(
                                 {
                                     "success": False,
-                                    "error": "该论文已有翻译任务在运行",
+                                    "error": "There is already a translation task running for this paper",
                                     "task_id": task_id,
                                 }
                             ),
                             400,
                         )
 
-            # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+            # First try from paper_store Find papers in（support _ReadingListTemp Table of contents）
             entry = paper_store.get_entry(paper_id)
             if entry:
                 paper = entry.paper
                 category_path = list(entry.category_path)
             else:
-                # 如果 paper_store 中找不到，使用递归搜索分类树
+                # if paper_store Not found in , use recursive search of classification tree
                 categories = get_categories()
 
                 def search_paper_recursive(node):
@@ -113,13 +113,13 @@ def register_agent_translate_routes(
                         break
 
                 if not result:
-                    return jsonify({"success": False, "error": "论文未找到"}), 404
+                    return jsonify({"success": False, "error": "Paper not found"}), 404
 
                 paper, category_path = result
             pdf_path = paper.file_path
 
             if not pdf_path or not os.path.exists(pdf_path):
-                return jsonify({"success": False, "error": "PDF文件不存在"}), 404
+                return jsonify({"success": False, "error": "PDFFile does not exist"}), 404
 
             pdf_dir = os.path.dirname(pdf_path)
             pdf_filename = os.path.basename(pdf_path)
@@ -164,22 +164,22 @@ def register_agent_translate_routes(
             thread.start()
 
             return jsonify(
-                {"success": True, "message": "翻译任务已启动", "task_id": task_id}
+                {"success": True, "message": "Translation task started", "task_id": task_id}
             )
 
         except Exception as exc:  # noqa: BLE001
-            print(f"启动翻译任务失败: {exc}")
+            print(f"Failed to start translation task: {exc}")
             import traceback
 
             traceback.print_exc()
             return (
-                jsonify({"success": False, "error": f"启动翻译任务失败: {str(exc)}"}),
+                jsonify({"success": False, "error": f"Failed to start translation task: {str(exc)}"}),
                 500,
             )
 
     @app.route("/api/paper/translate/active", methods=["GET"])
     def api_get_active_translations():
-        """获取所有进行中的翻译任务"""
+        """Get all ongoing translation tasks"""
         with translation_tasks_lock:
             active_tasks = []
             for task_id, task_info in translation_tasks.items():
@@ -196,10 +196,10 @@ def register_agent_translate_routes(
 
     @app.route("/api/paper/translate/<task_id>/logs", methods=["GET"])
     def api_get_translation_logs(task_id):
-        """获取翻译任务的日志"""
+        """Get logs of translation tasks"""
         with translation_tasks_lock:
             if task_id not in translation_tasks:
-                return jsonify({"success": False, "error": "任务不存在"}), 404
+                return jsonify({"success": False, "error": "Task does not exist"}), 404
 
             task_info = translation_tasks[task_id]
             with task_info["log_lock"]:
@@ -217,16 +217,16 @@ def register_agent_translate_routes(
 
     @app.route("/api/paper/translate/<task_id>/cancel", methods=["POST"])
     def api_cancel_translation(task_id):
-        """取消翻译任务"""
+        """Cancel translation task"""
         with translation_tasks_lock:
             if task_id not in translation_tasks:
-                return jsonify({"success": False, "error": "任务不存在"}), 404
+                return jsonify({"success": False, "error": "Task does not exist"}), 404
 
             task_info = translation_tasks[task_id]
 
             if task_info["status"] in ["completed", "failed", "cancelled"]:
                 return (
-                    jsonify({"success": False, "error": "任务已结束，无法取消"}),
+                    jsonify({"success": False, "error": "The task has ended and cannot be canceled"}),
                     400,
                 )
 
@@ -239,22 +239,22 @@ def register_agent_translate_routes(
                     process.kill()
                     process.wait()
                 except Exception as exc:  # noqa: BLE001
-                    print(f"终止进程失败: {exc}")
+                    print(f"Failed to terminate process: {exc}")
 
             task_info["status"] = "cancelled"
-            task_info["result"] = {"success": False, "error": "翻译已取消"}
+            task_info["result"] = {"success": False, "error": "Translation canceled"}
 
-            return jsonify({"success": True, "message": "翻译任务已取消"})
+            return jsonify({"success": True, "message": "Translation task canceled"})
 
     @app.route("/api/paper/<paper_id>/chinese/file")
     def api_get_chinese_paper_file(paper_id):
-        """获取中文版本PDF文件"""
-        # 首先尝试从 paper_store 中查找论文（支持 _ReadingListTemp 目录）
+        """Get the Chinese versionPDFdocument"""
+        # First try from paper_store Find papers in（support _ReadingListTemp Table of contents）
         entry = paper_store.get_entry(paper_id)
         if entry:
             paper = entry.paper
         else:
-            # 如果 paper_store 中找不到，使用递归搜索分类树
+            # if paper_store Not found in , use recursive search of classification tree
             categories = get_categories()
 
             def search_paper_file(node):
@@ -280,7 +280,7 @@ def register_agent_translate_routes(
                     break
 
             if not paper:
-                return jsonify({"error": "论文未找到"}), 404
+                return jsonify({"error": "Paper not found"}), 404
 
         chinese_path = paper.chinese_version_path
         if chinese_path and os.path.exists(chinese_path):
@@ -293,4 +293,4 @@ def register_agent_translate_routes(
             response.headers["Access-Control-Allow-Methods"] = "GET"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type"
             return response
-        return jsonify({"error": "中文版本文件不存在"}), 404
+        return jsonify({"error": "Chinese version file does not exist"}), 404

@@ -33,7 +33,7 @@ def register_settings_routes(
             except FileNotFoundError:
                 settings = {}
             except Exception as exc:
-                print(f"读取用户设置失败: {exc}")
+                print(f"Failed to read user settings: {exc}")
                 settings = {}
             merged = default_user_settings.copy()
             merged.update(settings)
@@ -41,14 +41,14 @@ def register_settings_routes(
 
         data = request.json or {}
         try:
-            # 读取现有设置
+            # Read existing settings
             try:
                 with open(user_settings_file, "r", encoding="utf-8") as fp:
                     current = json.load(fp)
             except:
                 current = default_user_settings.copy()
 
-            # 更新设置
+            # Update settings
             current.update(data)
 
             with open(user_settings_file, "w", encoding="utf-8") as fp:
@@ -69,10 +69,10 @@ def register_settings_routes(
             if not avatar_data:
                 return jsonify({"success": False, "error": "No avatar data"}), 400
 
-            # 解析 Base64 数据
+            # parse Base64 data
             if "," in avatar_data:
                 header, encoded = avatar_data.split(",", 1)
-                # 获取文件类型
+                # Get file type
                 if "jpeg" in header or "jpg" in header:
                     ext = "jpg"
                 elif "png" in header:
@@ -85,7 +85,7 @@ def register_settings_routes(
                 encoded = avatar_data
                 ext = "jpg"
 
-            # 解码并保存
+            # decode and save
             image_data = base64.b64decode(encoded)
             filename = f"avatar.{ext}"
             filepath = os.path.join(avatars_dir, filename)
@@ -93,7 +93,7 @@ def register_settings_routes(
             with open(filepath, "wb") as f:
                 f.write(image_data)
 
-            # 更新用户设置
+            # Update user settings
             try:
                 with open(user_settings_file, "r", encoding="utf-8") as fp:
                     settings = json.load(fp)
@@ -111,7 +111,7 @@ def register_settings_routes(
 
     @app.route("/api/settings/avatar", methods=["GET"])
     def api_get_avatar():
-        """获取头像图片"""
+        """Get avatar picture"""
         try:
             with open(user_settings_file, "r", encoding="utf-8") as fp:
                 settings = json.load(fp)
@@ -134,20 +134,20 @@ def register_settings_routes(
             except FileNotFoundError:
                 history = {}
             except Exception as exc:
-                print(f"读取阅读历史失败: {exc}")
+                print(f"Failed to read reading history: {exc}")
                 history = {}
             return jsonify(history)
 
         data = request.json or {}
         try:
-            # 读取现有历史
+            # Read existing history
             try:
                 with open(reading_history_file, "r", encoding="utf-8") as fp:
                     current = json.load(fp)
             except:
                 current = {}
 
-            # 更新历史（合并）
+            # Update history (merged)
             for date, minutes in data.items():
                 if date in current:
                     current[date] = current[date] + minutes
@@ -162,36 +162,36 @@ def register_settings_routes(
 
     @app.route("/api/settings/reading-history/record", methods=["POST"])
     def api_record_reading():
-        """记录今日阅读时间（兼容新旧格式）"""
+        """Record today’s reading time (compatible with new and old formats)"""
         try:
             data = request.json or {}
             minutes = data.get("minutes", 0)
             date = data.get("date")  # YYYY-MM-DD
-            paper_id = data.get("paper_id")  # 可选，论文ID
+            paper_id = data.get("paper_id")  # optional, essayID
 
             if not date:
                 from datetime import datetime
 
                 date = datetime.now().strftime("%Y-%m-%d")
 
-            # 读取现有历史
+            # Read existing history
             try:
                 with open(reading_history_file, "r", encoding="utf-8") as fp:
                     history = json.load(fp)
             except:
                 history = {}
 
-            # 更新阅读历史（兼容新旧格式）
+            # Update reading history (compatible with new and old formats)
             if date in history:
                 if isinstance(history[date], dict):
-                    # 新格式
+                    # new format
                     history[date]["total"] = history[date].get("total", 0) + minutes
                     if paper_id and paper_id not in history[date].get("papers", []):
                         if "papers" not in history[date]:
                             history[date]["papers"] = []
                         history[date]["papers"].append(paper_id)
                 else:
-                    # 旧格式，转换为新格式
+                    # old format, converted to new format
                     old_minutes = history[date]
                     history[date] = {
                         "total": old_minutes + minutes,
@@ -217,7 +217,7 @@ def register_settings_routes(
 
     @app.route("/api/settings/reading-history/clear", methods=["POST"])
     def api_clear_reading_history():
-        """清除所有阅读历史"""
+        """Clear all reading history"""
         try:
             with open(reading_history_file, "w", encoding="utf-8") as fp:
                 json.dump({}, fp, ensure_ascii=False, indent=2)
@@ -227,23 +227,23 @@ def register_settings_routes(
 
     @app.route("/api/settings/reading-history/week-papers", methods=["GET"])
     def api_week_papers():
-        """获取本周阅读的论文列表"""
+        """Get a list of papers to read this week"""
         try:
             from datetime import datetime, timedelta
 
-            # 读取阅读历史
+            # Read reading history
             try:
                 with open(reading_history_file, "r", encoding="utf-8") as fp:
                     history = json.load(fp)
             except:
                 history = {}
 
-            # 计算本周的日期范围（周一到今天）
+            # Calculate the date range for this week (Monday to today)
             today = datetime.now().date()
             day_of_week = today.weekday()  # 0 = Monday, 6 = Sunday
             monday = today - timedelta(days=day_of_week)
 
-            # 收集本周阅读的论文ID
+            # Collect the papers you read this weekID
             week_paper_ids = set()
             current_date = monday
             while current_date <= today:
@@ -251,10 +251,10 @@ def register_settings_routes(
                 if date_str in history:
                     entry = history[date_str]
                     if isinstance(entry, dict):
-                        # 新格式
+                        # new format
                         papers = entry.get("papers", [])
                         week_paper_ids.update(papers)
-                    # 旧格式没有论文ID信息，跳过
+                    # There is no paper in the old formatIDinformation, skip
 
                 current_date += timedelta(days=1)
 
@@ -269,13 +269,13 @@ def register_settings_routes(
             return jsonify({"success": False, "error": str(exc)}), 500
 
     # ========================================
-    # Agentic Settings (统一的AI功能配置)
+    # Agentic Settings (unifiedAIFunction configuration)
     # ========================================
     @app.route("/api/settings/agentic", methods=["GET", "POST"])
     def api_agentic_settings():
         """
-        统一的AI功能配置接口
-        包括: LLM API配置, PDF解析服务配置, AI解读提示词等
+        unifiedAIFunction configuration interface
+        include: LLM APIConfiguration, PDFParse service configuration, AIInterpret prompt words, etc.
         """
         if request.method == "GET":
             try:
@@ -284,32 +284,27 @@ def register_settings_routes(
             except FileNotFoundError:
                 settings = {}
             except Exception as exc:
-                print(f"读取AI功能设置失败: {exc}")
+                print(f"readAIFunction setting failed: {exc}")
                 settings = {}
             merged = default_agentic_settings.copy()
             merged.update(settings)
-            
-            # 如果用户没有自定义 System Prompt，返回默认值供前端显示
-            if not merged.get("analysisSystemPrompt"):
-                default_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
-实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
-图片,比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
 
-INPUT: <MARKDOWN>"""
-                merged["analysisSystemPrompt"] = default_prompt
-                merged["_isDefaultPrompt"] = True  # 标记这是默认提示词
-            
+            # Remove prompt fields as they are no longer customizable
+            merged.pop("analysisSystemPrompt", None)
+            merged.pop("analysisSystemPromptZh", None)
+            merged.pop("analysisSystemPromptEn", None)
+
             return jsonify(merged)
 
         data = request.json or {}
         try:
-            # 检查 LLM 配置是否完整
+            # examine LLM Is the configuration complete?
             llm_model = data.get("llmModel", "").strip()
             llm_base_url = data.get("llmBaseUrl", "").strip()
             llm_api_key = data.get("llmApiKey", "").strip()
             is_llm_configured = bool(llm_model and llm_base_url and llm_api_key)
 
-            # 读取之前的配置，检查是否之前未配置完整
+            # Read the previous configuration and check whether the configuration was not complete before
             was_llm_configured = False
             old_settings = {}
             try:
@@ -318,98 +313,120 @@ INPUT: <MARKDOWN>"""
                     old_model = old_settings.get("llmModel", "").strip()
                     old_base_url = old_settings.get("llmBaseUrl", "").strip()
                     old_api_key = old_settings.get("llmApiKey", "").strip()
-                    was_llm_configured = bool(old_model and old_base_url and old_api_key)
+                    was_llm_configured = bool(
+                        old_model and old_base_url and old_api_key
+                    )
             except FileNotFoundError:
                 old_settings = {}
             except Exception as exc:
-                print(f"读取旧设置失败: {exc}")
+                print(f"Failed to read old settings: {exc}")
                 old_settings = {}
 
-            # 合并新旧配置（新配置优先，但保留旧配置中未提供的字段）
+            # Merge old and new configurations (new configuration takes precedence, but fields not provided in the old configuration are retained)
             merged_settings = default_agentic_settings.copy()
-            merged_settings.update(old_settings)  # 先应用旧设置
-            merged_settings.update(data)  # 再应用新设置（覆盖）
+            merged_settings.update(old_settings)  # Apply old settings first
+            merged_settings.update(data)  # Reapply new settings (overwrite)
 
-            # 检查 LLM 配置是否发生变化
+            # Prompt customization is no longer supported - always use built-in prompts based on user language selection
+            # Remove any existing prompt fields to ensure clean state
+            merged_settings.pop("analysisSystemPrompt", None)
+            merged_settings.pop("analysisSystemPromptZh", None)
+            merged_settings.pop("analysisSystemPromptEn", None)
+
+            # examine LLM Has the configuration changed?
             llm_config_changed = False
             if was_llm_configured and is_llm_configured:
-                # 配置完整，检查是否发生变化
+                # Configuration is complete, check if changes have occurred
                 old_model = old_settings.get("llmModel", "").strip()
                 old_base_url = old_settings.get("llmBaseUrl", "").strip()
                 old_api_key = old_settings.get("llmApiKey", "").strip()
-                
+
                 new_model = merged_settings.get("llmModel", "").strip()
                 new_base_url = merged_settings.get("llmBaseUrl", "").strip()
                 new_api_key = merged_settings.get("llmApiKey", "").strip()
-                
-                # 如果任何一个配置项发生变化，认为配置已更改
-                if (old_model != new_model or 
-                    old_base_url != new_base_url or 
-                    old_api_key != new_api_key):
-                    llm_config_changed = True
-                    print(f"[Settings] 检测到 LLM 配置已更改")
 
-            # 保存合并后的配置
-            print(f"[Settings] 保存 Agentic 设置到: {agentic_settings_file}")
-            print(f"[Settings] 配置内容: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}...")
+                # If any configuration item changes, the configuration is considered to have changed
+                if (
+                    old_model != new_model
+                    or old_base_url != new_base_url
+                    or old_api_key != new_api_key
+                ):
+                    llm_config_changed = True
+                    print(f"[Settings] detected LLM Configuration has changed")
+
+            # Save the merged configuration
+            print(f"[Settings] keep Agentic set to: {agentic_settings_file}")
+            print(
+                f"[Settings] Configuration content: llmModel={merged_settings.get('llmModel', '')[:20]}..., llmBaseUrl={merged_settings.get('llmBaseUrl', '')[:30]}..., mineruServerUrl={merged_settings.get('mineruServerUrl', '')[:30]}..."
+            )
             with open(agentic_settings_file, "w", encoding="utf-8") as fp:
                 json.dump(merged_settings, fp, ensure_ascii=False, indent=2)
-            print(f"[Settings] ✅ 设置已保存")
+            print(f"[Settings] ✅ Settings saved")
 
-            # 如果 LLM 配置完整且发生变化，或者从未配置变为已配置，触发 Daily arXiv 抓取
+            # if LLM The configuration is complete and changes, or changes from unconfigured to configured, triggering Daily arXiv crawl
             if is_llm_configured and (llm_config_changed or not was_llm_configured):
                 try:
-                    from resophy.tools.basic_tools.daily_arxiv import get_manager
                     import threading
-                    # 获取 Daily arXiv 设置文件路径（从 agentic_settings_file 推断）
+
+                    from resophy.tools.basic_tools.daily_arxiv import get_manager
+
+                    # get Daily arXiv Set file path (from agentic_settings_file infer)
                     papers_dir = os.path.dirname(agentic_settings_file)
                     daily_arxiv_settings_file = os.path.join(
                         papers_dir, "daily_arxiv_settings.json"
                     )
-                    temp_papers_dir = os.path.join(
-                        papers_dir, ".daily_arxiv_temp"
-                    )
-                    # 获取 manager 实例（单例模式，会返回同一个实例）
+                    temp_papers_dir = os.path.join(papers_dir, ".daily_arxiv_temp")
+                    # get manager Instance (singleton mode, the same instance will be returned)
                     manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
-                    
-                    # 清除失败状态
+
+                    # Clear failed status
                     if hasattr(manager, "_llm_api_failed"):
                         manager._llm_api_failed = False
                         manager._llm_api_error_message = ""
-                        print("[Settings] 已清除 Daily arXiv 的失败状态")
-                    
-                    # 启动调度器（如果未运行）
+                        print("[Settings] cleared Daily arXiv failure status")
+
+                    # Start the scheduler if not already running
                     if not manager._scheduler_running:
                         if start_daily_arxiv_callback:
                             start_daily_arxiv_callback()
                         else:
                             manager.start_scheduler()
-                        print("[Settings] LLM 配置已保存，已启动 Daily arXiv 调度器（调度器会自动触发一次抓取）")
+                        print(
+                            "[Settings] LLM Configuration saved and started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
+                        )
                     else:
-                        # 调度器已在运行，手动触发一次抓取
+                        # The scheduler is already running, trigger a crawl manually
                         def trigger_fetch():
                             try:
                                 manager._do_scheduled_fetch()
-                                print("[Settings] LLM 配置已保存，已触发一次 Daily arXiv 抓取")
+                                print(
+                                    "[Settings] LLM Configuration has been saved and triggered once Daily arXiv crawl"
+                                )
                             except Exception as e:
-                                print(f"[Settings] 触发 Daily arXiv 抓取失败: {e}")
-                        
-                        # 在后台线程中触发抓取，避免阻塞保存响应
+                                print(
+                                    f"[Settings] trigger Daily arXiv Fetch failed: {e}"
+                                )
+
+                        # Trigger the fetch in a background thread to avoid blocking the save response
                         thread = threading.Thread(target=trigger_fetch, daemon=True)
                         thread.start()
-                        print("[Settings] LLM 配置已保存，已在后台触发 Daily arXiv 抓取")
+                        print(
+                            "[Settings] LLM Configuration has been saved and triggered in the background Daily arXiv crawl"
+                        )
                 except Exception as e:
-                    # 如果触发抓取时出错，不影响保存结果
-                    print(f"[Settings] 触发 Daily arXiv 抓取时出错（不影响保存）: {e}")
+                    # If an error occurs when triggering the crawl, it will not affect the saved results.
+                    print(
+                        f"[Settings] trigger Daily arXiv An error occurred while fetching (does not affect saving): {e}"
+                    )
 
             return jsonify({"success": True})
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
 
-    # 保留旧的API端点以兼容性（返回重定向提示）
+    # keep oldAPIendpoint for compatibility (return redirect hint)
     @app.route("/api/settings/translation", methods=["GET", "POST"])
     def api_translation_settings_deprecated():
-        """已废弃，请使用 /api/settings/agentic"""
+        """Deprecated, please use /api/settings/agentic"""
         return (
             jsonify(
                 {
@@ -421,7 +438,7 @@ INPUT: <MARKDOWN>"""
 
     @app.route("/api/settings/analysis", methods=["GET", "POST"])
     def api_analysis_settings_deprecated():
-        """已废弃，请使用 /api/settings/agentic"""
+        """Deprecated, please use /api/settings/agentic"""
         return (
             jsonify(
                 {
@@ -436,7 +453,7 @@ INPUT: <MARKDOWN>"""
     # ========================================
     @app.route("/api/settings/test/llm", methods=["POST"])
     def api_test_llm():
-        """测试 LLM API 连接"""
+        """test LLM API connect"""
         try:
             data = request.json or {}
             llm_model = data.get("llmModel", "").strip()
@@ -444,32 +461,38 @@ INPUT: <MARKDOWN>"""
             llm_api_key = data.get("llmApiKey", "").strip()
 
             if not llm_model or not llm_base_url or not llm_api_key:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "请填写完整的 LLM API 配置（Model、Base URL、API Key）",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "Please fill in the complete LLM API configure(Model、Base URL、API Key）",
+                        }
+                    ),
+                    400,
+                )
 
-            # 导入 OpenAI 客户端
+            # import OpenAI client
             try:
                 from openai import OpenAI
             except ImportError:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "OpenAI 库未安装，请运行: pip install openai",
-                    }
-                ), 500
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "OpenAI The library is not installed, please run: pip install openai",
+                        }
+                    ),
+                    500,
+                )
 
-            # 创建客户端
+            # Create client
             client = OpenAI(
                 base_url=llm_base_url,
                 api_key=llm_api_key,
-                timeout=30.0,  # 30秒超时
+                timeout=30.0,  # 30seconds timeout
             )
 
-            # 发送测试消息
+            # Send test message
             test_message = "Can you see my message, if you can, respond with Yes."
             try:
                 response = client.chat.completions.create(
@@ -477,20 +500,24 @@ INPUT: <MARKDOWN>"""
                     messages=[
                         {"role": "user", "content": test_message},
                     ],
-                    max_tokens=50,  # 限制回复长度
+                    max_tokens=50,  # Limit reply length
                 )
 
-                # 检查回复
+                # check reply
                 if response.choices and len(response.choices) > 0:
                     reply = response.choices[0].message.content.strip()
-                    # 检查是否包含 "Yes"（不区分大小写）
+                    # Check if it contains "Yes"(not case sensitive)
                     if "yes" in reply.lower():
-                        # 测试成功，清除 Daily arXiv 的失败状态并触发抓取
+                        # Test successful, clear Daily arXiv failure status and trigger fetching
                         try:
-                            from resophy.tools.basic_tools.daily_arxiv import get_manager
                             import threading
-                            # 获取 Daily arXiv 设置文件路径（从 agentic_settings_file 推断）
-                            # agentic_settings_file 和 daily_arxiv_settings_file 在同一目录下
+
+                            from resophy.tools.basic_tools.daily_arxiv import (
+                                get_manager,
+                            )
+
+                            # get Daily arXiv Set file path (from agentic_settings_file infer)
+                            # agentic_settings_file and daily_arxiv_settings_file in the same directory
                             papers_dir = os.path.dirname(agentic_settings_file)
                             daily_arxiv_settings_file = os.path.join(
                                 papers_dir, "daily_arxiv_settings.json"
@@ -498,39 +525,55 @@ INPUT: <MARKDOWN>"""
                             temp_papers_dir = os.path.join(
                                 papers_dir, ".daily_arxiv_temp"
                             )
-                            # 获取 manager 实例（单例模式，会返回同一个实例）
-                            manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
-                            # 清除失败状态
+                            # get manager Instance (singleton mode, the same instance will be returned)
+                            manager = get_manager(
+                                temp_papers_dir, daily_arxiv_settings_file
+                            )
+                            # Clear failed status
                             if hasattr(manager, "_llm_api_failed"):
                                 manager._llm_api_failed = False
                                 manager._llm_api_error_message = ""
-                                print("[Settings] LLM API 测试成功，已清除 Daily arXiv 的失败状态")
-                            
-                            # 启动调度器（如果未运行）
+                                print(
+                                    "[Settings] LLM API Test successful, cleared Daily arXiv failure status"
+                                )
+
+                            # Start the scheduler if not already running
                             if not manager._scheduler_running:
                                 manager.start_scheduler()
-                                print("[Settings] LLM API 测试成功，已启动 Daily arXiv 调度器（调度器会自动触发一次抓取）")
+                                print(
+                                    "[Settings] LLM API Test successful, started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
+                                )
                             else:
-                                # 调度器已在运行，手动触发一次抓取
+                                # The scheduler is already running, trigger a crawl manually
                                 def trigger_fetch():
                                     try:
                                         manager._do_scheduled_fetch()
-                                        print("[Settings] LLM API 测试成功，已触发一次 Daily arXiv 抓取")
+                                        print(
+                                            "[Settings] LLM API Test successful, triggered once Daily arXiv crawl"
+                                        )
                                     except Exception as e:
-                                        print(f"[Settings] 触发 Daily arXiv 抓取失败: {e}")
-                                
-                                # 在后台线程中触发抓取，避免阻塞测试响应
-                                thread = threading.Thread(target=trigger_fetch, daemon=True)
+                                        print(
+                                            f"[Settings] trigger Daily arXiv Fetch failed: {e}"
+                                        )
+
+                                # Trigger fetching in a background thread to avoid blocking test responses
+                                thread = threading.Thread(
+                                    target=trigger_fetch, daemon=True
+                                )
                                 thread.start()
-                                print("[Settings] LLM API 测试成功，已在后台触发 Daily arXiv 抓取")
+                                print(
+                                    "[Settings] LLM API The test is successful and has been triggered in the background Daily arXiv crawl"
+                                )
                         except Exception as e:
-                            # 如果处理失败状态时出错，不影响测试结果
-                            print(f"[Settings] 处理 Daily arXiv 失败状态时出错（不影响测试）: {e}")
-                        
+                            # If an error occurs when handling the failure status, it does not affect the test results.
+                            print(
+                                f"[Settings] deal with Daily arXiv An error occurred in the failed state (does not affect testing): {e}"
+                            )
+
                         return jsonify(
                             {
                                 "success": True,
-                                "message": "LLM API 连接成功！",
+                                "message": "LLM API Connection successful!",
                                 "reply": reply,
                             }
                         )
@@ -538,7 +581,7 @@ INPUT: <MARKDOWN>"""
                         return jsonify(
                             {
                                 "success": False,
-                                "error": f"LLM API 返回了回复，但不符合预期。回复内容: {reply}",
+                                "error": f"LLM API A response was returned, but not as expected. Reply content: {reply}",
                                 "reply": reply,
                             }
                         )
@@ -546,48 +589,48 @@ INPUT: <MARKDOWN>"""
                     return jsonify(
                         {
                             "success": False,
-                            "error": "LLM API 返回了空回复",
+                            "error": "LLM API Returned an empty reply",
                         }
                     )
 
             except Exception as e:
                 error_msg = str(e)
-                # 提供更友好的错误信息
+                # Provide friendlier error messages
                 if "401" in error_msg or "Unauthorized" in error_msg:
                     return jsonify(
                         {
                             "success": False,
-                            "error": "API Key 无效或未授权",
+                            "error": "API Key Invalid or unauthorized",
                         }
                     )
                 elif "404" in error_msg or "Not Found" in error_msg:
                     return jsonify(
                         {
                             "success": False,
-                            "error": "API 端点不存在，请检查 Base URL 是否正确",
+                            "error": "API Endpoint does not exist, please check Base URL Is it correct?",
                         }
                     )
                 elif "timeout" in error_msg.lower():
                     return jsonify(
                         {
                             "success": False,
-                            "error": "连接超时，请检查网络连接和 Base URL",
+                            "error": "Connection timed out, please check network connection and Base URL",
                         }
                     )
                 else:
                     return jsonify(
                         {
                             "success": False,
-                            "error": f"LLM API 调用失败: {error_msg}",
+                            "error": f"LLM API call failed: {error_msg}",
                         }
                     )
 
         except Exception as exc:
-            return jsonify({"success": False, "error": f"测试失败: {str(exc)}"}), 500
+            return jsonify({"success": False, "error": f"test failed: {str(exc)}"}), 500
 
     @app.route("/api/settings/test/mineru", methods=["POST"])
     def api_test_mineru():
-        """测试 MinerU API 连接"""
+        """test MinerU API connect"""
         try:
             import requests
 
@@ -595,18 +638,21 @@ INPUT: <MARKDOWN>"""
             mineru_server_url = data.get("mineruServerUrl", "").strip()
 
             if not mineru_server_url:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "请填写 MinerU Server URL",
-                    }
-                ), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "Please fill in MinerU Server URL",
+                        }
+                    ),
+                    400,
+                )
 
-            # 移除末尾的斜杠
+            # Remove trailing slash
             mineru_server_url = mineru_server_url.rstrip("/")
 
-            # 尝试连接 MinerU 服务
-            # 通常 MinerU 服务可能有健康检查端点，如果没有则尝试根路径
+            # try to connect MinerU Serve
+            # generally MinerU The service may have a health check endpoint, if not then the root path is tried
             test_urls = [
                 f"{mineru_server_url}/health",
                 f"{mineru_server_url}/",
@@ -618,45 +664,48 @@ INPUT: <MARKDOWN>"""
                 try:
                     response = requests.get(
                         test_url,
-                        timeout=10.0,  # 10秒超时
+                        timeout=10.0,  # 10seconds timeout
                         allow_redirects=True,
                     )
-                    # 如果返回 200-299 状态码，认为连接成功
+                    # if return 200-299 Status code, the connection is considered successful
                     if 200 <= response.status_code < 300:
                         return jsonify(
                             {
                                 "success": True,
-                                "message": "MinerU API 连接成功！",
+                                "message": "MinerU API Connection successful!",
                                 "status_code": response.status_code,
                                 "tested_url": test_url,
                             }
                         )
-                    # 如果是其他状态码，继续尝试下一个 URL
+                    # If it is another status code, continue to try the next one URL
                     last_error = f"HTTP {response.status_code}"
                 except requests.exceptions.Timeout:
-                    last_error = "连接超时"
+                    last_error = "Connection timeout"
                     continue
                 except requests.exceptions.ConnectionError:
-                    last_error = "无法连接到服务器"
+                    last_error = "Unable to connect to server"
                     continue
                 except Exception as e:
                     last_error = str(e)
                     continue
 
-            # 所有 URL 都失败
+            # all URL All failed
             return jsonify(
                 {
                     "success": False,
-                    "error": f"MinerU API 连接失败: {last_error}。请检查 URL 是否正确，服务是否正在运行",
+                    "error": f"MinerU API Connection failed: {last_error}. Check, please URL Is it correct and the service is running?",
                 }
             )
 
         except ImportError:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "requests 库未安装，请运行: pip install requests",
-                }
-            ), 500
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "requests The library is not installed, please run: pip install requests",
+                    }
+                ),
+                500,
+            )
         except Exception as exc:
-            return jsonify({"success": False, "error": f"测试失败: {str(exc)}"}), 500
+            return jsonify({"success": False, "error": f"test failed: {str(exc)}"}), 500

@@ -31,20 +31,20 @@ def register_search_routes(
     @app.route("/api/search")
     def api_search():
         """
-        搜索 title/authors/abstract。支持全局或限定某个分类。
-        使用 SQLite FTS5 全文搜索，性能大幅提升。
+        search title/authors/abstract. Supports global or limited categories.
+        use SQLite FTS5 Full-text search, performance greatly improved.
         """
         query = (request.args.get("q") or "").strip()
         if not query:
             return jsonify({"results": []})
 
-        # 获取结果数量限制（默认 100）
+        # Limit on the number of results obtained (default 100）
         limit = int(request.args.get("limit", 100))
 
-        # 获取分类ID（可选）
+        # Get categoryID(optional)
         category_id = (request.args.get("category_id") or "").strip() or None
 
-        # 使用数据库搜索
+        # Use database search
         try:
             results = search_index.search(
                 query=query,
@@ -52,18 +52,18 @@ def register_search_routes(
                 limit=limit,
             )
 
-            # 按匹配字段数量和相似度排序（数据库已经按 rank 排序，这里做二次排序）
+            # Sort by number of matching fields and similarity (database has been sorted by rank Sorting, do secondary sorting here)
             results.sort(
                 key=lambda r: (
-                    -len(r.get("matched_fields", [])),  # 匹配字段多者优先
-                    -r.get("similarity", 0.0),  # 相似度高者优先
-                    r.get("title") or "",  # 标题字母序
+                    -len(r.get("matched_fields", [])),  # Those with more matching fields are given priority.
+                    -r.get("similarity", 0.0),  # Those with higher similarity will be given priority.
+                    r.get("title") or "",  # Title alphabetical order
                 )
             )
 
             return jsonify({"results": results})
         except Exception as e:
-            print(f"搜索失败: {e}")
+            print(f"Search failed: {e}")
             import traceback
 
             traceback.print_exc()

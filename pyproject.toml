@@ -1,7 +1,7 @@
 [project]
 name = "resophy"
 version = "0.1.0"
-description = "一个完全开源、面向 Vibe Coding 的现代论文阅读与管理平台"
+description = "Resophy: A fully open-source, modern paper reading and management platform for Vibe Coding"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "CC BY-NC 4.0"}
@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = []  # 基础功能已包含在 dependencies 中
+local = [] 
 server = [
     "mineru[vlm]==2.5.3",
     "mineru[pipeline]==2.5.3",

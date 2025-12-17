@@ -1,17 +1,17 @@
 """
-论文上传处理模块
+Paper upload processing module
 
-提供两种论文上传方式：
-1. 链接下载：通过 arXiv ID 直接下载并获取信息
-2. PDF 上传：多级降级策略从 PDF 提取信息并获取元数据
+Two methods for uploading papers are provided:
+1. Link to download: via arXiv ID Download directly and get information
+2. PDF Upload: Multi-level downgrade strategy from PDF Extract information and get metadata
 
-处理逻辑：
-- 方式1（链接下载）：arXiv ID → arXiv API → 获取完整信息 → DBLP 覆盖 BibTeX
-- 方式2（PDF上传）：
-  2.1 从文件名提取 arXiv ID → 跳转到方式1
-  2.2 从 PDF metadata 的 '/arXivID' 提取 → 跳转到方式1
-  2.3 从 PDF metadata 的 '/Title' 和 '/Author' 搜索 arXiv
-  2.4 使用 PDF 解析提取 title，然后搜索 arXiv
+Processing logic:
+- Way1(Link to download):arXiv ID → arXiv API → Get complete information → DBLP cover BibTeX
+- Way2（PDFUpload):
+  2.1 Extract from file name arXiv ID → Jump to method1
+  2.2 from PDF metadata of '/arXivID' extract → Jump to method1
+  2.3 from PDF metadata of '/Title' and '/Author' search arXiv
+  2.4 use PDF Parse and extract title, then search for arXiv
 """
 
 from __future__ import annotations
@@ -31,27 +31,27 @@ from resophy.tools.basic_tools.pdf_extractor import (
 )
 
 # ============================================================================
-# 工具函数
+# Utility function
 # ============================================================================
 
 
 def _normalize_arxiv_id(arxiv_id: str) -> str:
     """
-    标准化 arXiv ID
+    standardization arXiv ID
 
     Args:
-        arxiv_id: 可能是 "arXiv:2502.05383", "2502.05383", "2502.05383v1" 等格式
+        arxiv_id: may be "arXiv:2502.05383", "2502.05383", "2502.05383v1" etc format
 
     Returns:
-        标准化的 arXiv ID（如 "2502.05383"），去掉版本号
+        standardized arXiv ID(like "2502.05383"), remove the version number
     """
-    # 移除 "arXiv:" 前缀（不区分大小写）
+    # Remove "arXiv:" prefix (case insensitive)
     arxiv_id = re.sub(r"^arxiv\s*:\s*", "", arxiv_id.strip(), flags=re.IGNORECASE)
 
-    # 移除版本号（v1, v2 等）
+    # Remove version number (v1, v2 wait)
     arxiv_id = re.sub(r"v\d+$", "", arxiv_id, flags=re.IGNORECASE)
 
-    # 提取核心 ID（YYYY.NNNNN 格式）
+    # Extract core ID（YYYY.NNNNN Format)
     match = re.search(r"(\d{4}\.\d{4,5})", arxiv_id)
     if match:
         return match.group(1)
@@ -61,13 +61,13 @@ def _normalize_arxiv_id(arxiv_id: str) -> str:
 
 def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
     """
-    从 URL 中提取 arXiv ID
+    from URL extracted from arXiv ID
 
     Args:
-        url: 可能是 "https://arxiv.org/abs/2511.13720v1" 或 "https://doi.org/10.48550/arXiv.2511.13720"
+        url: may be "https://arxiv.org/abs/2511.13720v1" or "https://doi.org/10.48550/arXiv.2511.13720"
 
     Returns:
-        提取的 arXiv ID，失败返回 None
+        extracted arXiv ID, return on failure None
     """
     patterns = [
         r"arxiv\.org/(?:abs|pdf)/([\d.]+(?:v\d+)?)",
@@ -86,28 +86,28 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 def _extract_arxiv_id_from_filename(filename: str) -> Optional[str]:
     """
-    从文件名中提取 arXiv ID
+    Extract from file name arXiv ID
 
-    支持格式：
+    Supported formats:
     - 1706.03762v7.pdf
     - arXiv:1706.03762v7.pdf
     - 1706.03762.pdf
 
     Args:
-        filename: PDF 文件名
+        filename: PDF file name
 
     Returns:
-        提取的 arXiv ID，失败返回 None
+        extracted arXiv ID, return on failure None
     """
-    # 移除 .pdf 后缀
+    # Remove .pdf suffix
     base = os.path.splitext(filename)[0]
 
-    # 匹配 YYYY.NNNNNvN 格式
+    # match YYYY.NNNNNvN Format
     match = re.search(r"(\d{4}\.\d{4,5})(v\d+)?", base)
     if match:
         return _normalize_arxiv_id(match.group(0))
 
-    # 匹配 arXiv:YYYY.NNNNNvN 格式
+    # match arXiv:YYYY.NNNNNvN Format
     match = re.search(r"arxiv[:\-\s]?(\d{4}\.\d{4,5})(v\d+)?", base, re.IGNORECASE)
     if match:
         return _normalize_arxiv_id(match.group(0))
@@ -116,35 +116,35 @@ def _extract_arxiv_id_from_filename(filename: str) -> Optional[str]:
 
 
 # ============================================================================
-# 方式1: 通过 arXiv ID 获取论文信息
+# Way1: pass arXiv ID Get paper information
 # ============================================================================
 
 
 def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
     """
-    快速版本：仅通过 arXiv API 获取论文信息（不等待 DBLP）
+    Quick version: Pass only arXiv API Get paper information (without waiting DBLP）
 
     Args:
-        arxiv_id: arXiv ID（如 "2502.05383" 或 "arXiv:2502.05383"）
+        arxiv_id: arXiv ID(like "2502.05383" or "arXiv:2502.05383"）
 
     Returns:
-        论文信息字典，bibtex 字段为空（后续由 DBLP 填充）
+        Dissertation Information Dictionary,bibtex The field is empty (followed by DBLP filling)
     """
     try:
-        # 标准化 arXiv ID
+        # standardization arXiv ID
         arxiv_id = _normalize_arxiv_id(arxiv_id)
-        print(f"[arXiv Fast] 通过 arXiv ID 获取论文: {arxiv_id}")
+        print(f"[arXiv Fast] pass arXiv ID Get the paper: {arxiv_id}")
 
-        # 调用 arXiv API
+        # call arXiv API
         client = arxiv.Client()
         search = arxiv.Search(id_list=[arxiv_id])
 
         paper = next(client.results(search), None)
         if not paper:
-            print(f"[arXiv Fast] 未找到 arXiv ID: {arxiv_id}")
+            print(f"[arXiv Fast] not found arXiv ID: {arxiv_id}")
             return None
 
-        # 获取作者信息
+        # Get author information
         authors_list = [author.name for author in paper.authors]
         authors_str = ", ".join(authors_list)
 
@@ -152,22 +152,22 @@ def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
             "title": paper.title,
             "authors": authors_str,
             "abstract": paper.summary.replace("\n", " ").strip(),
-            "summary": paper.summary,  # 保留原始格式
+            "summary": paper.summary,  # Keep original format
             "year": str(paper.published.year) if paper.published else None,
             "arxiv_id": arxiv_id,
-            "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}",  # arXiv 链接
-            "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
+            "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}",  # arXiv Link
+            "bibtex": "",  # Temporarily empty, obtained in the background DBLP post-fill
             "published_date": paper.published.isoformat() if paper.published else None,
             "pdf_url": paper.pdf_url,
             "primary_category": paper.primary_category,
             "categories": paper.categories,
         }
 
-        print(f"[arXiv Fast] ✅ 成功获取论文: {result['title'][:50]}...")
+        print(f"[arXiv Fast] ✅ Successfully obtained the paper: {result['title'][:50]}...")
         return result
 
     except Exception as exc:
-        print(f"[arXiv Fast] ❌ 获取论文失败: {exc}")
+        print(f"[arXiv Fast] ❌ Failed to get the paper: {exc}")
         import traceback
 
         traceback.print_exc()
@@ -176,60 +176,60 @@ def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
 
 def fetch_bibtex_from_dblp(title: str, authors: str, arxiv_id: str) -> Optional[str]:
     """
-    从 DBLP 获取 BibTeX（可在后台调用）
+    from DBLP get BibTeX(Can be called in the background)
 
     Args:
-        title: 论文标题
-        authors: 作者字符串
+        title: Paper title
+        authors: author string
         arxiv_id: arXiv ID
 
     Returns:
-        BibTeX 字符串，失败返回 None
+        BibTeX String, returned on failure None
     """
     try:
-        print(f"[DBLP] 获取 BibTeX: {title[:50]}...")
+        print(f"[DBLP] get BibTeX: {title[:50]}...")
         bibtex = get_bibtex_enhanced(title=title, authors=authors, arxiv_id=arxiv_id)
         if bibtex:
-            print(f"[DBLP] ✅ 成功获取 BibTeX")
+            print(f"[DBLP] ✅ successfully obtained BibTeX")
         else:
-            print(f"[DBLP] ❌ 未获取到 BibTeX")
+            print(f"[DBLP] ❌ Not obtained BibTeX")
         return bibtex
     except Exception as exc:
-        print(f"[DBLP] ❌ 获取 BibTeX 失败: {exc}")
+        print(f"[DBLP] ❌ get BibTeX fail: {exc}")
         return None
 
 
 def fetch_paper_by_arxiv_id(arxiv_id: str) -> Optional[Dict[str, Any]]:
     """
-    方式1: 通过 arXiv ID 获取完整论文信息（包含 DBLP BibTeX）
+    Way1: pass arXiv ID Get complete paper information (including DBLP BibTeX）
 
-    流程：
-    1. 标准化 arXiv ID
-    2. 调用 arXiv API 获取基本信息（title, authors, abstract, year等）
-    3. 使用 title + authors 从 DBLP 获取更好的 BibTeX（如果找到则覆盖）
+    process:
+    1. standardization arXiv ID
+    2. call arXiv API Get basic information (title, authors, abstract, yearwait)
+    3. use title + authors from DBLP get better BibTeX(overwrite if found)
 
     Args:
-        arxiv_id: arXiv ID（如 "2502.05383" 或 "arXiv:2502.05383"）
+        arxiv_id: arXiv ID(like "2502.05383" or "arXiv:2502.05383"）
 
     Returns:
-        论文信息字典，包含以下字段：
-        - title: 论文标题
-        - authors: 作者字符串（逗号分隔）
-        - abstract: 摘要
-        - year: 发表年份
+        Paper information dictionary, including the following fields:
+        - title: Paper title
+        - authors: Author string (comma separated)
+        - abstract: summary
+        - year: year of publication
         - arxiv_id: arXiv ID
-        - bibtex: BibTeX 引用（优先 DBLP，失败后用 arXiv）
-        - published_date: 发布日期
-        - pdf_url: PDF 下载链接
-        - primary_category: 主要分类
-        如果失败返回 None
+        - bibtex: BibTeX Quote (priority DBLP, use after failure arXiv）
+        - published_date: release date
+        - pdf_url: PDF Download link
+        - primary_category: Main categories
+        If failed return None
     """
-    # 先快速获取 arXiv 信息
+    # Get it quickly first arXiv information
     result = fetch_paper_by_arxiv_id_fast(arxiv_id)
     if not result:
         return None
 
-    # 然后获取 DBLP BibTeX
+    # then get DBLP BibTeX
     bibtex = fetch_bibtex_from_dblp(
         title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
     )
@@ -240,27 +240,27 @@ def fetch_paper_by_arxiv_id(arxiv_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================================
-# 方式2: PDF 上传处理（多级降级策略）
+# Way2: PDF Upload processing (multi-level downgrade strategy)
 # ============================================================================
 
 
 def extract_pdf_arxiv_metadata(pdf_path: str) -> Dict[str, Optional[str]]:
     """
-    从 PDF metadata 中提取 arXiv 相关信息
+    from PDF metadata extracted from arXiv Related information
 
-    查找字段：
-    - '/arXivID': arXiv ID（可能是 URL 格式）
-    - '/Title': 论文标题
-    - '/Author': 作者信息
+    Find fields:
+    - '/arXivID': arXiv ID(may be URL Format)
+    - '/Title': Paper title
+    - '/Author': Author information
 
     Args:
-        pdf_path: PDF 文件路径
+        pdf_path: PDF file path
 
     Returns:
-        包含以下字段的字典：
-        - arxiv_id: 提取的 arXiv ID（如果找到）
-        - title: 标题（如果找到）
-        - authors: 作者（如果找到）
+        A dictionary containing the following fields:
+        - arxiv_id: extracted arXiv ID(if found)
+        - title: Title (if found)
+        - authors: Author (if found)
     """
     result = {
         "arxiv_id": None,
@@ -276,40 +276,40 @@ def extract_pdf_arxiv_metadata(pdf_path: str) -> Dict[str, Optional[str]]:
 
             meta = pdf_reader.metadata
 
-            # 查找 '/arXivID' 字段
+            # Find '/arXivID' Field
             arxiv_id_raw = (
                 meta.get("/arXivID") or meta.get("/arxiv_id") or meta.get("/ArxivID")
             )
             if arxiv_id_raw:
                 arxiv_id_str = str(arxiv_id_raw).strip()
-                print(f"[PDF Metadata] 找到 /arXivID: {arxiv_id_str}")
+                print(f"[PDF Metadata] turn up /arXivID: {arxiv_id_str}")
 
-                # 如果是 URL，尝试提取 ID
+                # in the case of URL, try to extract ID
                 arxiv_id = _extract_arxiv_id_from_url(arxiv_id_str)
                 if not arxiv_id:
-                    # 如果不是 URL，直接作为 ID 处理
+                    # if not URL, directly as ID deal with
                     arxiv_id = _normalize_arxiv_id(arxiv_id_str)
 
                 if arxiv_id:
                     result["arxiv_id"] = arxiv_id
-                    print(f"[PDF Metadata] 提取的 arXiv ID: {arxiv_id}")
+                    print(f"[PDF Metadata] extracted arXiv ID: {arxiv_id}")
 
-            # 查找 '/Title' 字段
+            # Find '/Title' Field
             title = meta.get("/Title")
             if title and title.strip() and len(title.strip()) > 5:
                 result["title"] = title.strip()
-                print(f"[PDF Metadata] 找到 /Title: {result['title'][:50]}...")
+                print(f"[PDF Metadata] turn up /Title: {result['title'][:50]}...")
 
-            # 查找 '/Author' 字段
+            # Find '/Author' Field
             authors = meta.get("/Author")
             if authors and authors.strip():
                 result["authors"] = authors.strip()
-                print(f"[PDF Metadata] 找到 /Author: {result['authors']}")
+                print(f"[PDF Metadata] turn up /Author: {result['authors']}")
 
             return result
 
     except Exception as exc:
-        print(f"[PDF Metadata] 提取失败: {exc}")
+        print(f"[PDF Metadata] Failed to extract: {exc}")
         return result
 
 
@@ -317,24 +317,24 @@ def search_arxiv_by_title_and_author_fast(
     title: str, author: str
 ) -> Optional[Dict[str, Any]]:
     """
-    快速版本：使用标题和作者搜索 arXiv 论文（不等待 DBLP）
+    Quick version: Search using title and author arXiv Thesis (no waiting DBLP）
 
     Args:
-        title: 论文标题
-        author: 作者姓名（可以是第一个作者）
+        title: Paper title
+        author: Author name (can be the first author)
 
     Returns:
-        论文信息字典，bibtex 字段为空
+        Dissertation Information Dictionary,bibtex Field is empty
     """
     try:
-        # 清理标题中的特殊字符（如冒号）
+        # Clean special characters (like colons) in titles
         clean_title = title.replace(":", " ")
 
-        # 构造查询字符串
+        # Construct query string
         query = f'ti:"{clean_title}" AND au:"{author}"'
-        print(f"[方式2.3 Fast] 使用标题+作者搜索 arXiv: [{query}]")
+        print(f"[Way2.3 Fast] Use titles+Author search arXiv: [{query}]")
 
-        # 使用 arxiv 库搜索
+        # use arxiv library search
         client = arxiv.Client()
         search = arxiv.Search(
             query=query, max_results=1, sort_by=arxiv.SortCriterion.Relevance
@@ -342,14 +342,14 @@ def search_arxiv_by_title_and_author_fast(
 
         paper = next(client.results(search), None)
         if not paper:
-            print(f"[方式2.3 Fast] 未找到匹配论文")
+            print(f"[Way2.3 Fast] No matching paper found")
             return None
 
-        # 提取 arXiv ID
+        # extract arXiv ID
         arxiv_id = paper.entry_id.split("/")[-1]
         arxiv_id = _normalize_arxiv_id(arxiv_id)
 
-        # 获取作者信息
+        # Get author information
         authors_list = [a.name for a in paper.authors]
         authors_str = ", ".join(authors_list)
 
@@ -360,18 +360,18 @@ def search_arxiv_by_title_and_author_fast(
             "summary": paper.summary,
             "year": str(paper.published.year) if paper.published else None,
             "arxiv_id": arxiv_id,
-            "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
+            "bibtex": "",  # Temporarily empty, obtained in the background DBLP post-fill
             "published_date": paper.published.isoformat() if paper.published else None,
             "pdf_url": paper.pdf_url,
             "primary_category": paper.primary_category,
             "categories": paper.categories,
         }
 
-        print(f"[方式2.3 Fast] ✅ 找到匹配论文: {result['title'][:50]}...")
+        print(f"[Way2.3 Fast] ✅ Find matching papers: {result['title'][:50]}...")
         return result
 
     except Exception as exc:
-        print(f"[方式2.3 Fast] ❌ 搜索失败: {exc}")
+        print(f"[Way2.3 Fast] ❌ Search failed: {exc}")
         import traceback
 
         traceback.print_exc()
@@ -380,18 +380,18 @@ def search_arxiv_by_title_and_author_fast(
 
 def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
     """
-    快速版本：仅使用标题搜索 arXiv 论文（不等待 DBLP）
+    Quick version: search using title only arXiv Thesis (no waiting DBLP）
 
     Args:
-        title: 论文标题
+        title: Paper title
 
     Returns:
-        论文信息字典，bibtex 字段为空
+        Dissertation Information Dictionary,bibtex Field is empty
     """
     try:
-        print(f"[方式2.4 Fast] 使用标题搜索 arXiv: {title[:50]}...")
+        print(f"[Way2.4 Fast] Search using titles arXiv: {title[:50]}...")
 
-        # 使用 arxiv 库搜索
+        # use arxiv library search
         client = arxiv.Client()
         search = arxiv.Search(
             query=f'ti:"{title}"', max_results=1, sort_by=arxiv.SortCriterion.Relevance
@@ -399,14 +399,14 @@ def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
 
         paper = next(client.results(search), None)
         if not paper:
-            print(f"[方式2.4 Fast] 未找到匹配论文")
+            print(f"[Way2.4 Fast] No matching paper found")
             return None
 
-        # 提取 arXiv ID
+        # extract arXiv ID
         arxiv_id = paper.entry_id.split("/")[-1]
         arxiv_id = _normalize_arxiv_id(arxiv_id)
 
-        # 获取作者信息
+        # Get author information
         authors_list = [a.name for a in paper.authors]
         authors_str = ", ".join(authors_list)
 
@@ -417,18 +417,18 @@ def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
             "summary": paper.summary,
             "year": str(paper.published.year) if paper.published else None,
             "arxiv_id": arxiv_id,
-            "bibtex": "",  # 暂时为空，后台获取 DBLP 后填充
+            "bibtex": "",  # Temporarily empty, obtained in the background DBLP post-fill
             "published_date": paper.published.isoformat() if paper.published else None,
             "pdf_url": paper.pdf_url,
             "primary_category": paper.primary_category,
             "categories": paper.categories,
         }
 
-        print(f"[方式2.4 Fast] ✅ 找到匹配论文: {result['title'][:50]}...")
+        print(f"[Way2.4 Fast] ✅ Find matching papers: {result['title'][:50]}...")
         return result
 
     except Exception as exc:
-        print(f"[方式2.4 Fast] ❌ 搜索失败: {exc}")
+        print(f"[Way2.4 Fast] ❌ Search failed: {exc}")
         import traceback
 
         traceback.print_exc()
@@ -439,23 +439,23 @@ def search_arxiv_by_title_and_author(
     title: str, author: str
 ) -> Optional[Dict[str, Any]]:
     """
-    使用标题和作者搜索 arXiv 论文（包含 DBLP BibTeX）
+    Search using title and author arXiv Papers (including DBLP BibTeX）
 
-    使用 arXiv 查询语法: ti:"标题" AND au:"作者"
+    use arXiv Query syntax: ti:"title" AND au:"author"
 
     Args:
-        title: 论文标题
-        author: 作者姓名（可以是第一个作者）
+        title: Paper title
+        author: Author name (can be the first author)
 
     Returns:
-        论文信息字典（格式同 fetch_paper_by_arxiv_id），失败返回 None
+        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
     """
-    # 先快速获取 arXiv 信息
+    # Get it quickly first arXiv information
     result = search_arxiv_by_title_and_author_fast(title, author)
     if not result:
         return None
 
-    # 然后获取 DBLP BibTeX
+    # then get DBLP BibTeX
     bibtex = fetch_bibtex_from_dblp(
         title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
     )
@@ -467,20 +467,20 @@ def search_arxiv_by_title_and_author(
 
 def search_arxiv_by_title_only(title: str) -> Optional[Dict[str, Any]]:
     """
-    仅使用标题搜索 arXiv 论文（包含 DBLP BibTeX）
+    Search using title only arXiv Papers (including DBLP BibTeX）
 
     Args:
-        title: 论文标题
+        title: Paper title
 
     Returns:
-        论文信息字典（格式同 fetch_paper_by_arxiv_id），失败返回 None
+        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
     """
-    # 先快速获取 arXiv 信息
+    # Get it quickly first arXiv information
     result = search_arxiv_by_title_only_fast(title)
     if not result:
         return None
 
-    # 然后获取 DBLP BibTeX
+    # then get DBLP BibTeX
     bibtex = fetch_bibtex_from_dblp(
         title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
     )
@@ -492,78 +492,78 @@ def search_arxiv_by_title_only(title: str) -> Optional[Dict[str, Any]]:
 
 def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str, Any]]:
     """
-    快速版本：处理上传的 PDF 文件（不等待 DBLP）
+    Quick version: handles uploads PDF file(no wait DBLP）
 
-    处理流程（与 process_uploaded_pdf 相同，但不等待 DBLP）：
-    2.1 从文件名提取 arXiv ID → 如果找到，快速获取 arXiv 信息
-    2.2 从 PDF metadata 的 '/arXivID' 提取 → 如果找到，快速获取 arXiv 信息
-    2.3 从 PDF metadata 的 '/Title' 和 '/Author' 搜索 arXiv
-    2.4 使用 PDF 解析提取 title，然后仅用 title 搜索 arXiv
+    processing flow (with process_uploaded_pdf Same, but without waiting DBLP）：
+    2.1 Extract from file name arXiv ID → If found, get it quickly arXiv information
+    2.2 from PDF metadata of '/arXivID' extract → If found, get it quickly arXiv information
+    2.3 from PDF metadata of '/Title' and '/Author' search arXiv
+    2.4 use PDF Parse and extract title, and then just use title search arXiv
 
     Args:
-        pdf_path: PDF 文件路径
-        filename: PDF 文件名
+        pdf_path: PDF file path
+        filename: PDF file name
 
     Returns:
-        论文信息字典，bibtex 字段为空（后续由 DBLP 填充）
+        Dissertation Information Dictionary,bibtex The field is empty (followed by DBLP filling)
     """
-    print(f"[方式2 Fast] 开始处理 PDF: {filename}")
+    print(f"[Way2 Fast] Start processing PDF: {filename}")
 
     # ========================================================================
-    # 2.1 从文件名提取 arXiv ID
+    # 2.1 Extract from file name arXiv ID
     # ========================================================================
     arxiv_id_from_filename = _extract_arxiv_id_from_filename(filename)
     if arxiv_id_from_filename:
-        print(f"[方式2.1 Fast] 从文件名提取到 arXiv ID: {arxiv_id_from_filename}")
+        print(f"[Way2.1 Fast] Extract from file name to arXiv ID: {arxiv_id_from_filename}")
         result = fetch_paper_by_arxiv_id_fast(arxiv_id_from_filename)
         if result:
-            print(f"[方式2.1 Fast] ✅ 成功通过 arXiv ID 获取信息")
+            print(f"[Way2.1 Fast] ✅ passed successfully arXiv ID Get information")
             return result
-        print(f"[方式2.1 Fast] ❌ 通过 arXiv ID 获取失败，继续降级策略")
+        print(f"[Way2.1 Fast] ❌ pass arXiv ID Failed to obtain, continue to downgrade strategy")
 
     # ========================================================================
-    # 2.2 从 PDF metadata 提取 '/arXivID'
+    # 2.2 from PDF metadata extract '/arXivID'
     # ========================================================================
     pdf_metadata = extract_pdf_arxiv_metadata(pdf_path)
 
     if pdf_metadata["arxiv_id"]:
         print(
-            f"[方式2.2 Fast] 从 PDF metadata 提取到 arXiv ID: {pdf_metadata['arxiv_id']}"
+            f"[Way2.2 Fast] from PDF metadata Extract to arXiv ID: {pdf_metadata['arxiv_id']}"
         )
         result = fetch_paper_by_arxiv_id_fast(pdf_metadata["arxiv_id"])
         if result:
-            print(f"[方式2.2 Fast] ✅ 成功通过 arXiv ID 获取信息")
+            print(f"[Way2.2 Fast] ✅ passed successfully arXiv ID Get information")
             return result
-        print(f"[方式2.2 Fast] ❌ 通过 arXiv ID 获取失败，继续降级策略")
+        print(f"[Way2.2 Fast] ❌ pass arXiv ID Failed to obtain, continue to downgrade strategy")
 
     # ========================================================================
-    # 2.3 使用 PDF metadata 的 '/Title' 和 '/Author' 搜索
+    # 2.3 use PDF metadata of '/Title' and '/Author' search
     # ========================================================================
     if pdf_metadata["title"] and pdf_metadata["authors"]:
-        print(f"[方式2.3 Fast] 使用 PDF metadata 的标题和作者搜索")
+        print(f"[Way2.3 Fast] use PDF metadata Title and author search")
 
-        # 提取第一个作者（用于搜索）
+        # Extract the first author (for search)
         authors = pdf_metadata["authors"].split(",")[0].strip()
 
         result = search_arxiv_by_title_and_author_fast(pdf_metadata["title"], authors)
         if result:
-            print(f"[方式2.3 Fast] ✅ 成功找到匹配论文")
+            print(f"[Way2.3 Fast] ✅ Successfully found matching paper")
             return result
-        print(f"[方式2.3 Fast] ❌ 未找到匹配，继续降级策略")
+        print(f"[Way2.3 Fast] ❌ No match found, continue with downgrade strategy")
 
     # ========================================================================
-    # 2.4 使用 PDF 解析提取 title，然后搜索
+    # 2.4 use PDF Parse and extract title, then search for
     # ========================================================================
-    print(f"[方式2.4 Fast] 使用 PDF 解析提取标题")
+    print(f"[Way2.4 Fast] use PDF Parse and extract titles")
 
-    # 尝试使用字体大小提取
+    # Try using font size extraction
     title = None
     if not pdf_metadata["title"]:
         title = extract_title_by_fontsize(pdf_path)
         if title:
-            print(f"[方式2.4 Fast] 通过字体大小提取到标题: {title[:50]}...")
+            print(f"[Way2.4 Fast] Extract title by font size: {title[:50]}...")
 
-    # 如果字体提取失败，尝试文本分析
+    # If font extraction fails, try text analysis
     if not title:
         try:
             with open(pdf_path, "rb") as file:
@@ -581,52 +581,52 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
                         title = extract_title_from_text(full_text)
                         if title:
                             print(
-                                f"[方式2.4 Fast] 通过文本分析提取到标题: {title[:50]}..."
+                                f"[Way2.4 Fast] Extract titles through text analysis: {title[:50]}..."
                             )
         except Exception as exc:
-            print(f"[方式2.4 Fast] 文本提取失败: {exc}")
+            print(f"[Way2.4 Fast] Text extraction failed: {exc}")
 
-    # 如果还是没有 title，尝试使用 PDF metadata 的 title
+    # if still not title, try using PDF metadata of title
     if not title:
         title = pdf_metadata["title"]
 
-    # 使用提取的 title 搜索
+    # Use the extracted title search
     if title:
         result = search_arxiv_by_title_only_fast(title)
         if result:
-            print(f"[方式2.4 Fast] ✅ 成功找到匹配论文")
+            print(f"[Way2.4 Fast] ✅ Successfully found matching paper")
             return result
-        print(f"[方式2.4 Fast] ❌ 未找到匹配论文")
+        print(f"[Way2.4 Fast] ❌ No matching paper found")
     else:
-        print(f"[方式2.4 Fast] ❌ 无法提取标题")
+        print(f"[Way2.4 Fast] ❌ Unable to extract title")
 
-    print(f"[方式2 Fast] ❌ 所有策略都失败，无法获取论文信息")
+    print(f"[Way2 Fast] ❌ All strategies failed, unable to obtain paper information")
     return None
 
 
 def process_uploaded_pdf(pdf_path: str, filename: str) -> Optional[Dict[str, Any]]:
     """
-    方式2: 处理上传的 PDF 文件（多级降级策略，包含 DBLP BibTeX）
+    Way2: Handle uploaded PDF File (multi-level downgrade policy, containing DBLP BibTeX）
 
-    处理流程：
-    2.1 从文件名提取 arXiv ID → 如果找到，跳转到方式1（fetch_paper_by_arxiv_id）
-    2.2 从 PDF metadata 的 '/arXivID' 提取 → 如果找到，跳转到方式1
-    2.3 从 PDF metadata 的 '/Title' 和 '/Author' 搜索 arXiv（使用 title+author）
-    2.4 使用 PDF 解析提取 title，然后仅用 title 搜索 arXiv
+    Processing flow:
+    2.1 Extract from file name arXiv ID → If found, jump to method1（fetch_paper_by_arxiv_id）
+    2.2 from PDF metadata of '/arXivID' extract → If found, jump to method1
+    2.3 from PDF metadata of '/Title' and '/Author' search arXiv(use title+author）
+    2.4 use PDF Parse and extract title, and then just use title search arXiv
 
     Args:
-        pdf_path: PDF 文件路径
-        filename: PDF 文件名
+        pdf_path: PDF file path
+        filename: PDF file name
 
     Returns:
-        论文信息字典（格式同 fetch_paper_by_arxiv_id），失败返回 None
+        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
     """
-    # 先快速获取 arXiv 信息
+    # Get it quickly first arXiv information
     result = process_uploaded_pdf_fast(pdf_path, filename)
     if not result:
         return None
 
-    # 然后获取 DBLP BibTeX
+    # then get DBLP BibTeX
     if result.get("title") and result.get("authors") and result.get("arxiv_id"):
         bibtex = fetch_bibtex_from_dblp(
             title=result["title"],

@@ -1,4 +1,4 @@
-/* 全局样式 */
+/* global styles */
 * {
     margin: 0;
     padding: 0;
@@ -15,7 +15,7 @@ body {
     flex-direction: column;
 }
 
-/* 导航栏 */
+/* Navigation bar */
 .navbar {
     background: white;
     border-bottom: 1px solid #e0e0e0;
@@ -83,7 +83,7 @@ body {
 }
 
 /* ========================================
-   Setting 界面 - 浅色主题
+   Setting interface - light theme
    ======================================== */
 .setting-view {
     display: flex;
@@ -92,7 +92,7 @@ body {
     overflow: hidden;
 }
 
-/* 左侧导航栏 */
+/* Left navigation bar */
 .setting-sidebar {
     width: 280px;
     background: #fff;
@@ -244,7 +244,7 @@ body {
     object-fit: contain;
 }
 
-/* 主内容区 */
+/* Main content area */
 .setting-main {
     flex: 1;
     overflow-y: auto;
@@ -274,7 +274,7 @@ body {
     font-size: 14px;
 }
 
-/* 统计卡片 */
+/* Statistics cards */
 .stats-cards {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -340,7 +340,7 @@ body {
     color: #6b7280;
 }
 
-/* 导航栏头像 */
+/* Navigation bar avatar */
 .nav-avatar {
     width: 32px;
     height: 32px;
@@ -369,7 +369,7 @@ body {
     border-radius: 50%;
 }
 
-/* 热力图容器 */
+/* Heat map container */
 .heatmap-container {
     background: #fff;
     border: 1px solid #e5e7eb;
@@ -390,7 +390,7 @@ body {
     color: #4b5563;
 }
 
-/* 年份选择器 */
+/* year selector */
 .heatmap-year-selector {
     display: flex;
     align-items: center;
@@ -500,13 +500,13 @@ body {
     z-index: 10;
 }
 
-/* 热力图颜色 - 默认绿色 */
+/* Heat map color - Default green */
 .heatmap-day[data-level="1"] { background: var(--heatmap-l1, rgba(57, 211, 83, 0.3)); }
 .heatmap-day[data-level="2"] { background: var(--heatmap-l2, rgba(57, 211, 83, 0.5)); }
 .heatmap-day[data-level="3"] { background: var(--heatmap-l3, rgba(57, 211, 83, 0.7)); }
 .heatmap-day[data-level="4"] { background: var(--heatmap-l4, rgba(57, 211, 83, 0.95)); }
 
-/* Tooltip for heatmap - 默认向上 */
+/* Tooltip for heatmap - Default up */
 .heatmap-day::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -527,7 +527,7 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* 顶部方块的 tooltip 向下显示 */
+/* top square tooltip Show down */
 .heatmap-day.tooltip-bottom::after {
     bottom: auto;
     top: calc(100% + 8px);
@@ -577,7 +577,7 @@ body {
 .heatmap-level[data-level="3"] { background: var(--heatmap-l3, rgba(57, 211, 83, 0.7)); }
 .heatmap-level[data-level="4"] { background: var(--heatmap-l4, rgba(57, 211, 83, 0.95)); }
 
-/* 色系选择下拉框 */
+/* Color selection drop-down box */
 .color-scheme-dropdown {
     position: absolute;
     bottom: calc(100% + 8px);
@@ -656,7 +656,7 @@ body {
     background: linear-gradient(90deg, rgba(244,114,182,0.3) 0%, rgba(244,114,182,0.5) 33%, rgba(244,114,182,0.7) 66%, rgba(244,114,182,0.95) 100%);
 }
 
-/* 色系变量 */
+/* color variable */
 .heatmap-container[data-scheme="green"] {
     --heatmap-l1: rgba(57, 211, 83, 0.3);
     --heatmap-l2: rgba(57, 211, 83, 0.5);
@@ -697,7 +697,7 @@ body {
     --heatmap-glow: rgba(244, 114, 182, 0.5);
 }
 
-/* 最近阅读 */
+/* Recently read */
 .recent-activity {
     background: #fff;
     border: 1px solid #e5e7eb;
@@ -961,7 +961,7 @@ body {
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
-/* 响应式设计 */
+/* Responsive design */
 @media (max-width: 1200px) {
     .stats-cards {
         grid-template-columns: repeat(2, 1fr);
@@ -1020,7 +1020,7 @@ body {
     }
 }
 
-/* 旧版设置样式保留兼容 */
+/* Old version setting styles remain compatible */
 .setting-form {
     display: flex;
     flex-direction: column;
@@ -1065,7 +1065,7 @@ body {
     overflow: hidden;
 }
 
-/* 左侧分类栏 */
+/* Left category column */
 .sidebar {
     width: 300px;
     background: #fafafa;
@@ -1193,7 +1193,7 @@ body {
     transform: translateY(-1px);
 }
 
-/* 子目录样式 - 不同颜色 */
+/* Subdirectory style - different colors */
 .category-children .category-item {
     color: #6c757d;
 }
@@ -1283,7 +1283,7 @@ body {
 }
 
 .category-children {
-    /* 子目录显示在父目录下方，并且缩进 */
+    /* Subdirectories appear below the parent directory and are indented */
     margin-left: 0;
     padding-left: 0;
 }
@@ -1292,14 +1292,14 @@ body {
     display: none;
 }
 
-/* 分类容器 */
+/* Classification container */
 .category-container {
     margin-bottom: 1px;
     overflow: hidden;
     max-width: 100%;
 }
 
-/* 上传区域 */
+/* Upload area */
 .upload-zone {
     margin: 15px;
     padding: 20px;
@@ -1337,7 +1337,7 @@ body {
     color: #999;
 }
 
-/* 中间内容区 */
+/* middle content area */
 .main-content {
     flex: 1;
     display: flex;
@@ -1421,7 +1421,7 @@ body {
     padding: 0 0 10px 0;
 }
 
-/* 批量工具栏 */
+/* Bulk toolbar */
 .batch-toolbar {
     display: flex;
     justify-content: space-between;
@@ -1612,7 +1612,7 @@ body {
     cursor: grabbing;
 }
 
-/* 目录多选样式 */
+/* Directory multiple selection style */
 .category-item.multi-selected {
     background: #e3f2fd !important;
     border-left: 3px solid #2196f3;
@@ -1622,13 +1622,13 @@ body {
     background: #bbdefb !important;
 }
 
-/* 目录聚焦样式（支持键盘操作） */
+/* Directory focus style（Support keyboard operation） */
 .category-item:focus {
     outline: 2px solid #007bff;
     outline-offset: -2px;
 }
 
-/* 内联编辑输入框样式 */
+/* Inline edit input box style */
 .category-rename-input {
     font-size: inherit;
     padding: 2px 4px;
@@ -1639,7 +1639,7 @@ body {
     font-family: inherit;
 }
 
-/* 新建分类时的编辑状态 */
+/* Editing status when creating a new category */
 .category-item.editing {
     background: #e8f5e9 !important;
     border-left: 3px solid #28a745;
@@ -1650,7 +1650,7 @@ body {
     box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.1);
 }
 
-/* 临时新分类容器的动画 - 淡入效果 */
+/* Animation of temporary new category container - fade in effect */
 .temp-new-category {
     animation: fadeIn 0.15s ease-out;
 }
@@ -1777,7 +1777,7 @@ body {
     text-shadow: 0 0 2px rgba(255, 193, 7, 0.5);
 }
 
-/* 被点赞论文右侧的星星图标 */
+/* The star icon on the right side of the liked article */
 .paper-star-icon {
     position: absolute;
     right: 180px;
@@ -1830,7 +1830,7 @@ body {
     background: #138496;
 }
 
-/* 翻译状态显示 */
+/* Translation status display */
 .translation-status {
     display: inline-flex;
     align-items: center;
@@ -1851,7 +1851,7 @@ body {
     background: #fff8e1;
 }
 
-/* 状态取消按钮 */
+/* status cancel button */
 .status-cancel-btn {
     background: transparent;
     border: none;
@@ -1931,7 +1931,7 @@ body {
     transform: scale(0.98);
 }
 
-/* 加载动画（小尺寸） */
+/* loading animation（small size） */
 .loading-small {
     color: #666;
     font-size: 14px;
@@ -1946,13 +1946,13 @@ body {
     animation: spin 1s linear infinite;
 }
 
-/* 搜索框样式 */
+/* Search box style */
 .search-box { 
     position: relative; 
     margin-right: auto; 
 }
-/* 顶部任务指示器 */
-/* 任务按钮样式 */
+/* top task indicator */
+/* Task button style */
 .ti-item {
     display: inline-flex;
     align-items: center;
@@ -2133,7 +2133,7 @@ body {
 .search-field-tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #eef2ff; color: #3b82f6; margin-left: 6px; }
 mark { background: #fff59d; }
 
-/* 排序控件样式 */
+/* Sorting control style */
 .sort-controls {
     display: flex;
     align-items: center;
@@ -2253,7 +2253,7 @@ mark { background: #fff59d; }
     line-height: 1.4;
 }
 
-/* 右侧信息栏 */
+/* Right information bar */
 .info-panel {
     width: 350px;
     background: #fafafa;
@@ -2298,7 +2298,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 6px rgba(33, 150, 243, 0.6);
 }
 
-/* AI 解读查看时加宽右侧面板 */
+/* AI Widen the right panel when interpreting the view */
 .info-panel.wide {
     width: 50%;
     min-width: 480px;
@@ -2355,7 +2355,7 @@ mark { background: #fff59d; }
 .analysis-fullscreen-btn {
     position: fixed;
     top: 80px;
-    right: 66px; /* 在关闭按钮左侧 */
+    right: 66px; /* to the left of the close button */
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -2471,7 +2471,7 @@ mark { background: #fff59d; }
     color: inherit;
 }
 
-/* 空状态 */
+/* Empty state */
 .empty-state {
     text-align: center;
     padding: 40px 20px;
@@ -2488,7 +2488,7 @@ mark { background: #fff59d; }
     font-size: 14px;
 }
 
-/* 模态框 */
+/* modal box */
 .modal {
     display: none;
     position: fixed;
@@ -2518,7 +2518,7 @@ mark { background: #fff59d; }
     box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
 
-/* 机构编辑模态框特定样式 */
+/* Institutional edit modal specific style */
 #institution-modal .modal-content {
     width: 600px;
 }
@@ -2626,7 +2626,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
 }
 
-/* 按钮 */
+/* button */
 .btn {
     padding: 8px 16px;
     border: none;
@@ -2654,7 +2654,7 @@ mark { background: #fff59d; }
     background: #545b62;
 }
 
-/* 右键菜单 */
+/* right click menu */
 .context-menu {
     position: fixed;
     background: white;
@@ -2689,7 +2689,7 @@ mark { background: #fff59d; }
     color: #666;
 }
 
-/* 右键菜单分隔线 */
+/* right click menu divider */
 .context-menu .menu-divider {
     height: 1px;
     background: #eee;
@@ -2702,7 +2702,7 @@ mark { background: #fff59d; }
     background: #eee;
 }
 
-/* 颜色选择子菜单 */
+/* Color selection submenu */
 .context-menu li.has-submenu {
     position: relative;
 }
@@ -2751,7 +2751,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 0 2px white, 0 0 0 4px #333;
 }
 
-/* 置顶目录样式 */
+/* Pinned directory style */
 .category-item.pinned {
     background: linear-gradient(to right, #fff8e1, transparent);
 }
@@ -2772,7 +2772,7 @@ mark { background: #fff59d; }
     margin-left: 4px;
 }
 
-/* 加载指示器 */
+/* loading indicator */
 .loading {
     position: fixed;
     top: 0;
@@ -2807,7 +2807,7 @@ mark { background: #fff59d; }
     font-size: 14px;
 }
 
-/* 响应式设计 */
+/* Responsive design */
 @media (max-width: 1200px) {
     .info-panel {
         width: 300px;
@@ -2841,14 +2841,14 @@ mark { background: #fff59d; }
 }
 
 /* ========================================
-   紧凑型论文信息面板样式
+   Compact paper information panel style
    ======================================== */
 
 .paper-info-container.compact-mode {
     padding: 0;
 }
 
-/* 紧凑型信息区块 */
+/* Compact information block */
 .info-section.compact {
     margin-bottom: 8px;
     border: 1px solid #e5e5e5;
@@ -2862,7 +2862,7 @@ mark { background: #fff59d; }
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
-/* 可折叠区域 - 默认展开 */
+/* foldable area - Expand by default */
 .info-section.compact.collapsed .info-content {
     max-height: 0;
     overflow: hidden;
@@ -2874,7 +2874,7 @@ mark { background: #fff59d; }
     transition: max-height 0.3s ease;
 }
 
-/* 信息头部 */
+/* Information header */
 .info-section.compact .info-header {
     display: flex;
     align-items: center;
@@ -2899,7 +2899,7 @@ mark { background: #fff59d; }
     letter-spacing: 0.3px;
 }
 
-/* 切换图标 */
+/* toggle icon */
 .info-section.compact .toggle-icon {
     font-size: 10px;
     color: #6c757d;
@@ -2910,7 +2910,7 @@ mark { background: #fff59d; }
     transform: rotate(180deg);
 }
 
-/* 信息内容 */
+/* Information content */
 .info-section.compact .info-content {
     padding: 10px 12px;
     font-size: 13px;
@@ -2923,7 +2923,7 @@ mark { background: #fff59d; }
     overflow-wrap: break-word;
 }
 
-/* 文本块 - 限制显示3行 */
+/* text block - Limit display3OK */
 .info-section.compact .info-value.text-block {
     line-height: 1.4;
     transition: all 0.3s ease;
@@ -2944,7 +2944,7 @@ mark { background: #fff59d; }
     overflow: visible;
 }
 
-/* 展开/收起按钮 */
+/* Expand/Collapse button */
 .text-expand-btn,
 .text-collapse-btn {
     display: inline-flex;
@@ -2971,7 +2971,7 @@ mark { background: #fff59d; }
     font-size: 10px;
 }
 
-/* 可编辑字段 */
+/* editable fields */
 .info-section.compact .info-value.editable {
     padding: 4px 6px;
     border-radius: 4px;
@@ -2988,7 +2988,7 @@ mark { background: #fff59d; }
     border: 1px solid #2196f3;
 }
 
-/* 备注栏 placeholder 效果 */
+/* Remarks column placeholder Effect */
 .info-section.compact .info-value.editable.notes-editable:empty:before {
     content: attr(data-placeholder);
     color: #999;
@@ -3005,7 +3005,7 @@ mark { background: #fff59d; }
     font-style: italic;
 }
 
-/* 紧凑文本（带图标） */
+/* compact text（with icon） */
 .info-value.compact-text {
     display: flex;
     flex-direction: column;
@@ -3027,7 +3027,7 @@ mark { background: #fff59d; }
     text-align: center;
 }
 
-/* BibTeX 代码块 */
+/* BibTeX code block */
 .bibtex-content {
     font-family: 'Courier New', Consolas, monospace;
     font-size: 11px;
@@ -3040,7 +3040,7 @@ mark { background: #fff59d; }
     word-wrap: break-word;
 }
 
-/* 图标按钮 */
+/* icon button */
 .btn-icon {
     background: none;
     border: none;
@@ -3057,20 +3057,20 @@ mark { background: #fff59d; }
     color: #495057;
 }
 
-/* 按钮块级 */
+/* button block level */
 .btn-block {
     width: 100%;
     text-align: center;
 }
 
-/* 旧样式兼容 */
+/* Old style compatible */
 .paper-info {
     flex: 1;
     overflow-y: auto;
     padding: 12px;
 }
 
-/* 空状态优化 */
+/* Empty state optimization */
 .paper-info .empty-state {
     display: flex;
     flex-direction: column;
@@ -3093,7 +3093,7 @@ mark { background: #fff59d; }
    Import Panel Styles
    ============================================ */
 
-/* 导入选项 */
+/* Import options */
 .import-options {
     margin-bottom: 16px;
 }
@@ -3117,7 +3117,7 @@ mark { background: #fff59d; }
     user-select: none;
 }
 
-/* 导入目标目录选择 */
+/* Import target directory selection */
 .import-target-category {
     margin-top: 12px;
     padding: 12px;
@@ -3162,7 +3162,7 @@ mark { background: #fff59d; }
     color: #656d76;
 }
 
-/* 拖拽上传区域 */
+/* Drag and drop upload area */
 .import-drop-zone {
     border: 2px dashed #d0d7de;
     border-radius: 12px;
@@ -3223,7 +3223,7 @@ mark { background: #fff59d; }
     margin-top: 8px;
 }
 
-/* 进度容器 */
+/* progress container */
 .import-progress-container {
     padding: 20px;
     background: #f6f8fa;
@@ -3264,7 +3264,7 @@ mark { background: #fff59d; }
     color: #57606a;
 }
 
-/* 导入结果 */
+/* Import results */
 .import-result {
     padding: 20px;
     background: #f6f8fa;
@@ -3320,7 +3320,7 @@ mark { background: #fff59d; }
     color: #8b949e;
 }
 
-/* 导入结果详情 */
+/* Import result details */
 .import-result-detail {
     text-align: center;
     padding: 12px;
@@ -3349,7 +3349,7 @@ mark { background: #fff59d; }
     gap: 12px;
 }
 
-/* 导入说明 */
+/* Import instructions */
 .import-instructions {
     display: flex;
     flex-direction: column;
@@ -3435,7 +3435,7 @@ mark { background: #fff59d; }
 }
 
 /* ========================================
-   Daily arXiv 界面
+   Daily arXiv interface
    ======================================== */
 .daily-arxiv-view {
     height: calc(100vh - 60px);
@@ -3492,7 +3492,7 @@ mark { background: #fff59d; }
     font-size: 14px;
 }
 
-/* 日期选择器 */
+/* date picker */
 .daily-arxiv-date-selector {
     display: flex;
     align-items: center;
@@ -3542,7 +3542,7 @@ mark { background: #fff59d; }
     background: #e2e8f0;
 }
 
-/* 进度条 */
+/* progress bar */
 .daily-arxiv-progress {
     background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
     border: 1px solid #93c5fd;
@@ -3600,7 +3600,7 @@ mark { background: #fff59d; }
     flex-wrap: wrap;
 }
 
-/* Daily arXiv 搜索框样式 */
+/* Daily arXiv Search box style */
 .daily-arxiv-search-box {
     position: relative;
     display: flex;
@@ -3632,7 +3632,7 @@ mark { background: #fff59d; }
     font-size: 13px;
 }
 
-/* Daily arXiv 过滤器布局 */
+/* Daily arXiv filter layout */
 .daily-arxiv-main {
     display: flex;
     gap: 16px;
@@ -3647,19 +3647,19 @@ mark { background: #fff59d; }
     border-radius: 16px;
     border: 1px solid #e5e7eb;
     padding: 16px;
-    padding-right: 20px; /* 为 resizer 留出空间 */
+    padding-right: 20px; /* for resizer leave space */
     box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
-    position: sticky; /* 粘性定位，跟随滚动 */
-    top: 24px; /* 距离顶部24px */
-    max-height: calc(100vh - 48px); /* 视口高度减去上下间距 */
-    overflow-y: auto; /* 内容过多时可滚动 */
-    overflow-x: visible; /* 确保resizer可以超出边界 */
-    flex-shrink: 0; /* 防止被压缩 */
-    align-self: flex-start; /* 对齐到顶部 */
-    z-index: 10; /* 确保在其他内容之上 */
+    position: sticky; /* Sticky positioning, follow scrolling */
+    top: 24px; /* distance from top24px */
+    max-height: calc(100vh - 48px); /* Viewport height minus top and bottom spacing */
+    overflow-y: auto; /* Scrollable when there is too much content */
+    overflow-x: visible; /* make sureresizercan go beyond boundaries */
+    flex-shrink: 0; /* prevent compression */
+    align-self: flex-start; /* Align to top */
+    z-index: 10; /* Make sure it's on top of other content */
 }
 
-/* 过滤器面板滚动条样式优化 */
+/* Filter panel scroll bar style optimization */
 .daily-arxiv-filter-panel::-webkit-scrollbar {
     width: 8px;
 }
@@ -3679,7 +3679,7 @@ mark { background: #fff59d; }
     background: #94a3b8;
 }
 
-/* 过滤器面板调整手柄 */
+/* Filter panel adjustment handle */
 .daily-arxiv-filter-resizer {
     position: absolute;
     right: -4px;
@@ -3687,7 +3687,7 @@ mark { background: #fff59d; }
     height: 100%;
     width: 12px;
     cursor: col-resize;
-    z-index: 100; /* 降低默认层级，不遮挡模态框 */
+    z-index: 100; /* Lower the default level and not block the modal box */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3710,7 +3710,7 @@ mark { background: #fff59d; }
 }
 
 .daily-arxiv-filter-resizer.resizing {
-    z-index: 9999; /* 拖动时提高层级 */
+    z-index: 9999; /* Raise level while dragging */
 }
 
 .daily-arxiv-filter-resizer.resizing::before {
@@ -3719,7 +3719,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 12px rgba(37, 99, 235, 0.8);
 }
 
-/* 过滤器面板头部 */
+/* filter panel header */
 .filter-panel-header {
     display: flex;
     align-items: center;
@@ -3736,7 +3736,7 @@ mark { background: #fff59d; }
     color: #0f172a;
 }
 
-/* 清除按钮 - 右上角风格 */
+/* clear button - upper right corner style */
 .filter-clear-btn {
     padding: 4px 10px;
     border: none;
@@ -3763,7 +3763,7 @@ mark { background: #fff59d; }
     color: #666;
 }
 
-/* 过滤器分区框 - 圆角设计 */
+/* filter partition box - Rounded corner design */
 .filter-section-box {
     background: #fff8f8;
     border: 1px solid #ffe0e0;
@@ -3831,7 +3831,7 @@ mark { background: #fff59d; }
     color: #9ca3af;
 }
 
-/* 特殊过滤项容器 */
+/* Special filter item container */
 .daily-arxiv-filter-special-items {
     display: flex;
     gap: 8px;
@@ -3840,7 +3840,7 @@ mark { background: #fff59d; }
     border-bottom: 1px solid #e5e7eb;
 }
 
-/* 特殊过滤按钮 */
+/* Special filter button */
 .daily-arxiv-filter-special {
     display: inline-flex;
     align-items: center;
@@ -3890,7 +3890,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 6px 16px rgba(59, 130, 246, 0.2);
 }
 
-/* 分区分隔线 */
+/* Partition divider */
 .filter-section-divider {
     width: 100%;
     font-size: 11px;
@@ -3906,7 +3906,7 @@ mark { background: #fff59d; }
     justify-content: space-between;
 }
 
-/* 全部隐藏按钮 */
+/* Hide all button */
 .hide-all-unknown-btn {
     display: inline-flex;
     align-items: center;
@@ -3951,13 +3951,13 @@ mark { background: #fff59d; }
     border-radius: 50%;
 }
 
-/* 过滤器选中状态 - 图标点颜色（绿色方案） */
+/* Filter selected state - Icon point color（green solution） */
 .daily-arxiv-filter-affiliation.active .dot {
     background: #22c55e !important;
     box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
 }
 
-/* 可选：粉色方案的图标点（取消下方注释并注释掉上方绿色方案即可使用）
+/* Optional: icon points for pink scheme（Cancel the comment below and comment out the green scheme above to use it）
 .daily-arxiv-filter-affiliation.active .dot {
     background: #ec4899 !important;
     box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2);
@@ -3971,7 +3971,7 @@ mark { background: #fff59d; }
     text-overflow: ellipsis;
 }
 
-/* 过滤器选中状态 - 浅绿色高亮方案（当前使用） */
+/* Filter selected state - Light green highlight solution（currently in use） */
 .daily-arxiv-filter-affiliation.active {
     background: linear-gradient(135deg, rgba(134, 239, 172, 0.4), rgba(134, 239, 172, 0.3)) !important;
     border-color: rgba(34, 197, 94, 0.5) !important;
@@ -3980,7 +3980,7 @@ mark { background: #fff59d; }
     font-weight: 600;
 }
 
-/* 可选：浅粉色高亮方案（取消下方注释并注释掉上方绿色方案即可使用）
+/* Optional: light pink highlight solution（Cancel the comment below and comment out the green scheme above to use it）
 .daily-arxiv-filter-affiliation.active {
     background: linear-gradient(135deg, rgba(251, 207, 232, 0.5), rgba(251, 207, 232, 0.4)) !important;
     border-color: rgba(236, 72, 153, 0.5) !important;
@@ -4049,7 +4049,7 @@ mark { background: #fff59d; }
     line-height: 1;
 }
 
-/* 没有国旗时的文本样式 */
+/* Text style without flag */
 .country-flag-label.no-flag {
     font-size: 10px;
     font-weight: 600;
@@ -4063,14 +4063,14 @@ mark { background: #fff59d; }
     box-shadow: 0 4px 10px rgba(148, 163, 184, 0.25);
 }
 
-/* 过滤器选中状态悬停效果 - 绿色方案 */
+/* Filter selected state hover effect - green solution */
 .daily-arxiv-filter-affiliation.active:hover {
     background: linear-gradient(135deg, rgba(134, 239, 172, 0.5), rgba(134, 239, 172, 0.4)) !important;
     box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 6px 16px rgba(34, 197, 94, 0.2);
     transform: translateY(-1px);
 }
 
-/* 可选：粉色方案的悬停效果（取消下方注释并注释掉上方绿色方案即可使用）
+/* Optional: Hover effect for pink scheme（Cancel the comment below and comment out the green scheme above to use it）
 .daily-arxiv-filter-affiliation.active:hover {
     background: linear-gradient(135deg, rgba(251, 207, 232, 0.6), rgba(251, 207, 232, 0.5)) !important;
     box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.3), 0 6px 16px rgba(236, 72, 153, 0.2);
@@ -4135,7 +4135,7 @@ mark { background: #fff59d; }
     background: rgba(0, 0, 0, 0.2);
 }
 
-/* 加载状态 */
+/* Loading status */
 .daily-arxiv-loading {
     display: flex;
     flex-direction: column;
@@ -4155,7 +4155,7 @@ mark { background: #fff59d; }
     font-size: 16px;
 }
 
-/* 空状态 */
+/* Empty state */
 .daily-arxiv-empty {
     display: flex;
     flex-direction: column;
@@ -4183,24 +4183,24 @@ mark { background: #fff59d; }
     line-height: 1.6;
 }
 
-/* 论文网格 - 自适应布局，充分利用空间 */
+/* Essay Grid - Adaptive layout to make full use of space */
 .daily-arxiv-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 24px; /* 增加列间距 */
+    gap: 24px; /* Increase column spacing */
     flex: 1;
-    /* 限制卡片最大宽度，避免只有少数论文时过度拉伸 */
+    /* Limit the maximum card width to avoid overstretching when there are only a few papers */
     grid-auto-rows: min-content;
 }
 
-/* 无匹配结果时，让网格区域改为居中布局 */
+/* When there is no matching result, change the grid area to a centered layout */
 .daily-arxiv-grid.daily-arxiv-grid-no-results {
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-/* 大屏幕：4-5列 */
+/* Big screen:4-5List */
 @media (min-width: 1800px) {
     .daily-arxiv-grid {
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -4211,7 +4211,7 @@ mark { background: #fff59d; }
     }
 }
 
-/* 中大屏幕：3-4列 */
+/* Medium to large screen:3-4List */
 @media (max-width: 1799px) and (min-width: 1400px) {
     .daily-arxiv-grid {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -4222,7 +4222,7 @@ mark { background: #fff59d; }
     }
 }
 
-/* 中等屏幕：3列 */
+/* Medium screen:3List */
 @media (max-width: 1399px) and (min-width: 1024px) {
     .daily-arxiv-grid {
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -4233,7 +4233,7 @@ mark { background: #fff59d; }
     }
 }
 
-/* 小屏幕：2列 */
+/* Small screen:2List */
 @media (max-width: 1023px) and (min-width: 768px) {
     .daily-arxiv-grid {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -4244,18 +4244,18 @@ mark { background: #fff59d; }
     }
 }
 
-/* 移动端：1列 */
+/* Mobile version:1List */
 @media (max-width: 767px) {
     .daily-arxiv-grid {
         grid-template-columns: 1fr;
         gap: 16px;
     }
     .daily-arxiv-card {
-        max-width: 100%; /* 移动端允许全宽 */
+        max-width: 100%; /* Mobile allows full width */
     }
 }
 
-/* 论文卡片 */
+/* essay card */
 .daily-arxiv-card {
     background: white;
     border-radius: 12px;
@@ -4265,9 +4265,9 @@ mark { background: #fff59d; }
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    width: 100%; /* 填满grid单元格 */
-    max-width: 450px; /* 限制卡片最大宽度，避免过度拉伸 */
-    justify-self: start; /* 在网格中左对齐，而不是拉伸填满 */
+    width: 100%; /* fill upgridcell */
+    max-width: 450px; /* Limit the maximum card width to avoid overstretching */
+    justify-self: start; /* Align left in grid instead of stretching to fill */
 }
 
 .daily-arxiv-card:hover {
@@ -4383,7 +4383,7 @@ mark { background: #fff59d; }
     white-space: nowrap;
 }
 
-/* 国家国旗显示 - 旧样式保留用于其他地方（如果有） */
+/* Country flag display - Old styles are reserved for use elsewhere（if there is） */
 .daily-arxiv-card-countries {
     display: flex;
     flex-wrap: wrap;
@@ -4429,7 +4429,7 @@ mark { background: #fff59d; }
     cursor: help;
 }
 
-/* 卡片上的 keywords 样式（在日期下方） */
+/* on the card keywords style（below the date） */
 .daily-arxiv-card-keywords {
     display: flex;
     flex-wrap: wrap;
@@ -4506,7 +4506,7 @@ mark { background: #fff59d; }
     cursor: default;
 }
 
-/* Daily arXiv 详情模态框 */
+/* Daily arXiv Details modal box */
 .daily-arxiv-detail-modal {
     position: fixed;
     top: 0;
@@ -4654,7 +4654,7 @@ mark { background: #fff59d; }
     font-size: 12px;
 }
 
-/* 详情面板中的 keywords 样式 */
+/* in the details panel keywords style */
 .daily-arxiv-detail-keywords {
     background: #f8fafc;
     border-radius: 12px;
@@ -4699,7 +4699,7 @@ mark { background: #fff59d; }
     background: #e2e8f0;
 }
 
-/* 详情面板中的 summary 样式 */
+/* in the details panel summary style */
 .daily-arxiv-detail-summary {
     background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%);
     border-radius: 12px;
@@ -4814,7 +4814,7 @@ mark { background: #fff59d; }
     cursor: not-allowed;
 }
 
-/* Daily arXiv 设置面板中的样式 */
+/* Daily arXiv Set styles in the panel */
 .daily-arxiv-category-list {
     display: flex;
     flex-wrap: wrap;
@@ -4828,7 +4828,7 @@ mark { background: #fff59d; }
 }
 
 .daily-arxiv-category-list:empty::before {
-    content: "暂未添加分区";
+    content: "No partitions added yet";
     color: #94a3b8;
     font-size: 13px;
 }
@@ -4914,7 +4914,7 @@ mark { background: #fff59d; }
     background: rgba(0, 0, 0, 0.2);
 }
 
-/* 关键词颜色方案 - 使用不同颜色区分 */
+/* keyword color scheme - Use different colors to distinguish */
 .daily-arxiv-keyword-item:nth-child(1) { background: #e0f2fe; color: #0369a1; }
 .daily-arxiv-keyword-item:nth-child(2) { background: #fce7f3; color: #9f1239; }
 .daily-arxiv-keyword-item:nth-child(3) { background: #fef3c7; color: #92400e; }
@@ -4930,7 +4930,7 @@ mark { background: #fff59d; }
 .daily-arxiv-keyword-item:nth-child(13) { background: #c7d2fe; color: #3730a3; }
 .daily-arxiv-keyword-item:nth-child(14) { background: #fed7aa; color: #7c2d12; }
 .daily-arxiv-keyword-item:nth-child(15) { background: #a5f3fc; color: #164e63; }
-/* 超过15个后循环使用颜色 */
+/* Exceed15Loop through colors */
 .daily-arxiv-keyword-item:nth-child(n+16) {
     background: #e5e7eb;
     color: #374151;
@@ -4950,7 +4950,7 @@ mark { background: #fff59d; }
     flex: 1;
 }
 
-/* 自定义机构配置样式（类似关键词） */
+/* Custom organization configuration style（Similar keywords） */
 .custom-institution-list {
     display: flex;
     flex-wrap: wrap;
@@ -4976,7 +4976,7 @@ mark { background: #fff59d; }
     position: relative;
 }
 
-/* 使用不同颜色区分机构（类似关键词） */
+/* Use different colors to distinguish institutions（Similar keywords） */
 .custom-institution-item:nth-child(6n+1) { background: #e0f2fe; color: #0369a1; }
 .custom-institution-item:nth-child(6n+2) { background: #fce7f3; color: #9f1239; }
 .custom-institution-item:nth-child(6n+3) { background: #fef3c7; color: #92400e; }
@@ -5001,7 +5001,7 @@ mark { background: #fff59d; }
     font-size: 13px;
 }
 
-/* ==================== 机构编辑模态框 - 全新设计 ==================== */
+/* ==================== Organization editing modal box - Brand new design ==================== */
 
 .institution-modal {
     display: none;
@@ -5173,7 +5173,7 @@ mark { background: #fff59d; }
 
 .institution-variants-container {
     display: flex;
-    flex-direction: column;  /* 改为垂直排列 */
+    flex-direction: column;  /* Change to vertical arrangement */
     gap: 10px;
     min-height: 60px;
     padding: 16px;
@@ -5181,12 +5181,12 @@ mark { background: #fff59d; }
     border: 2px dashed #e5e7eb;
     border-radius: 10px;
     transition: all 0.2s;
-    max-height: 300px;       /* 添加最大高度 */
-    overflow-y: auto;        /* 内容过多时可滚动 */
+    max-height: 300px;       /* Add maximum height */
+    overflow-y: auto;        /* Scrollable when there is too much content */
 }
 
 .institution-variants-container:empty::after {
-    content: '暂无变体，请在下方添加';
+    content: 'No variations yet, please add below';
     width: 100%;
     text-align: center;
     color: #9ca3af;
@@ -5196,26 +5196,26 @@ mark { background: #fff59d; }
 }
 
 .institution-variant-tag {
-    display: flex;              /* 改为 flex（而非 inline-flex）*/
+    display: flex;              /* Change to flex（rather than inline-flex）*/
     align-items: center;
-    justify-content: space-between; /* 两端对齐 */
+    justify-content: space-between; /* Justify */
     gap: 12px;
-    padding: 12px 16px;         /* 增加内边距 */
+    padding: 12px 16px;         /* increase padding */
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border-radius: 8px;
-    font-size: 14px;            /* 稍微增大字体 */
+    font-size: 14px;            /* Increase font size slightly */
     font-weight: 500;
     transition: all 0.2s;
     animation: slideIn 0.2s ease-out;
-    width: 100%;                /* 占据全宽 */
+    width: 100%;                /* Occupy full width */
     box-sizing: border-box;
 }
 
 @keyframes slideIn {
     from {
         opacity: 0;
-        transform: translateX(-10px);  /* 改为从左滑入 */
+        transform: translateX(-10px);  /* Slide in from left instead */
     }
     to {
         opacity: 1;
@@ -5224,7 +5224,7 @@ mark { background: #fff59d; }
 }
 
 .institution-variant-tag:hover {
-    transform: translateX(4px);  /* 改为向右移动 */
+    transform: translateX(4px);  /* Move right instead */
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
@@ -5232,8 +5232,8 @@ mark { background: #fff59d; }
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: normal;        /* 允许换行 */
-    word-break: break-word;     /* 长单词可以断行 */
+    white-space: normal;        /* Allow line breaks */
+    word-break: break-word;     /* Long words can be line broken */
     line-height: 1.5;
 }
 
@@ -5248,7 +5248,7 @@ mark { background: #fff59d; }
     cursor: pointer;
     font-size: 12px;
     transition: all 0.2s;
-    flex-shrink: 0;             /* 不让删除按钮缩小 */
+    flex-shrink: 0;             /* Don't let delete button shrink */
 }
 
 .institution-variant-tag .remove-variant:hover {
@@ -5377,7 +5377,7 @@ mark { background: #fff59d; }
     border-color: #cbd5e1;
 }
 
-/* 添加到文库的分类选择 */
+/* Class selection added to library */
 .add-to-library-category-select {
     width: 100%;
     padding: 10px;
@@ -5394,7 +5394,7 @@ mark { background: #fff59d; }
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-/* ==================== 自定义机构列表样式 ==================== */
+/* ==================== Customize organization list style ==================== */
 
 .custom-institution-list {
     display: flex;
@@ -5446,9 +5446,9 @@ mark { background: #fff59d; }
     transform: translateY(0);
 }
 
-/* 提示文本 */
+/* Prompt text */
 .custom-institution-item::after {
-    content: '双击编辑';
+    content: 'Double click to edit';
     font-size: 11px;
     font-weight: 400;
     opacity: 0;
@@ -5460,7 +5460,7 @@ mark { background: #fff59d; }
     opacity: 0.8;
 }
 
-/* ========== Import 类型选项卡 ========== */
+/* ========== Import Type tab ========== */
 .import-type-tabs {
     display: flex;
     gap: 12px;
@@ -5503,7 +5503,7 @@ mark { background: #fff59d; }
     display: block;
 }
 
-/* ========== Export功能样式 ========== */
+/* ========== Exportfunctional style ========== */
 .export-options {
     display: flex;
     flex-direction: column;
@@ -5635,7 +5635,7 @@ mark { background: #fff59d; }
     justify-content: flex-start;
 }
 
-/* 导出进度 */
+/* Export progress */
 #export-progress-container {
     padding: 20px;
     background: #f6f8fa;
@@ -5686,7 +5686,7 @@ mark { background: #fff59d; }
     text-overflow: ellipsis;
 }
 
-/* ========== 新手指引样式 ========== */
+/* ========== Beginner's guide style ========== */
 .onboarding-modal {
     position: fixed;
     top: 0;

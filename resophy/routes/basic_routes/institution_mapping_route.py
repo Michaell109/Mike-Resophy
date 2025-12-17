@@ -1,5 +1,5 @@
 """
-自定义机构映射管理路由
+Custom organization mapping management routing
 """
 
 import json
@@ -10,38 +10,38 @@ from flask import jsonify, request
 
 def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
     """
-    注册自定义机构映射管理路由
+    Register Custom Organization Mapping Management Route
 
     Args:
-        app: Flask 应用实例
-        daily_arxiv_settings_file: Daily arXiv 设置文件路径
+        app: Flask Application examples
+        daily_arxiv_settings_file: Daily arXiv Set file path
     """
 
     def load_settings():
-        """加载设置文件"""
+        """Load settings file"""
         if os.path.exists(daily_arxiv_settings_file):
             with open(daily_arxiv_settings_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {}
 
     def save_settings(settings):
-        """保存设置文件"""
+        """Save settings file"""
         with open(daily_arxiv_settings_file, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)
 
     @app.route("/api/custom-institutions", methods=["GET"])
     def get_custom_institutions():
-        """获取用户自定义的机构映射"""
+        """Get user-defined institution mapping"""
         try:
             settings = load_settings()
             custom_institutions = settings.get("customInstitutions", {})
 
-            # 转换为前端需要的格式
+            # Convert to the format required by the front end
             result = []
             for abbr, variants in custom_institutions.items():
                 result.append({"abbreviation": abbr, "variants": variants})
 
-            # 按缩写排序
+            # Sort by abbreviation
             result.sort(key=lambda x: x["abbreviation"])
 
             return jsonify(
@@ -52,7 +52,7 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
 
     @app.route("/api/all-known-institutions", methods=["GET"])
     def get_all_known_institutions():
-        """获取所有已知机构（系统预设 + 用户自定义）"""
+        """Get all known institutions (system default + User-defined)"""
         try:
             import sys
 
@@ -64,12 +64,12 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
 
             from institution_normalizer import InstitutionNormalizer
 
-            # 创建标准化器实例（会加载系统映射 + 用户自定义映射）
+            # Create a normalizer instance (will load the system mapping + User-defined mapping)
             normalizer = InstitutionNormalizer(
                 custom_mapping_file=daily_arxiv_settings_file
             )
 
-            # 获取所有标准机构名称（key）
+            # Get all standards body names (key）
             all_abbrs = list(normalizer.institution_map.keys())
 
             return jsonify(
@@ -80,16 +80,16 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
 
     @app.route("/api/custom-institutions", methods=["POST"])
     def save_custom_institution():
-        """保存或更新单个自定义机构"""
+        """Save or update a single custom institution"""
         try:
             data = request.json
             abbreviation = data.get("abbreviation", "").strip()
             variants = data.get("variants", [])
 
             if not abbreviation:
-                return jsonify({"success": False, "error": "缩写不能为空"}), 400
+                return jsonify({"success": False, "error": "Abbreviation cannot be empty"}), 400
 
-            # 去重并过滤空值
+            # Remove duplicates and filter out null values
             unique_variants = []
             seen = set()
             for v in variants:
@@ -99,27 +99,27 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
                     unique_variants.append(v_clean)
 
             if not unique_variants:
-                return jsonify({"success": False, "error": "至少需要一个全称变体"}), 400
+                return jsonify({"success": False, "error": "At least one full name variant is required"}), 400
 
-            # 加载设置
+            # Load settings
             settings = load_settings()
             if "customInstitutions" not in settings:
                 settings["customInstitutions"] = {}
 
-            # 保存机构
+            # depositary institution
             settings["customInstitutions"][abbreviation] = unique_variants
             save_settings(settings)
 
-            # 重新加载标准化器
+            # Reload normalizer
             reload_normalizer()
 
-            return jsonify({"success": True, "message": f"机构 {abbreviation} 已保存"})
+            return jsonify({"success": True, "message": f"mechanism {abbreviation} saved"})
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
     @app.route("/api/custom-institutions/<abbreviation>", methods=["DELETE"])
     def delete_custom_institution(abbreviation):
-        """删除自定义机构"""
+        """Delete custom organization"""
         try:
             settings = load_settings()
             custom_institutions = settings.get("customInstitutions", {})
@@ -131,15 +131,15 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
                 reload_normalizer()
 
                 return jsonify(
-                    {"success": True, "message": f"已删除机构 {abbreviation}"}
+                    {"success": True, "message": f"Organization deleted {abbreviation}"}
                 )
             else:
-                return jsonify({"success": False, "error": "机构不存在"}), 404
+                return jsonify({"success": False, "error": "Organization does not exist"}), 404
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
     def reload_normalizer():
-        """重新加载标准化器"""
+        """Reload normalizer"""
         try:
             import sys
 
@@ -149,13 +149,13 @@ def register_institution_mapping_routes(app, daily_arxiv_settings_file: str):
             if tools_dir not in sys.path:
                 sys.path.insert(0, tools_dir)
 
-            # 强制重新导入标准化器模块
+            # Force reimport of normalizer module
             import importlib
 
             import institution_normalizer
 
             importlib.reload(institution_normalizer)
 
-            print("[CustomInstitution] 标准化器已重新加载")
+            print("[CustomInstitution] Normalizer reloaded")
         except Exception as e:
-            print(f"[CustomInstitution] 重新加载标准化器失败: {e}")
+            print(f"[CustomInstitution] Reloading normalizer failed: {e}")

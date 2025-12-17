@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ paper_title or 'PDF 阅读器' }} - Resophy</title>
+    <title>{{ paper_title or 'PDF Viewer' }} - Resophy</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -98,14 +98,14 @@
 <body data-use-chinese="{{ 'true' if use_chinese else 'false' }}">
     <div class="header">
         <div>
-            <button id="back-btn" class="btn btn-secondary" title="关闭当前标签页 (Ctrl+W)">
-                <i class="fas fa-times"></i> 关闭
+            <button id="back-btn" class="btn btn-secondary" title="Close current tab (Ctrl+W)">
+                <i class="fas fa-times"></i> Close
             </button>
         </div>
-        <h3 id="pdf-title">{{ paper_title or 'PDF 阅读器' }}</h3>
+        <h3 id="pdf-title">{{ paper_title or 'PDF Viewer' }}</h3>
         <div>
             <a href="/api/paper/{{ paper_id }}/file" class="btn btn-secondary" download>
-                <i class="fas fa-download"></i> 下载
+                <i class="fas fa-download"></i> Download
             </a>
         </div>
     </div>
@@ -113,24 +113,24 @@
     <div class="pdf-container">
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p>正在加载 PDF 阅读器...</p>
+            <p>Loading PDF viewer...</p>
         </div>
         <iframe 
             id="pdf-iframe" 
             style="display: none;"
             src=""
-            title="PDF 阅读器">
+            title="PDF Viewer">
         </iframe>
     </div>
     
     <script>
-        // 获取论文信息并设置标题
+        // Get paper information and set title
         async function loadPaperInfo() {
             try {
                 const response = await fetch('/api/paper/{{ paper_id }}');
                 if (response.ok) {
                     const paper = await response.json();
-                    const resolvedTitle = paper.title || paper.filename || 'PDF 阅读器';
+                    const resolvedTitle = paper.title || paper.filename || 'PDF Viewer';
                     const titleEl = document.getElementById('pdf-title');
                     if (titleEl) {
                         titleEl.textContent = resolvedTitle;
@@ -138,92 +138,87 @@
                     document.title = resolvedTitle;
                 }
             } catch (error) {
-                console.error('加载论文信息失败:', error);
+                console.error('Failed to load paper info:', error);
             }
         }
         
-        // 初始化 PDF 查看器
+        // initialization PDF Viewer
         function initPDFViewer() {
             const iframe = document.getElementById('pdf-iframe');
             const loading = document.getElementById('loading');
             
-            // 检查是否使用中文版（从 data 属性读取，避免内联模板干扰 JS 解析）
+            // Check whether to use Chinese version (from data attribute)
             const useChinese = (document.body.getAttribute('data-use-chinese') === 'true');
             let pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/file';
             
             if (useChinese) {
-                // 使用中文版
                 pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/chinese/file';
             }
             
             console.log('PDF URL:', pdfUrl);
-            console.log('使用中文版:', useChinese);
+            console.log('Use Chinese version:', useChinese);
             
-            // 使用 fetch 检查文件是否存在
+            // Use fetch to check if file exists
             fetch(pdfUrl, { method: 'HEAD' })
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
-                    console.log('PDF文件检查成功');
+                    console.log('PDF file check succeeded');
                     
-                    // 直接在 iframe 中加载原始 PDF，避免跨域阻止
+                    // Load the raw PDF in iframe to avoid cross-origin issues
                     iframe.src = pdfUrl;
                     
-                    // 监听 iframe 加载完成
+                    // Listen for iframe load
                     iframe.onload = function() {
-                        console.log('PDF iframe 加载完成');
+                        console.log('PDF iframe loaded');
                         loading.style.display = 'none';
                         iframe.style.display = 'block';
                     };
                     
-                    // 设置超时，如果10秒还没加载完成，显示错误
+                    // Timeout: if not loaded in 10s, show error
                     setTimeout(() => {
                         if (loading.style.display !== 'none') {
-                            console.error('PDF加载超时');
+                            console.error('PDF load timeout');
                             loading.innerHTML = `
                                 <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                                <p style="color: #dc3545;">PDF 加载超时</p>
-                                <p style="color: #999; font-size: 12px; margin-top: 10px;">请检查 PDF 文件是否存在，或尝试直接下载</p>
-                                <button class="btn" onclick="location.reload()" style="margin-top: 15px;">重新加载</button>
-                                <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
+                                <p style="color: #dc3545;">PDF load timeout</p>
+                                <p style="color: #999; font-size: 12px; margin-top: 10px;">Please check if the PDF file exists, or try downloading directly.</p>
+                                <button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button>
+                                <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
                             `;
                         }
                     }, 10000);
                 })
                 .catch(error => {
-                    console.error('PDF文件检查失败:', error);
+                    console.error('PDF file check failed:', error);
                     loading.innerHTML = `
                         <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                        <p style="color: #dc3545;">PDF 加载失败</p>
-                        <p style="color: #999; font-size: 12px; margin-top: 10px;">错误信息: ${error.message}</p>
-                        <button class="btn" onclick="location.reload()" style="margin-top: 15px;">重新加载</button>
-                        <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
+                        <p style="color: #dc3545;">PDF load failed</p>
+                        <p style="color: #999; font-size: 12px; margin-top: 10px;">Error: ${error.message}</p>
+                        <button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button>
+                        <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
                     `;
                 });
             
-            // 错误处理
+            // Fallback error handler
             iframe.onerror = function() {
-                console.error('PDF iframe 加载错误');
+                console.error('PDF iframe load error');
                 loading.innerHTML = `
                     <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                    <p style="color: #dc3545;">PDF 加载失败</p>
-                    <button class="btn" onclick="location.reload()">重新加载</button>
-                    <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">下载PDF</a>
+                    <p style="color: #dc3545;">PDF load failed</p>
+                    <button class="btn" onclick="location.reload()">Reload</button>
+                    <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
                 `;
             };
         }
         
-        // 关闭窗口功能
+        // Close window helper
         function closeWindow() {
-            // 检查是否是在新标签页中打开的
             if (window.opener) {
-                // 如果是从其他窗口打开的，关闭当前窗口
                 window.close();
             } else {
-                // 尝试关闭窗口
                 const closed = window.close();
-                // 如果浏览器不允许关闭（比如直接输入URL访问），则返回主页
                 setTimeout(() => {
                     if (!closed && !window.closed) {
                         window.location.href = '/';
@@ -232,35 +227,33 @@
             }
         }
         
-        // 返回按钮功能
+        // Back button wiring
         function setupBackButton() {
             const backBtn = document.getElementById('back-btn');
             backBtn.addEventListener('click', closeWindow);
             
-            // 添加键盘快捷键支持
+            // Keyboard shortcuts
             document.addEventListener('keydown', function(e) {
-                // Ctrl+W 或 Cmd+W 关闭窗口
                 if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
                     e.preventDefault();
                     closeWindow();
                 }
-                // ESC 键也可以关闭窗口
                 if (e.key === 'Escape') {
                     closeWindow();
                 }
             });
         }
         
-        // 记录阅读时间
+        // Reading time tracking
         let readStartTime = null;
         let readTimeInterval = null;
-        let lastRecordedSeconds = 0; // 记录上次已记录的秒数
-        let lastActivityTime = null; // 最后一次用户活动时间
-        let isTimerActive = true; // 计时器是否激活（用于区分用户无活动状态）
-        let activityCheckInterval = null; // 活动检测定时器
-        const INACTIVITY_THRESHOLD = 60000; // 无活动阈值：1分钟（毫秒）
+        let lastRecordedSeconds = 0; // last recorded seconds
+        let lastActivityTime = null; // last user activity timestamp
+        let isTimerActive = true; // whether timer is active (for inactivity detection)
+        let activityCheckInterval = null; // inactivity checker
+        const INACTIVITY_THRESHOLD = 60000; // 1 minute
         
-        // 格式化日期为 YYYY-MM-DD（使用本地时间，避免时区问题）
+        // Format date as YYYY-MM-DD (local time)
         function formatDateLocal(date) {
             const d = date || new Date();
             const year = d.getFullYear();
@@ -269,22 +262,20 @@
             return `${year}-${month}-${day}`;
         }
         
-        // 记录用户活动
+        // User activity handler
         function recordUserActivity() {
             const now = Date.now();
             const wasInactive = !isTimerActive;
             lastActivityTime = now;
             
-            // 如果之前是非活动状态，现在恢复活动，需要重新开始计时
             if (wasInactive) {
-                console.log('检测到用户活动，恢复计时');
+                console.log('User activity detected, resume timing');
                 isTimerActive = true;
-                // 重新设置计时起点，但保留已记录的秒数
                 readStartTime = now;
             }
         }
         
-        // 检测用户是否长时间无活动
+        // Check for long inactivity
         function checkUserActivity() {
             if (!lastActivityTime || !isTimerActive) {
                 return;
@@ -293,18 +284,15 @@
             const now = Date.now();
             const timeSinceLastActivity = now - lastActivityTime;
             
-            // 如果超过阈值且计时器还在活动状态，则暂停计时
             if (timeSinceLastActivity > INACTIVITY_THRESHOLD && isTimerActive) {
-                console.log('检测到用户无活动超过1分钟，暂停计时');
+                console.log('Inactivity > 1 minute, pause timing');
                 isTimerActive = false;
-                // 保存当前的阅读时间
                 if (readStartTime) {
-                    const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000); // 使用最后活动时间
+                    const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000);
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
-                        console.log('保存无活动前的阅读时间:', incrementSeconds, '秒');
-                        // 发送增量到后端
+                        console.log('Saving reading time before inactivity:', incrementSeconds, 'seconds');
                         fetch(`/api/paper/{{ paper_id }}/read-time`, {
                             method: 'POST',
                             headers: {
@@ -313,9 +301,8 @@
                             body: JSON.stringify({
                                 increment: incrementSeconds
                             })
-                        }).catch(err => console.error('记录阅读时间失败:', err));
+                        }).catch(err => console.error('Failed to record reading time:', err));
                         
-                        // 记录到每日阅读数据
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds += incrementSeconds;
                     }
@@ -323,51 +310,46 @@
             }
         }
         
-        // 启动用户活动监听
+        // Start monitoring activity
         function startActivityMonitoring() {
-            // 监听各种用户活动事件
             const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
             
             activityEvents.forEach(eventType => {
                 document.addEventListener(eventType, recordUserActivity, { passive: true });
-                // 也监听 iframe 内的活动（如果可以访问）
                 const iframe = document.getElementById('pdf-iframe');
                 if (iframe) {
                     try {
                         iframe.contentWindow?.document?.addEventListener(eventType, recordUserActivity, { passive: true });
                     } catch (e) {
-                        // 跨域限制，无法访问 iframe 内容
+                        // Cross-origin, ignore
                     }
                 }
             });
             
-            // 初始化最后活动时间
             lastActivityTime = Date.now();
             isTimerActive = true;
             
-            // 每10秒检查一次用户活动状态
             activityCheckInterval = setInterval(checkUserActivity, 10000);
             
-            console.log('用户活动监控已启动');
+            console.log('Activity monitoring started');
         }
         
-        // 停止用户活动监听
+        // Stop monitoring
         function stopActivityMonitoring() {
             if (activityCheckInterval) {
                 clearInterval(activityCheckInterval);
                 activityCheckInterval = null;
             }
-            console.log('用户活动监控已停止');
+            console.log('Activity monitoring stopped');
         }
         
-        // 记录每日阅读时间到服务器（同时保存到 localStorage 作为备份）
+        // Record daily reading time to server (and localStorage as backup)
         function recordDailyReadingTime(seconds) {
             if (seconds <= 0) return;
             
             const today = formatDateLocal(new Date());
-            const minutes = Math.ceil(seconds / 60); // 秒转分钟，向上取整
+            const minutes = Math.ceil(seconds / 60);
             
-            // 发送到服务器
             fetch('/api/settings/reading-history/record', {
                 method: 'POST',
                 headers: {
@@ -376,13 +358,12 @@
                 body: JSON.stringify({ minutes, date: today })
             }).then(response => {
                 if (response.ok) {
-                    console.log(`记录每日阅读时间到服务器: ${minutes} 分钟`);
+                    console.log(`Recorded daily reading time: ${minutes} minutes`);
                 }
             }).catch(err => {
-                console.error('记录每日阅读时间失败:', err);
+                console.error('Failed to record daily reading time:', err);
             });
             
-            // 同时保存到 localStorage 作为备份
             try {
                 const key = 'dailyReadingData';
                 let data = {};
@@ -392,7 +373,6 @@
                 }
                 data[today] = (data[today] || 0) + minutes;
                 
-                // 只保留过去 400 天的数据
                 const cutoffDate = new Date();
                 cutoffDate.setDate(cutoffDate.getDate() - 400);
                 const cutoffStr = formatDateLocal(cutoffDate);
@@ -403,7 +383,7 @@
                 });
                 localStorage.setItem(key, JSON.stringify(data));
             } catch (e) {
-                console.error('保存到 localStorage 失败:', e);
+                console.error('Failed to save to localStorage:', e);
             }
         }
         
@@ -411,63 +391,54 @@
             readStartTime = Date.now();
             lastRecordedSeconds = 0;
             isTimerActive = true;
-            console.log('开始记录阅读时间');
+            console.log('Start recording reading time');
             
-            // 启动用户活动监控
             startActivityMonitoring();
             
-            // 每30秒记录一次阅读时间（发送增量）
             readTimeInterval = setInterval(function() {
-                // 只有在用户活动状态下才记录时间
                 if (readStartTime && isTimerActive) {
                     const now = Date.now();
-                    const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
+                    const elapsed = Math.floor((now - readStartTime) / 1000);
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
-                        // 发送增量到后端记录
                         fetch(`/api/paper/{{ paper_id }}/read-time`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({
-                                increment: incrementSeconds  // 发送增量而不是累计
+                                increment: incrementSeconds
                             })
-                        }).catch(err => console.error('记录阅读时间失败:', err));
+                        }).catch(err => console.error('Failed to record reading time:', err));
                         
-                        // 记录增量到每日阅读数据
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds = elapsed;
                     }
                 }
-            }, 30000); // 每30秒记录一次
+            }, 30000);
         }
         
         function stopReadingTimer() {
-            // 停止用户活动监控
             stopActivityMonitoring();
             
             if (readStartTime && isTimerActive) {
-                // 只有在活动状态下才计算并保存时间
                 const now = Date.now();
-                const elapsed = Math.floor((now - readStartTime) / 1000); // 秒
+                const elapsed = Math.floor((now - readStartTime) / 1000);
                 const incrementSeconds = elapsed - lastRecordedSeconds;
-                console.log('停止记录阅读时间, 本次增量:', incrementSeconds, '秒');
+                console.log('Stop recording reading time, increment:', incrementSeconds, 'seconds');
                 
                 if (incrementSeconds > 0) {
-                    // 发送最后的增量到后端
                     fetch(`/api/paper/{{ paper_id }}/read-time`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            increment: incrementSeconds  // 发送增量
+                            increment: incrementSeconds
                         })
-                    }).catch(err => console.error('记录阅读时间失败:', err));
+                    }).catch(err => console.error('Failed to record reading time:', err));
                     
-                    // 记录到每日阅读数据
                     recordDailyReadingTime(incrementSeconds);
                 }
             }
@@ -483,7 +454,7 @@
             }
         }
         
-        // 页面加载完成后初始化
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupBackButton();
             loadPaperInfo();
@@ -491,12 +462,12 @@
             startReadingTimer();
         });
         
-        // 页面关闭或离开时停止计时
+        // Stop timer on unload
         window.addEventListener('beforeunload', function() {
             stopReadingTimer();
         });
         
-        // 页面隐藏时停止计时（切换标签页等）
+        // Pause/resume timer on visibility change
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
                 stopReadingTimer();
