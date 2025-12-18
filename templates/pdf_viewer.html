@@ -252,6 +252,8 @@
         let isTimerActive = true; // whether timer is active (for inactivity detection)
         let activityCheckInterval = null; // inactivity checker
         const INACTIVITY_THRESHOLD = 60000; // 1 minute
+        const TIMER_INTERVAL = 10000; // 10 seconds (reduced from 30s for better accuracy)
+        let isPageUnloading = false; // Flag to track if page is unloading
         
         // Format date as YYYY-MM-DD (local time)
         function formatDateLocal(date) {
@@ -293,16 +295,7 @@
                     
                     if (incrementSeconds > 0) {
                         console.log('Saving reading time before inactivity:', incrementSeconds, 'seconds');
-                        fetch(`/api/paper/{{ paper_id }}/read-time`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                increment: incrementSeconds
-                            })
-                        }).catch(err => console.error('Failed to record reading time:', err));
-                        
+                        sendReadingTime(incrementSeconds, false);
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds += incrementSeconds;
                     }
@@ -341,6 +334,40 @@
                 activityCheckInterval = null;
             }
             console.log('Activity monitoring stopped');
+        }
+        
+        // Send reading time to server (with sendBeacon support for page unload)
+        function sendReadingTime(seconds, useBeacon = false) {
+            if (seconds <= 0) return;
+            
+            const url = `/api/paper/{{ paper_id }}/read-time`;
+            const data = JSON.stringify({ increment: seconds });
+            
+            if (useBeacon && navigator.sendBeacon) {
+                // Use sendBeacon for reliable delivery during page unload
+                const blob = new Blob([data], { type: 'application/json' });
+                const sent = navigator.sendBeacon(url, blob);
+                if (sent) {
+                    console.log('Reading time sent via sendBeacon:', seconds, 'seconds');
+                } else {
+                    console.warn('sendBeacon failed, falling back to fetch');
+                    // Fallback to fetch with keepalive
+                    fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: data,
+                        keepalive: true
+                    }).catch(err => console.error('Failed to record reading time:', err));
+                }
+            } else {
+                // Normal fetch request
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: data,
+                    keepalive: useBeacon // Use keepalive if requested
+                }).catch(err => console.error('Failed to record reading time:', err));
+            }
         }
         
         // Record daily reading time to server (and localStorage as backup)
@@ -396,49 +423,32 @@
             startActivityMonitoring();
             
             readTimeInterval = setInterval(function() {
-                if (readStartTime && isTimerActive) {
+                if (readStartTime && isTimerActive && !isPageUnloading) {
                     const now = Date.now();
                     const elapsed = Math.floor((now - readStartTime) / 1000);
                     const incrementSeconds = elapsed - lastRecordedSeconds;
                     
                     if (incrementSeconds > 0) {
-                        fetch(`/api/paper/{{ paper_id }}/read-time`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                increment: incrementSeconds
-                            })
-                        }).catch(err => console.error('Failed to record reading time:', err));
-                        
+                        sendReadingTime(incrementSeconds, false);
                         recordDailyReadingTime(incrementSeconds);
                         lastRecordedSeconds = elapsed;
                     }
                 }
-            }, 30000);
+            }, TIMER_INTERVAL);
         }
         
-        function stopReadingTimer() {
+        function stopReadingTimer(useBeacon = false) {
             stopActivityMonitoring();
             
             if (readStartTime && isTimerActive) {
                 const now = Date.now();
                 const elapsed = Math.floor((now - readStartTime) / 1000);
                 const incrementSeconds = elapsed - lastRecordedSeconds;
-                console.log('Stop recording reading time, increment:', incrementSeconds, 'seconds');
+                console.log('Stop recording reading time, increment:', incrementSeconds, 'seconds', useBeacon ? '(using beacon)' : '');
                 
                 if (incrementSeconds > 0) {
-                    fetch(`/api/paper/{{ paper_id }}/read-time`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            increment: incrementSeconds
-                        })
-                    }).catch(err => console.error('Failed to record reading time:', err));
-                    
+                    // Use sendBeacon if page is unloading, otherwise use normal fetch
+                    sendReadingTime(incrementSeconds, useBeacon);
                     recordDailyReadingTime(incrementSeconds);
                 }
             }
@@ -462,15 +472,22 @@
             startReadingTimer();
         });
         
-        // Stop timer on unload
+        // Stop timer on unload (use sendBeacon for reliable delivery)
         window.addEventListener('beforeunload', function() {
-            stopReadingTimer();
+            isPageUnloading = true;
+            stopReadingTimer(true); // Use sendBeacon when page is unloading
+        });
+        
+        // Also handle pagehide event (more reliable in some browsers)
+        window.addEventListener('pagehide', function() {
+            isPageUnloading = true;
+            stopReadingTimer(true); // Use sendBeacon when page is hiding
         });
         
         // Pause/resume timer on visibility change
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
-                stopReadingTimer();
+                stopReadingTimer(false); // Normal fetch when just hiding
             } else {
                 startReadingTimer();
             }
