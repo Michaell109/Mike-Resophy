@@ -6224,8 +6224,16 @@ function renderRecentActivity() {
                 const timeAgo = getTimeAgo(viewedAt);
                 // Calculate total reading time（PDF + AI Interpretation）
                 const totalSeconds = (paper.read_time || 0) + (paper.analysis_view_time || 0);
-                const totalMinutes = Math.floor(totalSeconds / 60);
-                const readTimeDisplay = totalMinutes > 0 ? `Read ${totalMinutes} minute` : 'unread';
+                let readTimeDisplay = 'unread';
+                if (totalSeconds > 0) {
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                    if (minutes > 0) {
+                        readTimeDisplay = seconds > 0 ? `Read ${minutes}m ${seconds}s` : `Read ${minutes}m`;
+                    } else {
+                        readTimeDisplay = `Read ${seconds}s`;
+                    }
+                }
                 
                 return `
                     <div class="recent-item" onclick="openPaperFromRecent('${paper.id}')">
@@ -6911,12 +6919,12 @@ function getTotalReadTimeText(paper) {
     
     let timeText = '';
     if (minutes > 0) {
-        timeText = `${minutes}point`;
+        timeText = `${minutes}m`;
         if (seconds > 0) {
-            timeText += `${seconds}Second`;
+            timeText += ` ${seconds}s`;
         }
     } else {
-        timeText = `${seconds}Second`;
+        timeText = `${seconds}s`;
     }
     
     return `<span style="color: #666; margin-left: 8px;">| Read: ${timeText}</span>`;
@@ -10694,7 +10702,7 @@ function updateProgressUI(category, progress) {
             } else if (elapsedSeconds < 3600) {
                 const minutes = Math.floor(elapsedSeconds / 60);
                 const seconds = elapsedSeconds % 60;
-                timeText = `${minutes}point${seconds}Second`;
+                timeText = `${minutes}m ${seconds}s`;
             } else {
                 const hours = Math.floor(elapsedSeconds / 3600);
                 const minutes = Math.floor((elapsedSeconds % 3600) / 60);
