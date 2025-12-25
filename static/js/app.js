@@ -8588,9 +8588,22 @@ async function viewAnalysisResult(paperId, event) {
 
         // widened panel
         panel.classList.add('wide');
-
-        // Process image paths
+        // Clean up LLM output
         let markdownContent = result.content || '';
+
+
+        markdownContent = markdownContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+
+        markdownContent = markdownContent.replace(/^```[a-zA-Z]*\n/, '');
+
+
+        markdownContent = markdownContent.replace(/```$/, '');
+
+        // 4. 去除首尾多余空格
+        markdownContent = markdownContent.trim();
+
+
         const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
         markdownContent = markdownContent.replace(imageRegex, (match, alt, src) => {
             if (!src.startsWith('http') && !src.startsWith('/')) {
@@ -8684,6 +8697,7 @@ async function viewAnalysisResult(paperId, event) {
         showMessage('Failed to get results', 'error');
     }
 }
+
 
 // View full screen AI Interpretation
 function openAnalysisFullscreen(paperId) {
