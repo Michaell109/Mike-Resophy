@@ -306,15 +306,21 @@ function expandToCategoryPath(targetCategoryId) {
 
 // App initialization
 document.addEventListener('DOMContentLoaded', async function() {
-    await loadCategories();
-    setupEventListeners();
-    setupNavigation();
-    loadAgenticSettings();  // unified AI configuration
-    await initImportFeature();
-    // Initialize Daily arXiv
-    await initDailyArxiv();
-    // Initialize navbar avatar
-    updateAvatars();
+    try {
+        await loadCategories();
+        setupEventListeners();
+        setupNavigation();
+        loadAgenticSettings().catch(err => {
+            console.error('Error loading agentic settings:', err);
+        });  // unified AI configuration
+        await initImportFeature();
+        // Initialize Daily arXiv
+        await initDailyArxiv();
+        // Initialize navbar avatar
+        updateAvatars();
+    } catch (e) {
+        console.error('Error during app initialization:', e);
+    }
     // Load reading list count before restoring view
     await updateReadingListCount();
     // Restore queue state, then running tasks
@@ -4847,6 +4853,7 @@ async function saveAgenticSettings(silent = false) {
     const baseUrlEl = document.getElementById('llm-base-url');
     const apiKeyEl = document.getElementById('llm-api-key');
     const mineruEl = document.getElementById('mineru-server-url');
+    const mineruApiTokenEl = document.getElementById('mineru-api-token');
     
     // Check if element exists
     if (!modelEl || !baseUrlEl || !apiKeyEl || !mineruEl) {
@@ -4857,18 +4864,26 @@ async function saveAgenticSettings(silent = false) {
         return;
     }
 
+    // Get MinerU mode
+    const mineruModeChecked = document.querySelector('input[name="mineru-mode"]:checked');
+    const mineruUseApi = mineruModeChecked ? mineruModeChecked.value === 'api' : false;
+
     const settings = {
         llmModel: modelEl.value.trim(),
         llmBaseUrl: baseUrlEl.value.trim(),
         llmApiKey: apiKeyEl.value.trim(),
-        mineruServerUrl: mineruEl.value.trim()
+        mineruServerUrl: mineruEl.value.trim(),
+        mineruUseApi: mineruUseApi,
+        mineruApiToken: mineruApiTokenEl ? mineruApiTokenEl.value.trim() : ''
     };
     
     console.log('[Save settings] ready to save:', {
         llmModel: settings.llmModel ? '***' : '(null)',
         llmBaseUrl: settings.llmBaseUrl ? '***' : '(null)',
         llmApiKey: settings.llmApiKey ? '***' : '(null)',
-        mineruServerUrl: settings.mineruServerUrl ? '***' : '(null)'
+        mineruServerUrl: settings.mineruServerUrl ? '***' : '(null)',
+        mineruUseApi: settings.mineruUseApi,
+        mineruApiToken: settings.mineruApiToken ? '***' : '(null)'
     });
     
     try {
@@ -4937,6 +4952,7 @@ async function loadAgenticSettings() {
             const baseUrlEl = document.getElementById('llm-base-url');
             const apiKeyEl = document.getElementById('llm-api-key');
             const mineruEl = document.getElementById('mineru-server-url');
+            const mineruApiTokenEl = document.getElementById('mineru-api-token');
             const promptEl = document.getElementById('analysis-system-prompt');
             
             if (modelEl) {
@@ -4955,23 +4971,77 @@ async function loadAgenticSettings() {
                 mineruEl.value = settings.mineruServerUrl || '';
                 mineruEl.addEventListener('input', autoSaveAgenticSettings);
             }
+            if (mineruApiTokenEl) {
+                mineruApiTokenEl.value = settings.mineruApiToken || '';
+                mineruApiTokenEl.addEventListener('input', autoSaveAgenticSettings);
+            }
+            
+            // Set MinerU mode radio buttons
+            const mineruUseApi = settings.mineruUseApi || false;
+            const localRadio = document.querySelector('input[name="mineru-mode"][value="local"]');
+            const apiRadio = document.querySelector('input[name="mineru-mode"][value="api"]');
+            
+            if (localRadio && apiRadio) {
+                if (mineruUseApi) {
+                    apiRadio.checked = true;
+                } else {
+                    localRadio.checked = true;
+                }
+                
+                // Add event listeners for mode change
+                localRadio.addEventListener('change', () => {
+                    toggleMineruConfigUI();
+                    autoSaveAgenticSettings();
+                });
+                apiRadio.addEventListener('change', () => {
+                    toggleMineruConfigUI();
+                    autoSaveAgenticSettings();
+                });
+                
+                // Initial UI toggle
+                toggleMineruConfigUI();
+            }
             
             // Bind test button event
             const testLlmBtn = document.getElementById('test-llm-api');
-            const testMineruBtn = document.getElementById('test-mineru-api');
+            const testMineruBtns = document.querySelectorAll('#test-mineru-btn');
             
             if (testLlmBtn) {
                 testLlmBtn.addEventListener('click', testLLMAPI);
             }
-            if (testMineruBtn) {
-                testMineruBtn.addEventListener('click', testMineruAPI);
-            }
+            // Both test buttons should use the same handler
+            testMineruBtns.forEach(btn => {
+                btn.addEventListener('click', testMineruAPI);
+            });
             
             // Load AI language setting from user settings
             await loadAILanguageSetting();
         }
     } catch (e) {
         console.error('loadAIFunction setting failed:', e);
+    }
+}
+
+// Toggle MinerU config UI based on selected mode
+function toggleMineruConfigUI() {
+    try {
+        const mode = document.querySelector('input[name="mineru-mode"]:checked');
+        const modeValue = mode ? mode.value : 'local';
+        
+        const localConfig = document.getElementById('mineru-local-config');
+        const apiConfig = document.getElementById('mineru-api-config');
+        
+        if (localConfig && apiConfig) {
+            if (modeValue === 'api') {
+                localConfig.style.display = 'none';
+                apiConfig.style.display = 'block';
+            } else {
+                localConfig.style.display = 'block';
+                apiConfig.style.display = 'none';
+            }
+        }
+    } catch (e) {
+        console.error('Error in toggleMineruConfigUI:', e);
     }
 }
 
@@ -5084,73 +5154,138 @@ async function testLLMAPI() {
 }
 
 // test MinerU API
-async function testMineruAPI() {
-    const btn = document.getElementById('test-mineru-api');
+async function testMineruAPI(event) {
+    // Find the test button that was clicked (could be in either local or API config)
+    const btn = event && event.currentTarget ? event.currentTarget : document.getElementById('test-mineru-btn');
     const resultDiv = document.getElementById('mineru-test-result');
     
     if (!btn || !resultDiv) return;
     
-    // Get current configuration
-    const mineruServerUrl = document.getElementById('mineru-server-url').value.trim();
-    
-    if (!mineruServerUrl) {
-        resultDiv.innerHTML = `
-            <div style="padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404;">
-                <i class="fas fa-exclamation-triangle"></i> Please fill in first MinerU Server URL
-            </div>
-        `;
-        resultDiv.style.display = 'block';
-        return;
-    }
+    // Get current mode
+    const mode = document.querySelector('input[name="mineru-mode"]:checked');
+    const modeValue = mode ? mode.value : 'local';
     
     // Update button state
     const originalHTML = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Under test...';
     resultDiv.style.display = 'block';
-    resultDiv.innerHTML = `
-        <div style="padding: 12px; background: #e7f3ff; border: 1px solid #2196F3; border-radius: 6px; color: #0d47a1;">
-            <i class="fas fa-spinner fa-spin"></i> Testing MinerU API connect...
-        </div>
-    `;
     
-    try {
-        const response = await fetch('/api/settings/test/mineru', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                mineruServerUrl: mineruServerUrl
-            })
-        });
+    if (modeValue === 'local') {
+        // Test local server
+        const mineruServerUrl = document.getElementById('mineru-server-url').value.trim();
         
-        const data = await response.json();
-        
-        if (data.success) {
+        if (!mineruServerUrl) {
             resultDiv.innerHTML = `
-                <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
-                    <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
-                    ${data.tested_url ? `<div style="margin-top: 8px; font-size: 13px;">Test address: ${data.tested_url}</div>` : ''}
+                <div style="padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404;">
+                    <i class="fas fa-exclamation-triangle"></i> Please fill in first MinerU Server URL
                 </div>
             `;
-        } else {
+            resultDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+            return;
+        }
+        
+        resultDiv.innerHTML = `
+            <div style="padding: 12px; background: #e7f3ff; border: 1px solid #2196F3; border-radius: 6px; color: #0d47a1;">
+                <i class="fas fa-spinner fa-spin"></i> Testing MinerU Server connect...
+            </div>
+        `;
+        
+        try {
+            const response = await fetch('/api/settings/test/mineru', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mineruServerUrl: mineruServerUrl
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
+                        <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
+                        ${data.tested_url ? `<div style="margin-top: 8px; font-size: 13px;">Test address: ${data.tested_url}</div>` : ''}
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                        <i class="fas fa-times-circle"></i> <strong>test failed</strong>
+                        <div style="margin-top: 8px; font-size: 13px;">${data.error || 'unknown error'}</div>
+                    </div>
+                `;
+            }
+        } catch (error) {
             resultDiv.innerHTML = `
                 <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
                     <i class="fas fa-times-circle"></i> <strong>test failed</strong>
-                    <div style="margin-top: 8px; font-size: 13px;">${data.error || 'unknown error'}</div>
+                    <div style="margin-top: 8px; font-size: 13px;">${error.message}</div>
                 </div>
             `;
         }
-    } catch (error) {
+    } else {
+        // Test API token
+        const mineruApiToken = document.getElementById('mineru-api-token').value.trim();
+        
+        if (!mineruApiToken) {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404;">
+                    <i class="fas fa-exclamation-triangle"></i> Please enter API token
+                </div>
+            `;
+            resultDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+            return;
+        }
+        
         resultDiv.innerHTML = `
-            <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
-                <i class="fas fa-times-circle"></i> <strong>test failed</strong>
-                <div style="margin-top: 8px; font-size: 13px;">network error: ${error.message}</div>
+            <div style="padding: 12px; background: #e7f3ff; border: 1px solid #2196F3; border-radius: 6px; color: #0d47a1;">
+                <i class="fas fa-spinner fa-spin"></i> Testing MinerU API Token...
             </div>
         `;
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalHTML;
+        
+        try {
+            const response = await fetch('/api/settings/test/mineru-api', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    apiToken: mineruApiToken
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div style="padding: 12px; background: #d4edda; border: 1px solid #28a745; border-radius: 6px; color: #155724;">
+                        <i class="fas fa-check-circle"></i> <strong>${data.message}</strong>
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                        <i class="fas fa-times-circle"></i> <strong>test failed</strong>
+                        <div style="margin-top: 8px; font-size: 13px;">${data.error || 'unknown error'}</div>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            resultDiv.innerHTML = `
+                <div style="padding: 12px; background: #f8d7da; border: 1px solid #dc3545; border-radius: 6px; color: #721c24;">
+                    <i class="fas fa-times-circle"></i> <strong>test failed</strong>
+                    <div style="margin-top: 8px; font-size: 13px;">${error.message}</div>
+                </div>
+            `;
+        }
     }
+    
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
 }
 
 // get Agentic set up
@@ -7924,8 +8059,22 @@ async function requestAnalysis(paperId, event) {
 
     // Check settings（use newAgenticUnified configuration）
     const settings = await getAgenticSettings();
-    if (!settings || !settings.mineruServerUrl || !settings.llmBaseUrl || !settings.llmApiKey) {
-        showMessage('Please configure it in settings firstAIFunction parameters（LLM APIandMinerUServe）', 'warning');
+    
+    if (!settings) {
+        showMessage('Please configure it in settings firstAIFunction parameters（LLM APIandMinerU）', 'warning');
+        // Switch to settings page
+        document.querySelector('.nav-tab[data-tab="setting"]').click();
+        return;
+    }
+    
+    // Check MinerU configuration based on mode
+    const useApi = settings.mineruUseApi === true;
+    const mineruConfigured = useApi 
+        ? (settings.mineruApiToken && settings.mineruApiToken.trim() !== '')
+        : (settings.mineruServerUrl && settings.mineruServerUrl.trim() !== '');
+    
+    if (!mineruConfigured || !settings.llmBaseUrl || !settings.llmApiKey) {
+        showMessage('Please configure it in settings firstAIFunction parameters（LLM APIandMinerU）', 'warning');
         // Switch to settings page
         document.querySelector('.nav-tab[data-tab="setting"]').click();
         return;
@@ -8001,7 +8150,6 @@ async function processAnalysisQueue() {
             },
             body: JSON.stringify({
                 paper_id: paperId,
-                mineru_server_url: settings.mineruServerUrl,
                 openai_base_url: settings.llmBaseUrl,
                 openai_api_key: settings.llmApiKey,
                 system_prompt: '',

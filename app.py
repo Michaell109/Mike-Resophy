@@ -87,7 +87,9 @@ DEFAULT_AGENTIC_SETTINGS = {
     "llmModel": "",  # LLM model name
     "llmBaseUrl": "",  # LLM API base URL
     "llmApiKey": "",  # LLM API key
-    "mineruServerUrl": "",  # PDF parsing service address
+    "mineruServerUrl": "",  # PDF parsing service address (for local mode)
+    "mineruUseApi": False,  # Toggle between local CLI mode and cloud API mode
+    "mineruApiToken": "",  # MinerU cloud API token (for API mode)
     # Note: System prompts are now built-in and selected based on user's aiLanguage setting
     # Custom prompts are no longer supported
 }

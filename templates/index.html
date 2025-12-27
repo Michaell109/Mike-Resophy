@@ -509,18 +509,57 @@
                             <i class="fas fa-info-circle"></i> 
                             Used by AI analysis to convert PDF to Markdown format.
                         </p>
+                        
+                        <!-- MinerU Mode Selection -->
                         <div class="setting-row">
                             <div class="setting-info">
-                                <label for="mineru-server-url">MinerU Server URL</label>
-                                <small>PDF parsing service URL</small>
+                                <label>MinerU Mode</label>
+                                <small>Choose between local deployment or cloud API</small>
                             </div>
-                            <div style="display: flex; gap: 8px; align-items: center;">
-                                <input type="text" id="mineru-server-url" placeholder="http://0.0.0.0:6002" class="setting-input" style="width: 300px; max-width: 300px;" />
-                                <button id="test-mineru-api" class="btn btn-secondary" style="white-space: nowrap;" title="Test MinerU API connection">
-                                    <i class="fas fa-vial"></i> Test
-                                </button>
+                            <div style="display: flex; gap: 20px; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                    <input type="radio" name="mineru-mode" value="local" checked>
+                                    <span>Local Deployment</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                    <input type="radio" name="mineru-mode" value="api">
+                                    <span>Cloud API</span>
+                                </label>
                             </div>
                         </div>
+                        
+                        <!-- Local Mode Configuration -->
+                        <div id="mineru-local-config">
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <label for="mineru-server-url">MinerU Server URL</label>
+                                    <small>Local PDF parsing service URL</small>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="text" id="mineru-server-url" placeholder="http://0.0.0.0:6002" class="setting-input" style="width: 300px; max-width: 300px;" />
+                                    <button id="test-mineru-btn" class="btn btn-secondary" style="white-space: nowrap;" title="Test MinerU connection">
+                                        <i class="fas fa-vial"></i> Test
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- API Mode Configuration -->
+                        <div id="mineru-api-config" style="display: none;">
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <label for="mineru-api-token">MinerU API Token</label>
+                                    <small>Get your token at <a href="https://mineru.net/" target="_blank" style="color: #2196F3;">https://mineru.net/</a></small>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="password" id="mineru-api-token" placeholder="Enter your API token" class="setting-input" style="width: 400px; max-width: 400px;" />
+                                    <button id="test-mineru-btn" class="btn btn-secondary" style="white-space: nowrap;" title="Test MinerU API token">
+                                        <i class="fas fa-vial"></i> Test
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div id="mineru-test-result" style="margin-top: 8px; display: none;"></div>
                     </div>
                 </div>
@@ -1207,6 +1246,87 @@
         </div>
     </div>
 
+    <!-- CDN Fallback Mechanism -->
+    <script>
+    (function() {
+        'use strict';
+        
+        // CDN fallback configuration
+        const cdnFallbacks = {
+            marked: [
+                'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
+                'https://cdn.bootcdn.net/ajax/libs/marked/9.1.6/marked.min.js',
+                'https://unpkg.com/marked/marked.min.js'
+            ],
+            hljs: [
+                'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
+                'https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js'
+            ]
+        };
+        
+        let fallbackAttempts = { marked: 0, hljs: 0 };
+        
+        // Load script with fallback
+        function loadScriptWithFallback(name, urls, index = 0) {
+            if (index >= urls.length) {
+                console.error(`❌ All CDN sources failed for ${name}`);
+                if (name === 'marked') {
+                    const msg = '⚠️ Markdown rendering library failed to load.\n' +
+                                'AI analysis may not display properly.\n\n' +
+                                'Solutions:\n' +
+                                '1. Check network connection\n' +
+                                '2. Disable ad blockers\n' +
+                                '3. Try a different browser\n' +
+                                '4. Contact administrator';
+                    console.error(msg);
+                }
+                return;
+            }
+            
+            const script = document.createElement('script');
+            script.src = urls[index];
+            script.async = false;
+            
+            script.onload = function() {
+                console.log(`✅ ${name} loaded from: ${urls[index]}`);
+            };
+            
+            script.onerror = function() {
+                console.warn(`⚠️ Failed to load ${name} from: ${urls[index]}`);
+                loadScriptWithFallback(name, urls, index + 1);
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        // Check and load missing libraries after a short delay
+        setTimeout(function() {
+            // Check Marked.js
+            if (typeof marked === 'undefined') {
+                console.warn('Marked.js not loaded, trying fallback sources...');
+                loadScriptWithFallback('marked', cdnFallbacks.marked, 0);
+            } else {
+                console.log('✅ Marked.js already loaded');
+            }
+            
+            // Check Highlight.js
+            if (typeof hljs === 'undefined') {
+                console.warn('Highlight.js not loaded, trying fallback sources...');
+                loadScriptWithFallback('hljs', cdnFallbacks.hljs, 0);
+            } else {
+                console.log('✅ Highlight.js already loaded');
+            }
+            
+            // Check MathJax
+            if (typeof MathJax === 'undefined') {
+                console.warn('⚠️ MathJax not loaded - mathematical formulas may not render');
+            } else {
+                console.log('✅ MathJax already loaded');
+            }
+        }, 1000);
+    })();
+    </script>
+    
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

@@ -35,36 +35,67 @@ def register_agent_summary_routes(
     def api_analyze_paper():
         """AI InterpretationPDFpaper - Start background task"""
         try:
+            import json
+
             data = request.json or {}
             paper_id = data.get("paper_id")
-            mineru_server_url = data.get("mineru_server_url")
             openai_base_url = data.get("openai_base_url")
             openai_api_key = data.get("openai_api_key")
             system_prompt = data.get(
                 "system_prompt", ""
             )  # Allow empty, use default value
 
-            if (
-                not paper_id
-                or not mineru_server_url
-                or not openai_base_url
-                or not openai_api_key
-            ):
+            if not paper_id or not openai_base_url or not openai_api_key:
                 return (
                     jsonify({"success": False, "error": "Missing required parameters"}),
                     400,
                 )
+
+            # Read full config from settings file
+            with open(agentic_settings_file, "r", encoding="utf-8") as f:
+                agentic_settings = json.load(f)
+
+            use_api = agentic_settings.get("mineruUseApi", False)
+            mineru_config = {
+                "useApi": use_api,
+                "serverUrl": (
+                    agentic_settings.get("mineruServerUrl", "") if not use_api else ""
+                ),
+                "apiToken": (
+                    agentic_settings.get("mineruApiToken", "") if use_api else ""
+                ),
+            }
+
+            # Validate based on mode
+            if use_api:
+                if not mineru_config["apiToken"]:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "MinerU API token is required. Please configure it in settings.",
+                            }
+                        ),
+                        400,
+                    )
+            else:
+                if not mineru_config["serverUrl"]:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "MinerU Server URL is required. Please configure it in settings.",
+                            }
+                        ),
+                        400,
+                    )
 
             # Test before starting a task API connect
             # test LLM API - If no model name is provided in the request, read from the configuration file
             llm_model = data.get("openai_model", "").strip()
             if not llm_model and agentic_settings_file:
                 try:
-                    import json
-
-                    with open(agentic_settings_file, "r", encoding="utf-8") as f:
-                        agentic_settings = json.load(f)
-                        llm_model = agentic_settings.get("llmModel", "").strip()
+                    llm_model = agentic_settings.get("llmModel", "").strip()
                 except Exception:
                     pass
 
@@ -93,14 +124,26 @@ def register_agent_summary_routes(
                     400,
                 )
 
-            # test MinerU API
-            mineru_success, mineru_error = test_mineru_api(mineru_server_url)
+            # test MinerU based on mode
+            if use_api:
+                # Test API token
+                from resophy.tools.api_test_utils import test_mineru_api_token
+
+                mineru_success, mineru_error = test_mineru_api_token(
+                    mineru_config["apiToken"]
+                )
+            else:
+                # Test local server
+                mineru_success, mineru_error = test_mineru_api(
+                    mineru_config["serverUrl"]
+                )
+
             if not mineru_success:
                 return (
                     jsonify(
                         {
                             "success": False,
-                            "error": f"MinerU API test failed: {mineru_error}",
+                            "error": f"MinerU test failed: {mineru_error}",
                         }
                     ),
                     400,
@@ -202,7 +245,7 @@ def register_agent_summary_routes(
                     pdf_path,
                     pdf_dir,
                     pdf_filename,
-                    mineru_server_url,
+                    mineru_config,
                     openai_base_url,
                     openai_api_key,
                     system_prompt,
