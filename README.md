@@ -52,6 +52,12 @@
 
 # Resophy
 
+## 🆕 News
+
+**2025-12-27：MinerU Official API Support**: Resophy now supports MinerU's official cloud API! You can use MinerU's cloud service for PDF parsing without deploying your own MinerU server. Simply configure your API token in Settings → Agentic → MinerU Mode (select "Cloud API") and enter your token from [https://mineru.net/](https://mineru.net/). This makes it easier to get started with AI interpretation features without GPU requirements.
+
+---
+
 In this era of information explosion, researchers often feel overwhelmed when facing massive amounts of papers. How to quickly extract the essence and understand cutting-edge achievements has become a pain point for every researcher. Resophy was born with the intention of helping you bid farewell to inefficient paper reading, empowering researchers, and making paper reading more efficient and intelligent 📚⚡.
 
 Resophy is a fully open-source, Vibe Coding-oriented modern paper reader that helps you quickly understand the core content of papers through a simple tech stack (HTML + JavaScript + Python Flask) and AI features 🤖💡. From automatic translation to paper parsing, from intelligent recommendations to one-click Zotero import, Resophy provides a one-stop solution for your paper reading needs 📑✨. Most importantly, you can customize features at any time through **Vibe Coding**, creating a paper assistant tailored to you 🎨🛠️.
@@ -177,7 +183,11 @@ In this section, we briefly introduce some usage methods of Resophy
   - Base URL: Enter API address (local: `http://0.0.0.0:6002/v1` or remote API)
   - API Key: Enter access key
   - Test Button: Verify API connection
-- **MinerU Server Configuration**: Enter server address (e.g., `http://0.0.0.0:6001`) for PDF parsing
+- **MinerU Configuration**:
+  - **Mode Selection**: Choose between "Local Deployment" or "Cloud API"
+  - **Local Deployment**: Enter server address (e.g., `http://0.0.0.0:6001`) for self-hosted MinerU server
+  - **Cloud API**: Enter API token from [https://mineru.net/](https://mineru.net/) for MinerU cloud service
+  - Test Button: Verify connection (server or API token)
 - **AI Interpretation Prompt**: Large text editor for customizing System Prompt, controlling AI interpretation generation style
 
 **Purpose**: Unified AI feature configuration for translation, interpretation, Daily arXiv, and all other AI features
@@ -281,7 +291,9 @@ Resophy's AI interpretation feature uses a two-step process to deeply analyze pa
 
 1. **Parse PDF to Markdown**:
    - Use [MinerU](https://github.com/opendatalab/MinerU) tool to parse PDF into structured Markdown
-   - Connect to configured MinerU server (supports vLLM deployment)
+   - Supports two modes:
+     - **Cloud API**: Use MinerU's official cloud service (no GPU required, easy setup)
+     - **Local Deployment**: Connect to self-hosted MinerU server (supports vLLM deployment)
    - Preserve images, tables, and other elements, generate high-quality Markdown document
 
 2. **LLM Deep Interpretation**:

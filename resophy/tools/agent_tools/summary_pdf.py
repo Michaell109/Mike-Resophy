@@ -32,7 +32,7 @@ def analyze_paper_task(
     pdf_path: str,
     pdf_dir: str,
     pdf_filename: str,
-    mineru_server_url: str,
+    mineru_config: dict,
     openai_base_url: str,
     openai_api_key: str,
     system_prompt: str,
@@ -93,105 +93,165 @@ INPUT: <MARKDOWN>"""
                 log_lines.append("Step one: start toPDFparsed asMarkdown...")
                 log_lines.append("=" * 50)
 
-        os.chdir(pdf_dir)
-
-        cmd = [
-            "mineru",
-            "-p",
-            pdf_filename,
-            "-o",
-            "outputs",
-            "-b",
-            "vlm-http-client",
-            "-u",
-            mineru_server_url,
-        ]
-
-        print(f"implementPDF2MDOrder: {' '.join(cmd)}")
-        print(f"working directory: {pdf_dir}")
-
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-        )
-
-        with deps.analysis_tasks_lock:
-            deps.analysis_tasks[task_id]["process"] = process
-
-        stdout_thread = threading.Thread(
-            target=read_output, args=(process.stdout, "STDOUT")
-        )
-        stderr_thread = threading.Thread(
-            target=read_output, args=(process.stderr, "STDERR")
-        )
-        stdout_thread.daemon = True
-        stderr_thread.daemon = True
-        stdout_thread.start()
-        stderr_thread.start()
-
-        return_code = process.wait(timeout=3600)
-
-        stdout_thread.join(timeout=1)
-        stderr_thread.join(timeout=1)
-
-        if return_code != 0:
-            raise Exception(f"PDF2MDfail (exit code: {return_code})")
-
         base_name = os.path.splitext(pdf_filename)[0]
-        outputs_dir = os.path.join(pdf_dir, "outputs")
+        pdf_output_dir = os.path.join(pdf_dir, "outputs", base_name, "vlm")
 
-        pdf_output_dir = os.path.join(outputs_dir, base_name, "vlm")
-        if not os.path.exists(pdf_output_dir):
-            candidate = None
-            for item in os.listdir(outputs_dir):
-                item_path = os.path.join(outputs_dir, item)
-                if os.path.isdir(item_path) and base_name in item:
-                    vlm_dir = os.path.join(item_path, "vlm")
-                    if os.path.exists(vlm_dir):
-                        candidate = vlm_dir
-                        break
-            if candidate:
-                pdf_output_dir = candidate
+        # Check if using API mode or local CLI mode
+        use_api = mineru_config.get("useApi", False)
 
-        if not pdf_output_dir or not os.path.exists(pdf_output_dir):
-            raise Exception("not foundPDFparse output directory")
+        if use_api:
+            # API Mode: Use MinerU cloud API
+            with log_lock:
+                log_lines.append("Using MinerU Cloud API mode")
 
-        with log_lock:
-            log_lines.append(f"Find the output directory: {pdf_output_dir}")
+            from resophy.tools.basic_tools.mineru_api_client import MinerUAPIClient
 
-        vlm_items = os.listdir(pdf_output_dir)
-        md_file = None
-        for item in vlm_items:
-            item_path = os.path.join(pdf_output_dir, item)
-            if item == "images" and os.path.isdir(item_path):
-                continue
-            elif item.endswith(".md") and os.path.isfile(item_path):
-                md_file = item_path
-                continue
-            else:
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                    with log_lock:
-                        log_lines.append(f"delete directory: {item}")
-                else:
-                    os.remove(item_path)
-                    with log_lock:
-                        log_lines.append(f"Delete files: {item}")
+            api_token = mineru_config.get("apiToken", "")
+            if not api_token:
+                raise Exception("MinerU API token is not configured")
 
-        if not md_file:
-            raise Exception("Generated not foundMarkdowndocument")
+            client = MinerUAPIClient(api_token)
 
-        with log_lock:
-            log_lines.append("=" * 50)
-            log_lines.append(
-                "The first step is completed:PDFhas been parsed asMarkdown"
+            # Progress callback
+            def on_progress(state, extracted_pages, total_pages):
+                with log_lock:
+                    if state == "waiting-file":
+                        log_lines.append("Waiting for file upload...")
+                    elif state == "pending":
+                        log_lines.append("In queue...")
+                    elif state == "running":
+                        log_lines.append(
+                            f"Parsing progress: {extracted_pages}/{total_pages} pages"
+                        )
+                    elif state == "converting":
+                        log_lines.append("Format converting...")
+
+            # Create output directory
+            os.makedirs(pdf_output_dir, exist_ok=True)
+
+            # Parse PDF to Markdown using API
+            md_file = client.parse_pdf_to_markdown(
+                pdf_path=pdf_path,
+                output_dir=pdf_output_dir,
+                progress_callback=on_progress,
             )
-            log_lines.append(f"Markdowndocument: {md_file}")
-            log_lines.append("=" * 50)
+
+            if not md_file:
+                raise Exception("API parsing failed")
+
+            with log_lock:
+                log_lines.append("=" * 50)
+                log_lines.append(
+                    "The first step is completed:PDFhas been parsed asMarkdown"
+                )
+                log_lines.append(f"Markdowndocument: {md_file}")
+                log_lines.append("=" * 50)
+        else:
+            # Local CLI Mode: Use mineru command
+            with log_lock:
+                log_lines.append("Using Local MinerU CLI mode")
+
+            mineru_server_url = mineru_config.get("serverUrl", "")
+            if not mineru_server_url:
+                raise Exception("MinerU Server URL is not configured")
+
+            os.chdir(pdf_dir)
+
+            cmd = [
+                "mineru",
+                "-p",
+                pdf_filename,
+                "-o",
+                "outputs",
+                "-b",
+                "vlm-http-client",
+                "-u",
+                mineru_server_url,
+            ]
+
+            print(f"implementPDF2MDOrder: {' '.join(cmd)}")
+            print(f"working directory: {pdf_dir}")
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+
+            with deps.analysis_tasks_lock:
+                deps.analysis_tasks[task_id]["process"] = process
+
+            stdout_thread = threading.Thread(
+                target=read_output, args=(process.stdout, "STDOUT")
+            )
+            stderr_thread = threading.Thread(
+                target=read_output, args=(process.stderr, "STDERR")
+            )
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
+
+            return_code = process.wait(timeout=3600)
+
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+
+            if return_code != 0:
+                raise Exception(f"PDF2MDfail (exit code: {return_code})")
+
+            outputs_dir = os.path.join(pdf_dir, "outputs")
+
+            if not os.path.exists(pdf_output_dir):
+                candidate = None
+                for item in os.listdir(outputs_dir):
+                    item_path = os.path.join(outputs_dir, item)
+                    if os.path.isdir(item_path) and base_name in item:
+                        vlm_dir = os.path.join(item_path, "vlm")
+                        if os.path.exists(vlm_dir):
+                            candidate = vlm_dir
+                            break
+                if candidate:
+                    pdf_output_dir = candidate
+
+            if not pdf_output_dir or not os.path.exists(pdf_output_dir):
+                raise Exception("not foundPDFparse output directory")
+
+            with log_lock:
+                log_lines.append(f"Find the output directory: {pdf_output_dir}")
+
+            vlm_items = os.listdir(pdf_output_dir)
+            md_file = None
+            for item in vlm_items:
+                item_path = os.path.join(pdf_output_dir, item)
+                if item == "images" and os.path.isdir(item_path):
+                    continue
+                elif item.endswith(".md") and os.path.isfile(item_path):
+                    md_file = item_path
+                    continue
+                else:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                        with log_lock:
+                            log_lines.append(f"delete directory: {item}")
+                    else:
+                        os.remove(item_path)
+                        with log_lock:
+                            log_lines.append(f"Delete files: {item}")
+
+            if not md_file:
+                raise Exception("Generated not foundMarkdowndocument")
+
+            with log_lock:
+                log_lines.append("=" * 50)
+                log_lines.append(
+                    "The first step is completed:PDFhas been parsed asMarkdown"
+                )
+                log_lines.append(f"Markdowndocument: {md_file}")
+                log_lines.append("=" * 50)
 
         with deps.analysis_tasks_lock:
             deps.analysis_tasks[task_id]["step"] = "llm_analysis"

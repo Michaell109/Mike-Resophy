@@ -208,6 +208,26 @@ The following are detailed deployment steps:
 
 MinerU is used to parse PDF documents into structured Markdown format and is the foundation of the AI interpretation feature.
 
+You have two options for using MinerU:
+
+**Option 1: Use MinerU Official Cloud API (Recommended for Quick Start)**
+
+This is the easiest way to get started without GPU requirements:
+
+1. **Get API Token**: Visit [https://mineru.net/](https://mineru.net/) to register and get your API token
+2. **Configure in Resophy**: 
+   - Go to Settings → Agentic tab
+   - Under "MinerU Mode", select "Cloud API"
+   - Enter your API token
+   - Click "Test" to verify the connection
+   - Save settings
+
+That's it! You can now use MinerU's cloud service for PDF parsing without any local deployment.
+
+**Option 2: Deploy MinerU Locally (Requires GPU)**
+
+If you prefer to deploy MinerU on your own server:
+
 **Step1: Download MinerU2.5 Model**
 
 MinerU requires downloading the corresponding model files. Model files should be placed in the `ai_server/` directory:
@@ -232,6 +252,13 @@ mineru-vllm-server \
 ```
 
 MinerU will start an API server at `http://0.0.0.0:6001` for parsing PDFs into Markdown format.
+
+**Step3. Configure in Resophy**:
+- Go to Settings → Agentic tab
+- Under "MinerU Mode", select "Local Deployment"
+- Enter your MinerU server URL (e.g., `http://0.0.0.0:6001`)
+- Click "Test" to verify the connection
+- Save settings
 
 > **Note**: MinerU server requires GPU support. If using CPU inference, please refer to the [MinerU official documentation](https://github.com/opendatalab/MinerU?tab=readme-ov-file#local-deployment) for configuration.
 

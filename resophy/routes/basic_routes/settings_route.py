@@ -630,7 +630,7 @@ def register_settings_routes(
 
     @app.route("/api/settings/test/mineru", methods=["POST"])
     def api_test_mineru():
-        """test MinerU API connect"""
+        """test MinerU local server connect"""
         try:
             import requests
 
@@ -648,64 +648,74 @@ def register_settings_routes(
                     400,
                 )
 
-            # Remove trailing slash
-            mineru_server_url = mineru_server_url.rstrip("/")
-
-            # try to connect MinerU Serve
-            # generally MinerU The service may have a health check endpoint, if not then the root path is tried
-            test_urls = [
-                f"{mineru_server_url}/health",
-                f"{mineru_server_url}/",
-                f"{mineru_server_url}/api/health",
-            ]
-
-            last_error = None
-            for test_url in test_urls:
-                try:
-                    response = requests.get(
-                        test_url,
-                        timeout=10.0,  # 10seconds timeout
-                        allow_redirects=True,
+            # Test health endpoint
+            test_url = f"{mineru_server_url.rstrip('/')}/health"
+            try:
+                response = requests.get(test_url, timeout=10)
+                if response.status_code == 200:
+                    return jsonify(
+                        {
+                            "success": True,
+                            "message": "MinerU server is accessible",
+                            "tested_url": test_url,
+                        }
                     )
-                    # if return 200-299 Status code, the connection is considered successful
-                    if 200 <= response.status_code < 300:
-                        return jsonify(
-                            {
-                                "success": True,
-                                "message": "MinerU API Connection successful!",
-                                "status_code": response.status_code,
-                                "tested_url": test_url,
-                            }
-                        )
-                    # If it is another status code, continue to try the next one URL
-                    last_error = f"HTTP {response.status_code}"
-                except requests.exceptions.Timeout:
-                    last_error = "Connection timeout"
-                    continue
-                except requests.exceptions.ConnectionError:
-                    last_error = "Unable to connect to server"
-                    continue
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-
-            # all URL All failed
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"MinerU API Connection failed: {last_error}. Check, please URL Is it correct and the service is running?",
-                }
-            )
-
-        except ImportError:
-            return (
-                jsonify(
+                else:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": f"Server returned status {response.status_code}",
+                        }
+                    )
+            except requests.exceptions.ConnectionError:
+                return jsonify(
                     {
                         "success": False,
-                        "error": "requests The library is not installed, please run: pip install requests",
+                        "error": f"Cannot connect to {mineru_server_url}",
                     }
-                ),
-                500,
-            )
+                )
+            except requests.exceptions.Timeout:
+                return jsonify({"success": False, "error": "Connection timeout"})
+
+        except Exception as exc:
+            return jsonify({"success": False, "error": f"test failed: {str(exc)}"}), 500
+
+    @app.route("/api/settings/test/mineru-api", methods=["POST"])
+    def api_test_mineru_api_token():
+        """test MinerU API token"""
+        try:
+            from resophy.tools.api_test_utils import test_mineru_api_token
+
+            data = request.json or {}
+            api_token = data.get("apiToken", "").strip()
+
+            if not api_token:
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "Please enter API token",
+                        }
+                    ),
+                    400,
+                )
+
+            success, error_msg = test_mineru_api_token(api_token)
+
+            if success:
+                return jsonify(
+                    {
+                        "success": True,
+                        "message": "API token is valid and working",
+                    }
+                )
+            else:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": error_msg,
+                    }
+                )
+
         except Exception as exc:
             return jsonify({"success": False, "error": f"test failed: {str(exc)}"}), 500

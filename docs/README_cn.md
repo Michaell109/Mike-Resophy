@@ -51,6 +51,12 @@
 
 # Resophy
 
+## 🆕 最新动态
+
+**MinerU 官方 API 支持**：Resophy 现已支持 MinerU 官方云端 API！您可以使用 MinerU 的云端服务进行 PDF 解析，无需部署自己的 MinerU 服务器。只需在设置 → Agentic → MinerU 模式中选择"Cloud API"，并输入从 [https://mineru.net/](https://mineru.net/) 获取的 API Token 即可。这使得无需 GPU 也能轻松使用 AI 解读功能。
+
+---
+
 在如今信息爆炸的时代，科研人员面对海量的论文，常常感到疲惫不堪。如何快速获取精华、理解前沿成果，成了每个研究者的痛点。Resophy 诞生的初衷就是要让你告别低效的论文阅读，赋能科研者，让读论文变得更高效、更智能📚⚡。
 
 Resophy 是一个完全开源、Vibe Coding 导向的现代论文阅读器，它通过简洁的技术栈（HTML + JavaScript + Python Flask）和 AI 功能，帮助你快速理解论文的核心内容🤖💡。从自动翻译到论文解析，从智能推荐到一键导入 Zotero，Resophy 一站式解决你的论文阅读需求📑✨。最重要的是，你可以随时通过 **Vibe Coding** 的方式自定义功能，打造成专属于你的论文助手🎨🛠️。
@@ -180,7 +186,11 @@ Resophy 使用 `uv` 进行依赖管理，支持分离部署架构。你可以将
   - Base URL：输入 API 地址（本地：`http://0.0.0.0:6002/v1` 或远程 API）
   - API Key：输入访问密钥
   - 测试按钮：验证 API 连接
-- **MinerU 服务器配置**：输入服务器地址（如：`http://0.0.0.0:6001`），用于 PDF 解析
+- **MinerU 配置**：
+  - **模式选择**：选择 "Local Deployment"（本地部署）或 "Cloud API"（云端 API）
+  - **本地部署**：输入服务器地址（如：`http://0.0.0.0:6001`），用于自建 MinerU 服务器
+  - **云端 API**：输入从 [https://mineru.net/](https://mineru.net/) 获取的 API Token，使用 MinerU 云端服务
+  - 测试按钮：验证连接（服务器或 API Token）
 - **AI 解读提示词**：大型文本编辑器，可自定义 System Prompt，控制 AI 解读生成风格
 
 **用途**：统一的 AI 功能配置，用于翻译、解读、Daily arXiv 等所有 AI 功能
@@ -284,7 +294,9 @@ Resophy 的 AI 解读功能采用两步流程，深度分析论文内容：
 
 1. **PDF 解析为 Markdown**：
    - 使用 [MinerU](https://github.com/opendatalab/MinerU) 工具将 PDF 解析为结构化 Markdown
-   - 连接到配置的 MinerU 服务器（支持 vLLM 部署）
+   - 支持两种模式：
+     - **云端 API**：使用 MinerU 官方云端服务（无需 GPU，配置简单）
+     - **本地部署**：连接到自建的 MinerU 服务器（支持 vLLM 部署）
    - 保留图片、表格等元素，生成高质量的 Markdown 文档
 
 2. **LLM 深度解读**：

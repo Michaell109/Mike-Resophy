@@ -1,145 +1,122 @@
 """
-API test utility function
-used at startup AI pre-task testing API connect
+API test utilities for testing LLM and MinerU connections
 """
 
-from __future__ import annotations
-
-from typing import Dict, Tuple
+import requests
 
 
-def test_llm_api(
-    llm_model: str, llm_base_url: str, llm_api_key: str
-) -> Tuple[bool, str]:
+def test_llm_api(model: str, base_url: str, api_key: str) -> tuple[bool, str]:
     """
-    test LLM API connect
+    Test LLM API connection
 
     Args:
-        llm_model: LLM Model name
-        llm_base_url: LLM API Base URL
-        llm_api_key: LLM API key
+        model: Model name
+        base_url: Base URL
+        api_key: API key
 
     Returns:
-        (success: bool, error_message: str)
-        If successful,error_message is an empty string
+        (success, error_message)
     """
-    if not llm_model or not llm_base_url or not llm_api_key:
-        return (
-            False,
-            "Please fill in the complete LLM API configure(Model、Base URL、API Key）",
-        )
-
-    # import OpenAI client
     try:
         from openai import OpenAI
-    except ImportError:
-        return (
-            False,
-            "OpenAI The library is not installed, please run: pip install openai",
-        )
 
-    # Create client
-    try:
-        client = OpenAI(
-            base_url=llm_base_url,
-            api_key=llm_api_key,
-            timeout=30.0,  # 30seconds timeout
-        )
+        client = OpenAI(api_key=api_key, base_url=base_url)
 
-        # Send test message
-        test_message = "Can you see my message, if you can, respond with Yes."
+        # Try to list models
+        models = client.models.list()
+        if not models.data:
+            return False, "No models available"
+
+        # Try a simple completion
         response = client.chat.completions.create(
-            model=llm_model,
-            messages=[
-                {"role": "user", "content": test_message},
-            ],
-            max_tokens=50,  # Limit reply length
+            model=model, messages=[{"role": "user", "content": "Hi"}], max_tokens=10
         )
 
-        # check reply
-        if response.choices and len(response.choices) > 0:
-            reply = response.choices[0].message.content.strip()
-            # Check if it contains "Yes"(not case sensitive)
-            if "yes" in reply.lower():
-                return (True, "")
-            else:
-                return (
-                    False,
-                    f"LLM API A response was returned, but not as expected. Reply content: {reply}",
-                )
+        if response.choices and response.choices[0].message:
+            return True, "Connection successful"
         else:
-            return (False, "LLM API Returned an empty reply")
+            return False, "No valid response"
 
     except Exception as e:
-        error_msg = str(e)
-        # Provide friendlier error messages
-        if "401" in error_msg or "Unauthorized" in error_msg:
-            return (False, "API Key Invalid or unauthorized")
-        elif "404" in error_msg or "Not Found" in error_msg:
-            return (False, "API Endpoint does not exist, please check Base URL Is it correct?")
-        elif "timeout" in error_msg.lower():
-            return (False, "Connection timed out, please check network connection and Base URL")
-        else:
-            return (False, f"LLM API call failed: {error_msg}")
+        return False, str(e)
 
 
-def test_mineru_api(mineru_server_url: str) -> Tuple[bool, str]:
+def test_mineru_api(server_url: str) -> tuple[bool, str]:
     """
-    test MinerU API connect
+    Test MinerU local server connection
 
     Args:
-        mineru_server_url: MinerU Serve URL
+        server_url: MinerU server URL
 
     Returns:
-        (success: bool, error_message: str)
-        If successful,error_message is an empty string
+        (success, error_message)
     """
-    if not mineru_server_url:
-        return (False, "Please fill in MinerU Server URL")
-
     try:
-        import requests
-    except ImportError:
-        return (False, "requests The library is not installed, please run: pip install requests")
+        # Test health endpoint
+        test_url = f"{server_url.rstrip('/')}/health"
+        response = requests.get(test_url, timeout=10)
 
-    # Remove trailing slash
-    mineru_server_url = mineru_server_url.rstrip("/")
+        if response.status_code == 200:
+            return True, "MinerU server is accessible"
+        else:
+            return False, f"Server returned status {response.status_code}"
 
-    # try to connect MinerU Serve
-    # generally MinerU The service may have a health check endpoint, if not then the root path is tried
-    test_urls = [
-        f"{mineru_server_url}/health",
-        f"{mineru_server_url}/",
-        f"{mineru_server_url}/api/health",
-    ]
-
-    last_error = None
-    for test_url in test_urls:
-        try:
-            response = requests.get(
-                test_url,
-                timeout=10.0,  # 10seconds timeout
-                allow_redirects=True,
-            )
-            # if return 200-299 Status code, the connection is considered successful
-            if 200 <= response.status_code < 300:
-                return (True, "")
-            # If it is another status code, continue to try the next one URL
-            last_error = f"HTTP {response.status_code}"
-        except requests.exceptions.Timeout:
-            last_error = "Connection timeout"
-            continue
-        except requests.exceptions.ConnectionError:
-            last_error = "Unable to connect to server"
-            continue
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    # all URL All failed
-    return (
-        False,
-        f"MinerU API Connection failed: {last_error}. Check, please URL Is it correct and the service is running?",
-    )
+    except requests.exceptions.ConnectionError:
+        return False, f"Cannot connect to {server_url}"
+    except requests.exceptions.Timeout:
+        return False, "Connection timeout"
+    except Exception as e:
+        return False, str(e)
 
 
+def test_mineru_api_token(api_token: str) -> tuple[bool, str]:
+    """
+    Test MinerU API token validity
+
+    Args:
+        api_token: MinerU API token
+
+    Returns:
+        (success, error_message)
+    """
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_token}",
+        }
+
+        # Try a simple API call (request upload links with a dummy file)
+        # Using a dummy file name to test token validity without actually uploading
+        response = requests.post(
+            "https://mineru.net/api/v4/file-urls/batch",
+            headers=headers,
+            json={
+                "files": [{"name": "test.pdf", "data_id": "test"}],
+                "model_version": "vlm",
+            },
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("code") == 0:
+                return True, "API token is valid"
+            else:
+                # If we get a business logic error, it means the token is valid
+                # but the request parameters might be wrong (e.g., file doesn't exist)
+                # This is still a success for token validation purposes
+                error_msg = result.get("msg", "Unknown error")
+                return True, f"API token is valid (Note: {error_msg})"
+        elif response.status_code == 401:
+            return False, "Invalid API token or authentication failed"
+        elif response.status_code == 403:
+            return False, "Access forbidden - check your token permissions"
+        else:
+            return False, f"HTTP {response.status_code}: {response.text}"
+
+    except requests.exceptions.ConnectionError:
+        return False, "Cannot connect to MinerU API server"
+    except requests.exceptions.Timeout:
+        return False, "Connection timeout"
+    except Exception as e:
+        return False, f"Connection failed: {str(e)}"

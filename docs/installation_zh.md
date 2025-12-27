@@ -208,6 +208,26 @@ Resophy 的 AI 功能（**AI 翻译**、**AI 解读**、**Daily arXiv**）依赖
 
 MinerU 用于将 PDF 文档解析为结构化的 Markdown 格式，是 AI 解读功能的基础。
 
+您有两种方式使用 MinerU：
+
+**方式一：使用 MinerU 官方云端 API（推荐，快速上手）**
+
+这是最简单的方式，无需 GPU 支持：
+
+1. **获取 API Token**：访问 [https://mineru.net/](https://mineru.net/) 注册并获取您的 API Token
+2. **在 Resophy 中配置**：
+   - 进入设置 → Agentic 标签页
+   - 在 "MinerU 模式" 下选择 "Cloud API"
+   - 输入您的 API Token
+   - 点击 "Test" 验证连接
+   - 保存设置
+
+完成！您现在可以使用 MinerU 的云端服务进行 PDF 解析，无需任何本地部署。
+
+**方式二：本地部署 MinerU（需要 GPU）**
+
+如果您希望在自己的服务器上部署 MinerU：
+
 **Step1: 下载 MinerU2.5 模型**
 
 MinerU 需要下载对应的模型文件。模型文件应放置在 `ai_server/` 目录下：
@@ -232,6 +252,13 @@ mineru-vllm-server \
 ```
 
 MinerU 将会在 `http://0.0.0.0:6001` 启动一个 API 服务器，用于将 PDF 解析为 Markdown 格式。
+
+**Step3. 在 Resophy 中配置**：
+- 进入设置 → Agentic 标签页
+- 在 "MinerU 模式" 下选择 "Local Deployment"
+- 输入您的 MinerU 服务器地址（如：`http://0.0.0.0:6001`）
+- 点击 "Test" 验证连接
+- 保存设置
 
 > **注意**：MinerU 服务器需要 GPU 支持。如果使用 CPU 推理，请参考 [MinerU 官方文档](https://github.com/opendatalab/MinerU?tab=readme-ov-file#local-deployment) 进行配置。
 
