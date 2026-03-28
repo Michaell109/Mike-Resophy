@@ -19,6 +19,7 @@ from resophy.routes.agent_routes.agent_translate_route import (
 )
 from resophy.routes.basic_routes.category_tree_route import register_category_routes
 from resophy.routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
+from resophy.routes.basic_routes.csv_import_route import register_csv_import_routes
 from resophy.routes.basic_routes.export_route import register_export_routes
 from resophy.routes.basic_routes.import_route import register_import_routes
 from resophy.routes.basic_routes.institution_mapping_route import (
@@ -529,6 +530,17 @@ def register_routes():
     register_export_routes(
         app,
         papers_dir=UPLOAD_FOLDER,
+    )
+
+    register_csv_import_routes(
+        app,
+        get_categories=get_categories,
+        get_category_path=get_category_path,
+        create_category_folder=create_category_folder,
+        save_paper_metadata=save_paper_metadata,
+        reading_list_file=READING_LIST_FILE,
+        reading_list_temp_dir=READING_LIST_TEMP_DIR,
+        paper_store=paper_store,
     )
 
     register_institution_mapping_routes(

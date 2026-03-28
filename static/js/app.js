@@ -371,6 +371,15 @@ function setupEventListeners() {
             showMessage('Please select a category first', 'warning');
         }
     });
+
+    // Import from CSV button
+    document.getElementById('upload-csv-btn').addEventListener('click', () => {
+        if (currentCategoryId || currentViewMode === 'reading-list') {
+            showCsvUploadModal();
+        } else {
+            showMessage('Please select a category first', 'warning');
+        }
+    });
     
     // Refresh button
     document.getElementById('refresh-papers').addEventListener('click', () => {
@@ -3565,6 +3574,224 @@ function showArxivUploadModal() {
     }
     
     showModal();
+}
+
+// ============================================================================
+// CSV Import
+// ============================================================================
+
+let csvImportTaskId = null;
+let csvImportPollInterval = null;
+
+function showCsvUploadModal() {
+    const modalTitle = document.querySelector('#modal-title');
+    const modalBody = document.querySelector('#modal-body');
+    const confirmBtn = document.querySelector('#modal-confirm');
+    const cancelBtn = document.querySelector('#modal-cancel');
+
+    modalTitle.textContent = 'Import from CSV';
+    modalBody.innerHTML = `
+        <div style="margin-bottom: 15px;">
+            <label for="csv-file-input" style="display: block; margin-bottom: 5px; font-weight: 500;">Select CSV file:</label>
+            <input type="file" id="csv-file-input" accept=".csv"
+                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+            <p style="margin-top: 8px; font-size: 12px; color: #666;">
+                CSV should have a <strong>Link</strong> column containing paper URLs (OpenAlex or arXiv).<br>
+                Optional columns: Title, Authors, Year, Abstract, Keywords, Institutions, Venue
+            </p>
+        </div>
+    `;
+
+    confirmBtn.style.display = 'inline-block';
+    confirmBtn.textContent = 'Import';
+    cancelBtn.textContent = 'Cancel';
+
+    const confirmBtnClone = confirmBtn.cloneNode(true);
+    const cancelBtnClone = cancelBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(confirmBtnClone, confirmBtn);
+    cancelBtn.parentNode.replaceChild(cancelBtnClone, cancelBtn);
+
+    const newConfirmBtn = document.getElementById('modal-confirm');
+    const newCancelBtn = document.getElementById('modal-cancel');
+
+    newConfirmBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const fileInput = document.getElementById('csv-file-input');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            showMessage('Please select a CSV file', 'warning');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        hideModal();
+        await startCsvImport(file);
+    };
+
+    newCancelBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideModal();
+    };
+
+    showModal();
+}
+
+async function startCsvImport(file) {
+    const categoryId = currentViewMode === 'reading-list'
+        ? 'reading_list_temp'
+        : currentCategoryId;
+
+    if (!categoryId) {
+        showMessage('Please select a category first', 'warning');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category_id', categoryId);
+
+    try {
+        const response = await fetch('/api/csv-import/start', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (!data.success) {
+            showMessage(data.error || 'Failed to start CSV import', 'error');
+            return;
+        }
+
+        csvImportTaskId = data.task_id;
+        showCsvImportProgressModal(data.total);
+        csvImportPollInterval = setInterval(checkCsvImportProgress, 1000);
+    } catch (error) {
+        console.error('CSV import start failed:', error);
+        showMessage('Failed to start CSV import', 'error');
+    }
+}
+
+function showCsvImportProgressModal(total) {
+    const modalTitle = document.querySelector('#modal-title');
+    const modalBody = document.querySelector('#modal-body');
+    const confirmBtn = document.querySelector('#modal-confirm');
+    const cancelBtn = document.querySelector('#modal-cancel');
+
+    modalTitle.textContent = 'Importing papers from CSV';
+    modalBody.innerHTML = `
+        <div style="margin-bottom: 15px;">
+            <div id="csv-import-progress-text" style="margin-bottom: 10px; font-size: 14px;">
+                Preparing...
+            </div>
+            <div style="background: #e9ecef; border-radius: 4px; overflow: hidden; height: 20px;">
+                <div id="csv-import-progress-bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <div id="csv-import-current" style="margin-top: 10px; font-size: 13px; color: #666; word-break: break-all;"></div>
+            <div id="csv-import-errors" style="margin-top: 10px; font-size: 12px; color: #999; max-height: 100px; overflow-y: auto;"></div>
+        </div>
+    `;
+
+    confirmBtn.style.display = 'none';
+    cancelBtn.textContent = 'Cancel';
+
+    const cancelBtnClone = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(cancelBtnClone, cancelBtn);
+
+    const newCancelBtn = document.getElementById('modal-cancel');
+    newCancelBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (csvImportTaskId) {
+            try {
+                await fetch(`/api/csv-import/cancel/${csvImportTaskId}`, { method: 'POST' });
+            } catch (err) {
+                console.error('Cancel failed:', err);
+            }
+        }
+        if (csvImportPollInterval) {
+            clearInterval(csvImportPollInterval);
+            csvImportPollInterval = null;
+        }
+        hideModal();
+    };
+
+    showModal();
+}
+
+async function checkCsvImportProgress() {
+    if (!csvImportTaskId) return;
+
+    try {
+        const response = await fetch(`/api/csv-import/status/${csvImportTaskId}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            clearInterval(csvImportPollInterval);
+            csvImportPollInterval = null;
+            hideModal();
+            showMessage('Failed to check import status', 'error');
+            return;
+        }
+
+        const task = data.task;
+        const progress = task.progress || 0;
+        const total = task.total || 1;
+        const percent = Math.round((progress / total) * 100);
+
+        const progressBar = document.getElementById('csv-import-progress-bar');
+        const progressText = document.getElementById('csv-import-progress-text');
+        const currentEl = document.getElementById('csv-import-current');
+        const errorsEl = document.getElementById('csv-import-errors');
+
+        if (progressBar) progressBar.style.width = percent + '%';
+        if (progressText) progressText.textContent = `Importing: ${progress} / ${total} (${percent}%)`;
+        if (currentEl && task.current_paper) currentEl.textContent = `Current: ${task.current_paper}`;
+
+        // Show errors as they happen
+        if (errorsEl && task.errors && task.errors.length > 0) {
+            const errorCount = task.errors.length;
+            errorsEl.textContent = `${errorCount} skipped (no PDF available or download failed)`;
+        }
+
+        if (task.status === 'completed') {
+            clearInterval(csvImportPollInterval);
+            csvImportPollInterval = null;
+
+            const imported = task.imported_count || 0;
+            const errors = task.error_count || 0;
+
+            hideModal();
+            showMessage(`CSV import done: ${imported} imported, ${errors} skipped`, imported > 0 ? 'success' : 'warning');
+
+            // Refresh
+            await updateReadingListCount();
+            if (currentViewMode === 'reading-list') {
+                showReadingList();
+            } else if (currentCategoryId) {
+                loadPapers(currentCategoryId);
+            }
+            await updateCategoriesData();
+            renderCategoryTreeWithState();
+
+            csvImportTaskId = null;
+        } else if (task.status === 'failed') {
+            clearInterval(csvImportPollInterval);
+            csvImportPollInterval = null;
+            hideModal();
+            showMessage('CSV import failed', 'error');
+            csvImportTaskId = null;
+        } else if (task.status === 'cancelled') {
+            clearInterval(csvImportPollInterval);
+            csvImportPollInterval = null;
+            hideModal();
+            showMessage('CSV import cancelled', 'warning');
+            csvImportTaskId = null;
+        }
+    } catch (error) {
+        console.error('CSV import status check failed:', error);
+    }
 }
 
 // global search（real time）
