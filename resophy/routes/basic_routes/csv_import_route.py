@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -163,6 +164,7 @@ def _csv_import_task(
 ):
     """Background worker: process each CSV row, resolve link, download PDF, import"""
     imported_papers: List[Dict[str, str]] = []
+    skipped_papers: List[Dict[str, str]] = []
     errors: List[Dict[str, str]] = []
 
     def _load_reading_list() -> List[str]:
@@ -198,6 +200,15 @@ def _csv_import_task(
                 print("[CSV Import] Task cancelled")
                 break
 
+        # Check pause: block until resumed or cancelled
+        while True:
+            with csv_import_tasks_lock:
+                task_status = csv_import_tasks[task_id]["status"]
+            if task_status == "paused":
+                time.sleep(0.5)
+                continue
+            break
+
         link = (row.get("Link") or "").strip()
         title = (row.get("Title") or "").strip()
 
@@ -210,7 +221,82 @@ def _csv_import_task(
             errors.append({"link": "", "title": title, "reason": "Empty link"})
             continue
 
-        # Resolve link to PDF URL
+        # Resolve link to get arxiv_id for duplicate detection
+        arxiv_id = _extract_arxiv_id_from_url(link)
+
+        # Duplicate detection: check if paper already exists by arxiv_id or title
+        existing_entry = paper_store.find_duplicate(arxiv_id=arxiv_id, title=title)
+        if existing_entry and existing_entry.paper.file_path and os.path.exists(existing_entry.paper.file_path):
+            existing_paper = existing_entry.paper
+            # Determine target filename
+            clean_title = _clean_filename(title)
+            if clean_title:
+                pdf_filename = f"{clean_title}.pdf"
+            elif arxiv_id:
+                pdf_filename = f"{arxiv_id}.pdf"
+            else:
+                pdf_filename = f"paper_{uuid.uuid4().hex[:8]}.pdf"
+
+            file_path = os.path.join(category_folder, pdf_filename)
+
+            # Handle filename collisions
+            counter = 1
+            original_filename = pdf_filename
+            while os.path.exists(file_path):
+                name, ext = os.path.splitext(original_filename)
+                pdf_filename = f"{name}_{counter}{ext}"
+                file_path = os.path.join(category_folder, pdf_filename)
+                counter += 1
+
+            # Copy existing PDF and JSON to target folder
+            try:
+                shutil.copy2(existing_paper.file_path, file_path)
+                existing_json = os.path.splitext(existing_paper.file_path)[0] + ".json"
+                if os.path.exists(existing_json):
+                    shutil.copy2(existing_json, os.path.splitext(file_path)[0] + ".json")
+            except Exception as exc:
+                errors.append({"link": link, "title": title, "reason": f"Copy failed: {exc}"})
+                continue
+
+            # Create new Paper object based on existing, with new id and path
+            paper = Paper(
+                id=str(uuid.uuid4()),
+                filename=pdf_filename,
+                original_filename=pdf_filename,
+                file_path=file_path,
+                upload_date=datetime.now().isoformat(),
+                title=existing_paper.title or title or os.path.splitext(pdf_filename)[0],
+                authors=existing_paper.authors or (row.get("Authors") or "").strip(),
+                abstract=existing_paper.abstract or (row.get("Abstract") or "").strip(),
+                year=existing_paper.year or (row.get("Year") or "").strip(),
+                keywords=existing_paper.keywords or (row.get("Keywords") or "").strip(),
+                affiliation=existing_paper.affiliation or (row.get("Institutions") or "").strip(),
+                journal=existing_paper.journal or (row.get("Venue") or "").strip(),
+                arxiv_id=existing_paper.arxiv_id or arxiv_id,
+                arxiv_url=existing_paper.arxiv_url or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None),
+                github=existing_paper.github,
+                homepage=existing_paper.homepage,
+                upload_source="csv_import",
+            )
+
+            # Save metadata for the new copy
+            save_paper_metadata(file_path, paper)
+
+            # Register to paper_store
+            paper_store.upsert(
+                paper,
+                category_id=category_id,
+                category_path=category_path,
+            )
+
+            # Add to reading list
+            _add_to_reading_list(paper.id)
+
+            skipped_papers.append({"id": paper.id, "title": paper.title})
+            print(f"[CSV Import] Skipped duplicate ({idx + 1}/{total}): {title[:50]}...")
+            continue
+
+        # Not a duplicate — resolve link to PDF URL and download
         resolved = _resolve_link(link)
         if not resolved:
             errors.append({"link": link, "title": title, "reason": "Cannot resolve PDF URL"})
@@ -218,7 +304,8 @@ def _csv_import_task(
 
         # Get PDF URL(s) - OpenAlex returns single url, arXiv returns list
         pdf_urls = resolved.get("pdf_urls") or resolved.get("pdf_url")
-        arxiv_id = resolved.get("arxiv_id")
+        if not arxiv_id:
+            arxiv_id = resolved.get("arxiv_id")
 
         # Download PDF
         pdf_content = _download_pdf(pdf_urls)
@@ -296,11 +383,13 @@ def _csv_import_task(
     with csv_import_tasks_lock:
         csv_import_tasks[task_id]["status"] = "completed"
         csv_import_tasks[task_id]["imported_papers"] = imported_papers
+        csv_import_tasks[task_id]["skipped_papers"] = skipped_papers
         csv_import_tasks[task_id]["errors"] = errors
         csv_import_tasks[task_id]["imported_count"] = len(imported_papers)
+        csv_import_tasks[task_id]["skipped_count"] = len(skipped_papers)
         csv_import_tasks[task_id]["error_count"] = len(errors)
 
-    print(f"[CSV Import] Done: {len(imported_papers)} imported, {len(errors)} errors")
+    print(f"[CSV Import] Done: {len(imported_papers)} imported, {len(skipped_papers)} skipped (duplicate), {len(errors)} errors")
 
 
 # ============================================================================
@@ -389,8 +478,10 @@ def register_csv_import_routes(
                 "total": len(csv_rows),
                 "current_paper": "",
                 "imported_papers": [],
+                "skipped_papers": [],
                 "errors": [],
                 "imported_count": 0,
+                "skipped_count": 0,
                 "error_count": 0,
                 "created_at": datetime.now().isoformat(),
             }
@@ -435,6 +526,7 @@ def register_csv_import_routes(
                     "total": task["total"],
                     "current_paper": task["current_paper"],
                     "imported_count": task.get("imported_count", 0),
+                    "skipped_count": task.get("skipped_count", 0),
                     "error_count": task.get("error_count", 0),
                     "errors": task.get("errors", []),
                 },
@@ -454,3 +546,33 @@ def register_csv_import_routes(
             task["status"] = "cancelled"
 
         return jsonify({"success": True, "message": "Task cancelled"})
+
+    @app.route("/api/csv-import/pause/<task_id>", methods=["POST"])
+    def api_csv_import_pause(task_id: str):
+        """Pause CSV import task"""
+        with csv_import_tasks_lock:
+            if task_id not in csv_import_tasks:
+                return jsonify({"success": False, "error": "Task not found"}), 404
+
+            task = csv_import_tasks[task_id]
+            if task["status"] != "running":
+                return jsonify({"success": False, "error": "Task is not running"}), 400
+
+            task["status"] = "paused"
+
+        return jsonify({"success": True, "message": "Task paused"})
+
+    @app.route("/api/csv-import/resume/<task_id>", methods=["POST"])
+    def api_csv_import_resume(task_id: str):
+        """Resume CSV import task"""
+        with csv_import_tasks_lock:
+            if task_id not in csv_import_tasks:
+                return jsonify({"success": False, "error": "Task not found"}), 404
+
+            task = csv_import_tasks[task_id]
+            if task["status"] != "paused":
+                return jsonify({"success": False, "error": "Task is not paused"}), 400
+
+            task["status"] = "running"
+
+        return jsonify({"success": True, "message": "Task resumed"})

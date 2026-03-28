@@ -2029,6 +2029,23 @@ body {
     border-color: #6b2c91;
 }
 
+.ti-item.ti-import {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-color: #a5d6a7;
+}
+
+.ti-item.ti-import:hover {
+    background: #c8e6c9;
+    border-color: #81c784;
+}
+
+.ti-item.has-tasks.ti-import {
+    background: #66bb6a;
+    color: #fff;
+    border-color: #43a047;
+}
+
 .nav-tab.ti-daily-arxiv {
     background: #fff0f0 !important;
     color: #c62828 !important;

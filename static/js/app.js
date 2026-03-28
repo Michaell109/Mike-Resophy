@@ -3582,6 +3582,7 @@ function showArxivUploadModal() {
 
 let csvImportTaskId = null;
 let csvImportPollInterval = null;
+let csvImportLastTask = null; // cache last task data for modal refresh
 
 function showCsvUploadModal() {
     const modalTitle = document.querySelector('#modal-title');
@@ -3665,59 +3666,118 @@ async function startCsvImport(file) {
         }
 
         csvImportTaskId = data.task_id;
-        showCsvImportProgressModal(data.total);
+        csvImportLastTask = null;
+        // Start polling — nav button will appear via updateTaskCounts
         csvImportPollInterval = setInterval(checkCsvImportProgress, 1000);
+        // Immediately update nav button
+        updateCsvImportButton(true);
+        showMessage('CSV import started', 'success');
     } catch (error) {
         console.error('CSV import start failed:', error);
         showMessage('Failed to start CSV import', 'error');
     }
 }
 
-function showCsvImportProgressModal(total) {
+function showCsvImportProgressModal() {
+    const task = csvImportLastTask;
     const modalTitle = document.querySelector('#modal-title');
     const modalBody = document.querySelector('#modal-body');
     const confirmBtn = document.querySelector('#modal-confirm');
     const cancelBtn = document.querySelector('#modal-cancel');
 
-    modalTitle.textContent = 'Importing papers from CSV';
+    const isRunning = task && (task.status === 'running' || task.status === 'paused');
+    const isPaused = task && task.status === 'paused';
+    const isDone = task && (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled');
+
+    modalTitle.textContent = isPaused ? 'CSV Import Paused' : (isDone ? 'CSV Import Finished' : 'Importing papers from CSV');
+
+    const progress = task ? (task.progress || 0) : 0;
+    const total = task ? (task.total || 1) : 1;
+    const percent = Math.round((progress / total) * 100);
+    const skipped = task ? (task.skipped_count || 0) : 0;
+    const errorCount = task ? ((task.errors && task.errors.length) || 0) : 0;
+    const imported = task ? (task.imported_count || 0) : 0;
+
+    let statusParts = [];
+    if (skipped > 0) statusParts.push(`${skipped} skipped (duplicate)`);
+    if (errorCount > 0) statusParts.push(`${errorCount} failed`);
+
     modalBody.innerHTML = `
         <div style="margin-bottom: 15px;">
             <div id="csv-import-progress-text" style="margin-bottom: 10px; font-size: 14px;">
-                Preparing...
+                ${isDone ? 'Done' : (isPaused ? 'Paused' : `Importing: ${progress} / ${total} (${percent}%)`)}
             </div>
             <div style="background: #e9ecef; border-radius: 4px; overflow: hidden; height: 20px;">
-                <div id="csv-import-progress-bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                <div id="csv-import-progress-bar" style="background: ${isPaused ? '#ff9800' : '#4CAF50'}; height: 100%; width: ${percent}%; transition: width 0.3s;"></div>
             </div>
-            <div id="csv-import-current" style="margin-top: 10px; font-size: 13px; color: #666; word-break: break-all;"></div>
-            <div id="csv-import-errors" style="margin-top: 10px; font-size: 12px; color: #999; max-height: 100px; overflow-y: auto;"></div>
+            <div id="csv-import-current" style="margin-top: 10px; font-size: 13px; color: #666; word-break: break-all;">
+                ${task && task.current_paper ? `Current: ${escapeHtml(task.current_paper)}` : ''}
+            </div>
+            <div id="csv-import-errors" style="margin-top: 10px; font-size: 12px; color: #999; max-height: 100px; overflow-y: auto;">
+                ${statusParts.join(', ')}
+            </div>
+            ${isDone ? `<div style="margin-top: 10px; font-size: 14px; font-weight: 500;">
+                ${imported} imported${skipped > 0 ? `, ${skipped} skipped (duplicate)` : ''}${errorCount > 0 ? `, ${errorCount} failed` : ''}
+            </div>` : ''}
         </div>
     `;
 
-    confirmBtn.style.display = 'none';
-    cancelBtn.textContent = 'Cancel';
-
-    const cancelBtnClone = cancelBtn.cloneNode(true);
-    cancelBtn.parentNode.replaceChild(cancelBtnClone, cancelBtn);
-
-    const newCancelBtn = document.getElementById('modal-cancel');
-    newCancelBtn.onclick = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (csvImportTaskId) {
-            try {
-                await fetch(`/api/csv-import/cancel/${csvImportTaskId}`, { method: 'POST' });
-            } catch (err) {
-                console.error('Cancel failed:', err);
+    // Buttons: show pause/resume/stop for active tasks, close for done
+    if (isRunning && !isDone) {
+        confirmBtn.style.display = 'inline-block';
+        confirmBtn.textContent = isPaused ? 'Resume' : 'Pause';
+        confirmBtn.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isPaused) {
+                await fetch(`/api/csv-import/resume/${csvImportTaskId}`, { method: 'POST' });
+            } else {
+                await fetch(`/api/csv-import/pause/${csvImportTaskId}`, { method: 'POST' });
             }
-        }
-        if (csvImportPollInterval) {
-            clearInterval(csvImportPollInterval);
-            csvImportPollInterval = null;
-        }
-        hideModal();
-    };
+            // Modal will refresh on next poll
+        };
+        cancelBtn.textContent = 'Stop';
+        cancelBtn.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (csvImportTaskId) {
+                try {
+                    await fetch(`/api/csv-import/cancel/${csvImportTaskId}`, { method: 'POST' });
+                } catch (err) {
+                    console.error('Cancel failed:', err);
+                }
+            }
+        };
+    } else {
+        confirmBtn.style.display = 'none';
+        cancelBtn.textContent = 'Close';
+        cancelBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            hideModal();
+        };
+    }
 
     showModal();
+}
+
+function updateCsvImportButton(active) {
+    const btn = document.getElementById('btn-show-csv-import');
+    const countEl = document.getElementById('ti-import-count');
+    if (!btn) return;
+
+    if (active) {
+        btn.style.display = 'inline-flex';
+        btn.classList.add('has-tasks');
+        if (countEl) countEl.textContent = '1';
+    } else {
+        btn.classList.remove('has-tasks');
+        if (countEl) countEl.textContent = '0';
+        // Hide after a short delay so user can see completion
+        setTimeout(() => {
+            if (!csvImportTaskId) btn.style.display = 'none';
+        }, 3000);
+    }
 }
 
 async function checkCsvImportProgress() {
@@ -3730,40 +3790,40 @@ async function checkCsvImportProgress() {
         if (!data.success) {
             clearInterval(csvImportPollInterval);
             csvImportPollInterval = null;
+            updateCsvImportButton(false);
+            csvImportTaskId = null;
+            csvImportLastTask = null;
             hideModal();
             showMessage('Failed to check import status', 'error');
             return;
         }
 
         const task = data.task;
-        const progress = task.progress || 0;
-        const total = task.total || 1;
-        const percent = Math.round((progress / total) * 100);
+        csvImportLastTask = task;
 
-        const progressBar = document.getElementById('csv-import-progress-bar');
-        const progressText = document.getElementById('csv-import-progress-text');
-        const currentEl = document.getElementById('csv-import-current');
-        const errorsEl = document.getElementById('csv-import-errors');
-
-        if (progressBar) progressBar.style.width = percent + '%';
-        if (progressText) progressText.textContent = `Importing: ${progress} / ${total} (${percent}%)`;
-        if (currentEl && task.current_paper) currentEl.textContent = `Current: ${task.current_paper}`;
-
-        // Show errors as they happen
-        if (errorsEl && task.errors && task.errors.length > 0) {
-            const errorCount = task.errors.length;
-            errorsEl.textContent = `${errorCount} skipped (no PDF available or download failed)`;
+        // If the modal is open, refresh its content
+        const modalEl = document.getElementById('modal');
+        if (modalEl && modalEl.classList.contains('show')) {
+            showCsvImportProgressModal();
         }
+
+        // Update nav button
+        const isActive = task.status === 'running' || task.status === 'paused';
+        updateCsvImportButton(isActive);
 
         if (task.status === 'completed') {
             clearInterval(csvImportPollInterval);
             csvImportPollInterval = null;
 
             const imported = task.imported_count || 0;
+            const skippedDone = task.skipped_count || 0;
             const errors = task.error_count || 0;
 
-            hideModal();
-            showMessage(`CSV import done: ${imported} imported, ${errors} skipped`, imported > 0 ? 'success' : 'warning');
+            let msgParts = [];
+            if (imported > 0) msgParts.push(`${imported} imported`);
+            if (skippedDone > 0) msgParts.push(`${skippedDone} skipped (duplicate)`);
+            if (errors > 0) msgParts.push(`${errors} failed`);
+            showMessage(`CSV import done: ${msgParts.join(', ') || 'nothing to import'}`, imported > 0 || skippedDone > 0 ? 'success' : 'warning');
 
             // Refresh
             await updateReadingListCount();
@@ -3775,19 +3835,27 @@ async function checkCsvImportProgress() {
             await updateCategoriesData();
             renderCategoryTreeWithState();
 
-            csvImportTaskId = null;
+            // Keep button visible briefly, then clear
+            setTimeout(() => {
+                csvImportTaskId = null;
+                csvImportLastTask = null;
+            }, 5000);
         } else if (task.status === 'failed') {
             clearInterval(csvImportPollInterval);
             csvImportPollInterval = null;
-            hideModal();
             showMessage('CSV import failed', 'error');
-            csvImportTaskId = null;
+            setTimeout(() => {
+                csvImportTaskId = null;
+                csvImportLastTask = null;
+            }, 5000);
         } else if (task.status === 'cancelled') {
             clearInterval(csvImportPollInterval);
             csvImportPollInterval = null;
-            hideModal();
             showMessage('CSV import cancelled', 'warning');
-            csvImportTaskId = null;
+            setTimeout(() => {
+                csvImportTaskId = null;
+                csvImportLastTask = null;
+            }, 3000);
         }
     } catch (error) {
         console.error('CSV import status check failed:', error);
@@ -4990,6 +5058,14 @@ function setupNavigation() {
         btnShowReadingList.addEventListener('click', () => {
             switchTab('paper');
             showReadingList();
+        });
+    }
+
+    // CSV import progress button
+    const btnShowCsvImport = document.getElementById('btn-show-csv-import');
+    if (btnShowCsvImport) {
+        btnShowCsvImport.addEventListener('click', () => {
+            showCsvImportProgressModal();
         });
     }
 }

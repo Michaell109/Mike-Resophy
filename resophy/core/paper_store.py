@@ -187,6 +187,24 @@ class PaperStore:
         with self._lock:
             return [entry.paper for entry in self._papers.values()]
 
+    def find_duplicate(
+        self,
+        arxiv_id: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> Optional[PaperEntry]:
+        """Find an existing paper by arXiv ID or title (case-insensitive)."""
+        with self._lock:
+            if arxiv_id:
+                for entry in self._papers.values():
+                    if entry.paper.arxiv_id == arxiv_id:
+                        return entry
+            if title:
+                title_lower = title.strip().lower()
+                for entry in self._papers.values():
+                    if entry.paper.title and entry.paper.title.strip().lower() == title_lower:
+                        return entry
+            return None
+
     # ------------------------------------------------------------------
     # Status helpers
     # ------------------------------------------------------------------
