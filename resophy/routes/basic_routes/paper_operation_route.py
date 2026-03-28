@@ -935,3 +935,72 @@ def register_paper_operation_routes(
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to start re-crawling: {exc}")
             return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/category/<category_id>/dedup", methods=["POST"])
+    def api_category_dedup(category_id: str):
+        """Remove duplicate papers in a category, keeping the best version.
+
+        Retention priority: has both analysis & translation > has analysis > has translation > neither.
+        Duplicates are matched by arxiv_id (if present) or title (case-insensitive).
+        """
+        try:
+            categories = get_categories()
+            category_path = get_category_path(categories, category_id)
+            if not category_path:
+                return jsonify({"success": False, "error": "Category not found"}), 404
+
+            papers = get_papers_in_category(category_id, category_path)
+            if not papers:
+                return jsonify({"success": True, "removed": 0, "kept": 0, "groups": []})
+
+            def _dedup_score(p: Paper) -> int:
+                score = 0
+                if p.has_analysis_result:
+                    score += 2
+                if p.has_chinese_version:
+                    score += 1
+                return score
+
+            # Group duplicates
+            groups: Dict[str, List[Paper]] = {}  # key -> list of papers
+            for p in papers:
+                key = None
+                if p.arxiv_id:
+                    key = f"arxiv:{p.arxiv_id}"
+                elif p.title:
+                    key = f"title:{p.title.strip().lower()}"
+                if key:
+                    groups.setdefault(key, []).append(p)
+
+            # Filter to only groups with duplicates
+            dup_groups = {k: v for k, v in groups.items() if len(v) > 1}
+
+            removed_ids: List[str] = []
+            kept_ids: List[str] = []
+
+            for key, group in dup_groups.items():
+                # Sort by score descending, then by upload_date descending (keep newest)
+                sorted_papers = sorted(group, key=lambda p: (_dedup_score(p), p.upload_date or ""), reverse=True)
+                keeper = sorted_papers[0]
+                kept_ids.append(keeper.id)
+
+                for paper in sorted_papers[1:]:
+                    try:
+                        delete_paper_files(paper.file_path)
+                        paper_store.remove(paper.id)
+                        remove_from_reading_list(paper.id)
+                        removed_ids.append(paper.id)
+                        print(f"[Dedup] Removed duplicate: {paper.title[:60]}...")
+                    except Exception as exc:
+                        print(f"[Dedup] Failed to remove {paper.id}: {exc}")
+
+            return jsonify({
+                "success": True,
+                "removed": len(removed_ids),
+                "kept": len(kept_ids),
+                "removed_ids": removed_ids,
+            })
+
+        except Exception as exc:
+            print(f"Dedup failed: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500

@@ -1437,7 +1437,8 @@ body {
 .batch-toolbar .btn-danger:hover { background: #c82333; }
 .batch-toolbar .btn-secondary { background: #6c757d; color: #fff; border-color: #6c757d; }
 .batch-toolbar .btn-secondary:hover { background: #545b62; }
-.batch-left { color: #8a6d3b; font-weight: 500; }
+.batch-toolbar .batch-left .btn { padding: 3px 8px; font-size: 12px; }
+.batch-left { color: #8a6d3b; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 
 #toggle-multiselect.active { background: #17a2b8; }
 

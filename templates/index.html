@@ -127,12 +127,17 @@
                     <button id="upload-csv-btn" class="btn-action" title="Import from CSV">
                         <i class="fas fa-file-csv"></i>
                     </button>
+                    <button id="dedup-btn" class="btn-action" title="Remove duplicate papers in this category">
+                        <i class="fas fa-clone"></i>
+                    </button>
                     <span id="reading-list-label" class="reading-list-label" style="display: none;">Reading list</span>
                 </div>
             </div>
             <div class="batch-toolbar" id="batch-toolbar" style="display:none;">
                 <div class="batch-left">
                     <span id="batch-count">Selected 0 items</span>
+                    <button class="btn btn-secondary" id="batch-select-all" title="Select all"><i class="fas fa-check-square"></i> All</button>
+                    <button class="btn btn-secondary" id="batch-invert-select" title="Invert selection"><i class="fas fa-exchange-alt"></i> Invert</button>
                 </div>
                 <div class="batch-actions">
                     <button class="btn" id="batch-analyze" title="AI Interpretation"><i class="fas fa-brain"></i> Analyze</button>

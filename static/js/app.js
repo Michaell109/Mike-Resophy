@@ -14,13 +14,15 @@ let readingListPaperIds = new Set(); // ids in reading list
 
 // Translation-related
 let translationQueue = []; // translation queue
-let isTranslating = false; // whether translating now
+let activeTranslationCount = 0; // number of concurrently running translations
+const MAX_CONCURRENT_TRANSLATIONS = 3;
 let translationStatus = {}; // {paperId: 'translating' | 'queued' | 'completed' | 'error', queuePosition, taskId}
 let translationLogInterval = {}; // polling intervals per task
 
 // AI analysis-related
 let analysisQueue = []; // analysis queue
-let isAnalyzing = false; // whether analyzing now
+let activeAnalysisCount = 0; // number of concurrently running analyses
+const MAX_CONCURRENT_ANALYSES = 3;
 let analysisStatus = {}; // {paperId: 'analyzing' | 'queued' | 'completed' | 'error', queuePosition, taskId, step}
 let analysisLogInterval = {}; // polling intervals per task
 
@@ -328,10 +330,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     cleanupCompletedQueues();
     await restoreActiveTasks();
     // After restoring queues, continue processing
-    if (translationQueue.length > 0 && !isTranslating) {
+    if (translationQueue.length > 0 && activeTranslationCount < MAX_CONCURRENT_TRANSLATIONS) {
         processTranslationQueue();
     }
-    if (analysisQueue.length > 0 && !isAnalyzing) {
+    if (analysisQueue.length > 0 && activeAnalysisCount < MAX_CONCURRENT_ANALYSES) {
         processAnalysisQueue();
     }
     // Restore last view state (readingListCount is ready now)
@@ -380,6 +382,32 @@ function setupEventListeners() {
             showMessage('Please select a category first', 'warning');
         }
     });
+
+    // Dedup button
+    document.getElementById('dedup-btn').addEventListener('click', async () => {
+        if (!currentCategoryId) {
+            showMessage('Please select a category first', 'warning');
+            return;
+        }
+        if (!confirm('Remove duplicate papers in this category? The best version will be kept (papers with both AI analysis & translation > analysis > translation > neither).')) {
+            return;
+        }
+        try {
+            const response = await fetch(`/api/category/${currentCategoryId}/dedup`, { method: 'POST' });
+            const data = await response.json();
+            if (data.success) {
+                showMessage(`Dedup done: ${data.removed} duplicates removed, ${data.kept} groups kept`, data.removed > 0 ? 'success' : 'warning');
+                await loadPapers(currentCategoryId);
+                await updateCategoriesData();
+                renderCategoryTreeWithState();
+            } else {
+                showMessage(data.error || 'Dedup failed', 'error');
+            }
+        } catch (err) {
+            console.error('Dedup failed:', err);
+            showMessage('Dedup failed', 'error');
+        }
+    });
     
     // Refresh button
     document.getElementById('refresh-papers').addEventListener('click', () => {
@@ -413,6 +441,30 @@ fileInput.addEventListener('change', handleFileSelect);
     if (batchTranslate) batchTranslate.addEventListener('click', onBatchTranslate);
     if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
+
+    // Select All / Invert Selection
+    const batchSelectAll = document.getElementById('batch-select-all');
+    const batchInvertSelect = document.getElementById('batch-invert-select');
+    if (batchSelectAll) batchSelectAll.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ids = window.__currentSortedPapers || papers.map(p => p.id);
+        ids.forEach(id => selectedPaperIds.add(id));
+        updateBatchUI();
+        renderPapersList();
+    });
+    if (batchInvertSelect) batchInvertSelect.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ids = window.__currentSortedPapers || papers.map(p => p.id);
+        ids.forEach(id => {
+            if (selectedPaperIds.has(id)) {
+                selectedPaperIds.delete(id);
+            } else {
+                selectedPaperIds.add(id);
+            }
+        });
+        updateBatchUI();
+        renderPapersList();
+    });
 
     // Logo Click to return to the main interface
     const navbarBrand = document.getElementById('navbar-brand');
@@ -6937,25 +6989,23 @@ async function requestTranslation(paperId, event) {
     processTranslationQueue();
 }
 
-// Process translation queue（Globally unique queue to ensure that only one task is executed at the same time）
+// Process translation queue (concurrent, up to MAX_CONCURRENT_TRANSLATIONS at a time)
 async function processTranslationQueue() {
-    // Strict check: if it is being translated or the queue is empty, return directly
-    if (isTranslating) {
-        return; // There is already a task being executed and no new task will be started.
+    if (activeTranslationCount >= MAX_CONCURRENT_TRANSLATIONS) {
+        return;
     }
     if (translationQueue.length === 0) {
-        return; // Queue is empty
+        return;
     }
-    
-    // Atomic setting: set the flag first, then get the task
-    isTranslating = true;
+
+    activeTranslationCount++;
     const paperId = translationQueue.shift();
     saveQueuesToStorage();
-    
+
     try {
         updateTranslationStatus(paperId, 'translating', 0);
-        renderPapersList(); // Update display
-        
+        renderPapersList();
+
         const settings = await getTranslationSettings();
         const response = await fetch('/api/paper/translate', {
             method: 'POST',
@@ -6969,37 +7019,35 @@ async function processTranslationQueue() {
                 openai_api_key: settings.llmApiKey
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok && result.success) {
             const taskId = result.task_id;
-            
-            // Start polling logs
+
             startLogPolling(taskId, paperId);
-            
-            // Update the status to Translating and savetaskId
+
             updateTranslationStatus(paperId, 'translating', 0, taskId);
-            renderPapersList(); // Update display
-            
-            // Show log view button prompt
-            // Do not display the startup prompt and the user can see the progress through the status bar
+            renderPapersList();
+
+            // Try to start more tasks from the queue
+            processTranslationQueue();
         } else {
             updateTranslationStatus(paperId, 'error', 0);
             saveQueuesToStorage();
             showMessage(result.error || 'Translation failed', 'error');
-            isTranslating = false;
-            renderPapersList(); // Update display
-            processTranslationQueue(); // Continue processing the queue
+            activeTranslationCount = Math.max(0, activeTranslationCount - 1);
+            renderPapersList();
+            processTranslationQueue();
         }
     } catch (error) {
         console.error('Translation failed:', error);
         updateTranslationStatus(paperId, 'error', 0);
         saveQueuesToStorage();
         showMessage('Translation failed, please try again later', 'error');
-        isTranslating = false;
-        renderPapersList(); // Update display
-        processTranslationQueue(); // Continue processing the queue
+        activeTranslationCount = Math.max(0, activeTranslationCount - 1);
+        renderPapersList();
+        processTranslationQueue();
     }
 }
 
@@ -7046,7 +7094,7 @@ function startLogPolling(taskId, paperId) {
                     }
                     
                     // Continue processing the queue
-                    isTranslating = false;
+                    activeTranslationCount = Math.max(0, activeTranslationCount - 1);
                     // Refresh the list based on the current view mode
                     await refreshCurrentViewList();
                     processTranslationQueue();
@@ -7064,7 +7112,7 @@ function startLogPolling(taskId, paperId) {
                     // delete status
                     delete translationStatus[paperId];
                     // reset flag
-                    isTranslating = false;
+                    activeTranslationCount = Math.max(0, activeTranslationCount - 1);
                     saveQueuesToStorage();
                     updateTaskIndicator();
                     // Refresh the list based on the current view mode
@@ -7224,7 +7272,7 @@ async function cancelTranslation(taskId, paperId) {
             // The translation has been canceled and the status column will be updated automatically.
             stopLogPolling(taskId);
             updateTranslationStatus(paperId, 'error', 0, taskId);
-            isTranslating = false;
+            activeTranslationCount = Math.max(0, activeTranslationCount - 1);
             // Refresh the list based on the current view mode
             await refreshCurrentViewList();
             hideModal();
@@ -7233,8 +7281,8 @@ async function cancelTranslation(taskId, paperId) {
             // If the task does not exist（Server restart, etc.）, clean up the front-end status
             if (response.status === 404 || (result.error && result.error.includes('Task does not exist'))) {
                 showMessage('The task does not exist and has been cleared', 'warning');
-                // Check if translation is happening（Check before deleting status）
-                const wasTranslating = isTranslating && translationStatus[paperId] && translationStatus[paperId].taskId === taskId;
+                // Check if translation was running（Check before deleting status）
+                const wasRunning = activeTranslationCount > 0 && translationStatus[paperId] && translationStatus[paperId].taskId === taskId;
                 // Clean up frontend state
                 stopLogPolling(taskId);
                 // Remove from queue
@@ -7244,9 +7292,9 @@ async function cancelTranslation(taskId, paperId) {
                 }
                 // delete status
                 delete translationStatus[paperId];
-                // If translating, reset flag
-                if (wasTranslating) {
-                    isTranslating = false;
+                // If was running, decrement counter
+                if (wasRunning) {
+                    activeTranslationCount = Math.max(0, activeTranslationCount - 1);
                 }
                 saveQueuesToStorage();
                 updateTaskIndicator();
@@ -8270,7 +8318,7 @@ async function restoreActiveTasks() {
         const tRes = await fetch('/api/paper/translate/active');
         const tJson = await tRes.json();
         if (tRes.ok && tJson.success && Array.isArray(tJson.tasks)) {
-            let hasRunningTranslation = false;
+            let runningTranslationCount = 0;
             for (const t of tJson.tasks) {
                 const paperId = t.paper_id;
                 try {
@@ -8286,7 +8334,7 @@ async function restoreActiveTasks() {
                                 translationQueue.push(paperId);
                             }
                             if (t.status === 'running') {
-                                hasRunningTranslation = true;
+                                runningTranslationCount++;
                                 startLogPolling(t.task_id, paperId);
                             }
                         }
@@ -8295,14 +8343,14 @@ async function restoreActiveTasks() {
                     console.error(`Verify translation tasks ${t.task_id} fail:`, e);
                 }
             }
-            isTranslating = hasRunningTranslation;
+            activeTranslationCount = runningTranslationCount;
         }
 
         // Interpretation tasks（Merge active tasks from backend）
         const aRes = await fetch('/api/paper/analyze/active');
         const aJson = await aRes.json();
         if (aRes.ok && aJson.success && Array.isArray(aJson.tasks)) {
-            let hasRunningAnalysis = false;
+            let runningAnalysisCount = 0;
             for (const a of aJson.tasks) {
                 const paperId = a.paper_id;
                 try {
@@ -8319,7 +8367,7 @@ async function restoreActiveTasks() {
                                 analysisQueue.push(paperId);
                             }
                             if (a.status === 'running') {
-                                hasRunningAnalysis = true;
+                                runningAnalysisCount++;
                                 startAnalysisLogPolling(a.task_id, paperId);
                             }
                         }
@@ -8328,7 +8376,7 @@ async function restoreActiveTasks() {
                     console.error(`Validate interpretation tasks ${a.task_id} fail:`, e);
                 }
             }
-            isAnalyzing = hasRunningAnalysis;
+            activeAnalysisCount = runningAnalysisCount;
         }
 
         // Persist and update indicators
@@ -8416,36 +8464,30 @@ async function requestAnalysis(paperId, event) {
     updateTaskIndicator();
 }
 
-// Process interpretation queue（Globally unique queue to ensure that only one task is executed at the same time）
+// Process interpretation queue (concurrent, up to MAX_CONCURRENT_ANALYSES at a time)
 async function processAnalysisQueue() {
-    // Strict check: if it is being interpreted or the queue is empty, return directly
-    if (isAnalyzing) {
-        return; // There is already a task being executed and no new task will be started.
+    if (activeAnalysisCount >= MAX_CONCURRENT_ANALYSES) {
+        return;
     }
     if (analysisQueue.length === 0) {
-        return; // Queue is empty
+        return;
     }
 
-    // Atomic setting: set the flag first, then get the task
-    isAnalyzing = true;
+    activeAnalysisCount++;
     const paperId = analysisQueue.shift();
     saveQueuesToStorage();
 
     try {
-        // The update status is in interpretation
         updateAnalysisStatus(paperId, 'analyzing');
 
-        // Get settings
         const settings = await getAnalysisSettings();
         if (!settings) {
             throw new Error('Settings not configured');
         }
 
-        // Get user AI language preference (default to English)
         const userSettings = await getUserSettings();
         const aiLanguage = (userSettings && userSettings.aiLanguage) ? userSettings.aiLanguage : 'zh';
 
-        // Always send empty system_prompt, backend will use built-in prompt based on ai_language
         const response = await fetch('/api/paper/analyze', {
             method: 'POST',
             headers: {
@@ -8463,14 +8505,14 @@ async function processAnalysisQueue() {
         const result = await response.json();
 
         if (response.ok && result.success) {
-            // keep task_id
             updateAnalysisStatus(paperId, 'analyzing', null, result.task_id);
-            
-            // Start polling logs
+
             startAnalysisLogPolling(result.task_id, paperId);
-            
-            // Polling task status
+
             pollAnalysisStatus(result.task_id, paperId);
+
+            // Try to start more tasks from the queue
+            processAnalysisQueue();
         } else {
             throw new Error(result.error || 'Failed to start interpretation');
         }
@@ -8479,8 +8521,8 @@ async function processAnalysisQueue() {
         showMessage(`Interpretation failed: ${error.message}`, 'error');
         updateAnalysisStatus(paperId, 'error');
         saveQueuesToStorage();
-        isAnalyzing = false;
-        processAnalysisQueue(); // Continue processing the queue
+        activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
+        processAnalysisQueue();
     }
 }
 
@@ -8492,7 +8534,7 @@ async function pollAnalysisStatus(taskId, paperId) {
     const poll = async () => {
         if (attempts >= maxAttempts) {
             updateAnalysisStatus(paperId, 'error');
-            isAnalyzing = false;
+            activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
             processAnalysisQueue();
             return;
         }
@@ -8509,7 +8551,7 @@ async function pollAnalysisStatus(taskId, paperId) {
                         paper.has_analysis_result = true;
                         paper.analysis_result_path = result.result.result_file;
                     }
-                    isAnalyzing = false;
+                    activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                     stopAnalysisLogPolling(taskId);
                     // When the interpretation is completed, the status column will be automatically updated.
                     // Refresh the list based on the current view mode
@@ -8520,7 +8562,7 @@ async function pollAnalysisStatus(taskId, paperId) {
                     processAnalysisQueue(); // Continue processing the queue
                 } else if (result.status === 'failed' || result.status === 'cancelled') {
                     updateAnalysisStatus(paperId, 'error');
-                    isAnalyzing = false;
+                    activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                     stopAnalysisLogPolling(taskId);
                     // No error message is shown when canceling, only shown on actual failure
                     // exit code -15 yes SIGTERM, indicating that the user actively cancels and no error is displayed.
@@ -8761,7 +8803,7 @@ function startAnalysisLogPolling(taskId, paperId) {
                     }
                     
                     // Continue processing the queue
-                    isAnalyzing = false;
+                    activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                     updatePaperStatusDisplay(paperId);
                     processAnalysisQueue();
                 } else {
@@ -8784,7 +8826,7 @@ function startAnalysisLogPolling(taskId, paperId) {
                     // delete status
                     delete analysisStatus[paperId];
                     // reset flag
-                    isAnalyzing = false;
+                    activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                     saveQueuesToStorage();
                     updateTaskIndicator();
                     // Update display based on current view mode
@@ -8945,15 +8987,15 @@ async function cancelAnalysisTask(taskId, paperId) {
         if (response.ok && result.success) {
             // Interpretation has been cancelled, the status column will be updated automatically
             updateAnalysisStatus(paperId, 'error');
-            isAnalyzing = false;
+            activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
             processAnalysisQueue();
             hideModal();
         } else {
             // If the task does not exist（Server restart, etc.）, clean up the front-end status
             if (response.status === 404 || (result.error && result.error.includes('Task does not exist'))) {
                 showMessage('The task does not exist and has been cleared', 'warning');
-                // Check if interpreting（Check before deleting status）
-                const wasAnalyzing = isAnalyzing && analysisStatus[paperId] && analysisStatus[paperId].taskId === taskId;
+                // Check if was running（Check before deleting status）
+                const wasRunning = activeAnalysisCount > 0 && analysisStatus[paperId] && analysisStatus[paperId].taskId === taskId;
                 // Clean up frontend state
                 stopAnalysisLogPolling(taskId);
                 // Remove from queue
@@ -8963,9 +9005,9 @@ async function cancelAnalysisTask(taskId, paperId) {
                 }
                 // delete status
                 delete analysisStatus[paperId];
-                // If interpreting, reset flag
-                if (wasAnalyzing) {
-                    isAnalyzing = false;
+                // If was running, decrement counter
+                if (wasRunning) {
+                    activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                 }
                 saveQueuesToStorage();
                 updateTaskIndicator();
@@ -9416,9 +9458,9 @@ function cancelTranslation(paperId, event) {
             .then(data => {
                 if (data.success) {
                     // Translation has been canceled and the status column will be updated automatically.
-                    // If this task is currently being translated, reset the translation flag
-                    if (isTranslating) {
-                        isTranslating = false;
+                    // If this task was running, decrement the counter
+                    if (activeTranslationCount > 0) {
+                        activeTranslationCount = Math.max(0, activeTranslationCount - 1);
                         // Continue processing the next task in the queue
                         processTranslationQueue();
                     }
@@ -9467,9 +9509,9 @@ function cancelAnalysis(paperId, event) {
             .then(data => {
                 if (data.success) {
                     // Interpretation has been cancelled, the status column will be updated automatically
-                    // If this task is currently being interpreted, reset the interpretation flag
-                    if (isAnalyzing) {
-                        isAnalyzing = false;
+                    // If this task was running, decrement the counter
+                    if (activeAnalysisCount > 0) {
+                        activeAnalysisCount = Math.max(0, activeAnalysisCount - 1);
                         // Continue processing the next task in the queue
                         processAnalysisQueue();
                     }
