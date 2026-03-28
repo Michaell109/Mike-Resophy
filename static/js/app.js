@@ -4945,15 +4945,14 @@ function updateBatchUI() {
 function handleMultiSelectClick(e, paperId) {
     const ids = window.__currentSortedPapers || papers.map(p=>p.id);
     const index = ids.indexOf(paperId);
-    const checkbox = e.target && (e.target.matches('input[type="checkbox"]') || (e.target.closest && e.target.closest('.paper-checkbox')));
     const withShift = e.shiftKey;
     if (withShift && lastSelectedIndex !== null) {
         // Select interval
         const [start, end] = index > lastSelectedIndex ? [lastSelectedIndex, index] : [index, lastSelectedIndex];
         for (let i = start; i <= end; i++) selectedPaperIds.add(ids[i]);
     } else {
-        // Switch current item
-        if (selectedPaperIds.has(paperId) && !checkbox) {
+        // Toggle current item
+        if (selectedPaperIds.has(paperId)) {
             selectedPaperIds.delete(paperId);
         } else {
             selectedPaperIds.add(paperId);
