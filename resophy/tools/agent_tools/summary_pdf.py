@@ -43,16 +43,56 @@ def analyze_paper_task(
     # If no system_prompt is provided, select language-specific default prompt.
     if not system_prompt:
         # Chinese default prompt
-        zh_prompt = """请以中文 markdown 的形式为这篇文章写一个公众号风格的包含有详细内容的长推文，内容要详细且丰富，
+        zh_prompt = """请以中文 markdown 的形式为这篇论文撰写一篇结构清晰、内容详尽的技术解读文章，要求包含以下三个部分：
 
-实验内容也要充分，比如包括消融实验。注意你一定要使用原始markdown 中的图片和表格来让你的公众号文章更加清晰，
+## 1. 研究动机
+详细阐述本文要解决的问题是什么，现有的方法存在哪些痛点和不足，为什么这个问题值得研究。不要一笔带过，要让读者理解问题的来龙去脉。
 
-图片，比如模型结构，teaser，或者一些结果图，阐释图直接插入到正文对应位置之中，不要放到最后。图片对于一个公众号文章来说很重要
+## 2. 方法详解
+这是文章的核心部分，请详细讲解本文提出的方法：
+- 整体框架和核心思路
+- 每个关键模块的作用和工作方式
+- **必须保留原文中的所有重要公式**（使用原始 LaTeX 格式），并逐一解释每个公式的含义和其中各符号的物理意义
+- 关键设计选择的理由
+- 如果有模型结构图、流程图等，必须插入到对应位置
+
+## 3. 实验结果
+充分展示实验内容，包括：
+- 主要实验结果和对比
+- 消融实验及其分析
+- 重要的结果图、表格必须插入到对应位置
+
+注意：
+- 图片（模型结构、teaser、结果图、阐释图等）必须直接插入到正文对应位置，不要放到最后
+- 公式必须保留原始 LaTeX 格式，不要省略或简化
+- 内容要详细充分，不要过度压缩
 
 INPUT: <MARKDOWN>"""
 
         # English default prompt
-        en_prompt = """Please write a long, detailed, interested and attractive promotional post for this paper, using English Markdown format. The content must be detailed and rich, and the experimental content must be sufficient, including, for example, ablation studies. Note that you must use original Markdown syntax for images and tables to make your public account article clearer. Images, such as the model structure, a teaser figure, or some result figures and explanatory diagrams, must be inserted directly into the corresponding position within the main body of the text, and should not be placed at the end. Images are very important for a public account style article.
+        en_prompt = """Please write a structured, detailed technical review of this paper in English Markdown format, covering the following three sections:
+
+## 1. Motivation
+Explain in detail what problem this paper addresses, what are the pain points and limitations of existing methods, and why this problem is worth studying. Do not gloss over this — help the reader understand the full context of the problem.
+
+## 2. Method Details
+This is the core section. Provide a detailed explanation of the proposed method:
+- Overall framework and core ideas
+- The role and mechanism of each key module
+- **All important formulas from the original paper must be preserved** (in original LaTeX format), with explanations of each formula's meaning and the physical significance of each symbol
+- Rationale behind key design choices
+- If there are model architecture diagrams, flowcharts, etc., they must be inserted at the corresponding positions
+
+## 3. Experimental Results
+Provide comprehensive coverage of the experiments, including:
+- Main results and comparisons
+- Ablation studies and their analysis
+- Important result figures and tables must be inserted at the corresponding positions
+
+Notes:
+- Images (model architecture, teaser, results, explanatory diagrams, etc.) must be inserted directly at the corresponding positions in the text, not placed at the end
+- Formulas must be preserved in their original LaTeX format — do not omit or oversimplify them
+- Content should be detailed and thorough — do not over-compress
 
 INPUT: <MARKDOWN>"""
 

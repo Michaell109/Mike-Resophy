@@ -1014,6 +1014,8 @@ def register_paper_operation_routes(
             if not target_dir:
                 return jsonify({"success": False, "error": "Target directory is required"}), 400
 
+            paper_ids = data.get("paper_ids")  # optional: only export selected papers
+
             category_path = get_category_path(get_categories(), category_id)
             if not category_path:
                 return jsonify({"success": False, "error": "Category not found"}), 404
@@ -1021,6 +1023,13 @@ def register_paper_operation_routes(
             papers_list = get_papers_in_category(category_id, category_path)
             if not papers_list:
                 return jsonify({"success": False, "error": "No papers found in this category"}), 404
+
+            # Filter to selected papers if paper_ids provided
+            if paper_ids:
+                id_set = set(paper_ids)
+                papers_list = [p for p in papers_list if p.id in id_set]
+                if not papers_list:
+                    return jsonify({"success": False, "error": "No selected papers found in this category"}), 404
 
             os.makedirs(target_dir, exist_ok=True)
 

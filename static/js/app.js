@@ -417,24 +417,7 @@ function setupEventListeners() {
         }
         const targetDir = prompt('Enter the target directory path to export MD files:');
         if (!targetDir || !targetDir.trim()) return;
-
-        try {
-            const response = await fetch(`/api/category/${currentCategoryId}/export-md`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target_dir: targetDir.trim() })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const msg = `Exported ${data.exported} MD files` + (data.skipped > 0 ? `, ${data.skipped} skipped (no AI interpretation)` : '');
-                showMessage(msg, data.exported > 0 ? 'success' : 'warning');
-            } else {
-                showMessage(data.error || 'Export MD failed', 'error');
-            }
-        } catch (err) {
-            console.error('Export MD failed:', err);
-            showMessage('Export MD failed', 'error');
-        }
+        await exportCategoryMd(currentCategoryId, targetDir.trim());
     });
 
     // Refresh button
@@ -468,6 +451,8 @@ fileInput.addEventListener('change', handleFileSelect);
     if (batchAnalyze) batchAnalyze.addEventListener('click', onBatchAnalyze);
     if (batchTranslate) batchTranslate.addEventListener('click', onBatchTranslate);
     if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
+    const batchExportMd = document.getElementById('batch-export-md');
+    if (batchExportMd) batchExportMd.addEventListener('click', onBatchExportMd);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
 
     // Select All / Invert Selection
@@ -3054,6 +3039,8 @@ function showMessage(message, type = 'info', duration = 3000) {
             }
         }, 300);
     }, duration);
+
+    return messageDiv;
 }
 
 // Set up paper drag and drop function
@@ -5035,6 +5022,45 @@ async function onBatchDelete() {
     await updateCategoriesData();
     renderCategoryTreeWithState();
     exitMultiSelectMode();
+}
+
+async function onBatchExportMd() {
+    if (selectedPaperIds.size === 0) { showMessage('Please select a paper first', 'warning'); return; }
+    if (!currentCategoryId) {
+        showMessage('Please select a category first', 'warning');
+        return;
+    }
+    const targetDir = prompt('Enter the target directory path to export MD files:');
+    if (!targetDir || !targetDir.trim()) return;
+    await exportCategoryMd(currentCategoryId, targetDir.trim(), Array.from(selectedPaperIds));
+}
+
+async function exportCategoryMd(categoryId, targetDir, paperIds = null) {
+    const progressMsg = showMessage('Exporting MD files...', 'info', 60000);
+    try {
+        const body = { target_dir: targetDir };
+        if (paperIds) body.paper_ids = paperIds;
+
+        const response = await fetch(`/api/category/${categoryId}/export-md`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await response.json();
+        // Remove the progress message
+        if (progressMsg && progressMsg.parentNode) progressMsg.parentNode.removeChild(progressMsg);
+        if (data.success) {
+            const msg = `Exported ${data.exported} MD files` + (data.skipped > 0 ? `, ${data.skipped} skipped (no AI interpretation)` : '');
+            showMessage(msg, data.exported > 0 ? 'success' : 'warning');
+        } else {
+            showMessage(data.error || 'Export MD failed', 'error');
+        }
+    } catch (err) {
+        // Remove the progress message
+        if (progressMsg && progressMsg.parentNode) progressMsg.parentNode.removeChild(progressMsg);
+        console.error('Export MD failed:', err);
+        showMessage('Export MD failed', 'error');
+    }
 }
 
 // Paper sorting function
