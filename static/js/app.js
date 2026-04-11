@@ -408,7 +408,35 @@ function setupEventListeners() {
             showMessage('Dedup failed', 'error');
         }
     });
-    
+
+    // Export MD button
+    document.getElementById('export-md-btn').addEventListener('click', async () => {
+        if (!currentCategoryId) {
+            showMessage('Please select a category first', 'warning');
+            return;
+        }
+        const targetDir = prompt('Enter the target directory path to export MD files:');
+        if (!targetDir || !targetDir.trim()) return;
+
+        try {
+            const response = await fetch(`/api/category/${currentCategoryId}/export-md`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target_dir: targetDir.trim() })
+            });
+            const data = await response.json();
+            if (data.success) {
+                const msg = `Exported ${data.exported} MD files` + (data.skipped > 0 ? `, ${data.skipped} skipped (no AI interpretation)` : '');
+                showMessage(msg, data.exported > 0 ? 'success' : 'warning');
+            } else {
+                showMessage(data.error || 'Export MD failed', 'error');
+            }
+        } catch (err) {
+            console.error('Export MD failed:', err);
+            showMessage('Export MD failed', 'error');
+        }
+    });
+
     // Refresh button
     document.getElementById('refresh-papers').addEventListener('click', () => {
         if (currentCategoryId) {

@@ -1004,3 +1004,69 @@ def register_paper_operation_routes(
         except Exception as exc:
             print(f"Dedup failed: {exc}")
             return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/category/<category_id>/export-md", methods=["POST"])
+    def api_export_category_md(category_id):
+        """Export AI interpretation MD files of papers in a category to a specified directory."""
+        try:
+            data = request.get_json() or {}
+            target_dir = data.get("target_dir", "").strip()
+            if not target_dir:
+                return jsonify({"success": False, "error": "Target directory is required"}), 400
+
+            category_path = get_category_path(get_categories(), category_id)
+            if not category_path:
+                return jsonify({"success": False, "error": "Category not found"}), 404
+
+            papers_list = get_papers_in_category(category_id, category_path)
+            if not papers_list:
+                return jsonify({"success": False, "error": "No papers found in this category"}), 404
+
+            os.makedirs(target_dir, exist_ok=True)
+
+            exported = 0
+            skipped = 0
+            errors = []
+
+            for paper in papers_list:
+                if not paper.has_analysis_result or not paper.analysis_result_path:
+                    skipped += 1
+                    continue
+
+                if not os.path.exists(paper.analysis_result_path):
+                    skipped += 1
+                    continue
+
+                # Use paper title as filename, sanitize for filesystem
+                title = paper.title or paper.filename or paper.id
+                safe_title = re.sub(r'[\\/:*?"<>|]', '_', title).strip()
+                if not safe_title:
+                    safe_title = paper.id
+                target_file = os.path.join(target_dir, f"{safe_title}.md")
+
+                # Handle duplicate filenames
+                if os.path.exists(target_file):
+                    base, ext = os.path.splitext(target_file)
+                    counter = 1
+                    while os.path.exists(f"{base} ({counter}){ext}"):
+                        counter += 1
+                    target_file = f"{base} ({counter}){ext}"
+
+                try:
+                    shutil.copy2(paper.analysis_result_path, target_file)
+                    exported += 1
+                except Exception as exc:
+                    errors.append(f"{title}: {str(exc)}")
+
+            result = {
+                "success": True,
+                "exported": exported,
+                "skipped": skipped,
+            }
+            if errors:
+                result["errors"] = errors
+            return jsonify(result)
+
+        except Exception as exc:
+            print(f"Export MD failed: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500
