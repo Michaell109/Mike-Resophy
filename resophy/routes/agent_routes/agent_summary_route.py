@@ -237,6 +237,19 @@ def register_agent_summary_routes(
 
             ai_language = data.get("ai_language", "zh")
 
+            # Build paper metadata for prompt injection
+            paper_metadata = {
+                "title": paper.title or "",
+                "authors": paper.authors or "",
+                "affiliation": paper.affiliation or "",
+                "journal": paper.journal or "",
+                "year": paper.year or "",
+                "arxiv_published_date": paper.arxiv_published_date or "",
+                "arxiv_url": paper.arxiv_url or "",
+                "homepage": paper.homepage or "",
+                "github": paper.github or "",
+            }
+
             thread = threading.Thread(
                 target=analyze_paper_task,
                 args=(
@@ -251,6 +264,7 @@ def register_agent_summary_routes(
                     system_prompt,
                     ai_language,
                     deps,
+                    paper_metadata,
                 ),
             )
             thread.daemon = True

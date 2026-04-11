@@ -8454,12 +8454,7 @@ async function requestAnalysis(paperId, event) {
     }
 
     // Check if interpretation results already exist
-    const hasResult = paper.has_analysis_result;
-    if (hasResult) {
-        if (!confirm('This paper already has an AI Interpretation, reinterpret?')) {
-            return;
-        }
-    }
+    // Skip confirmation — always reinterpret when requested
 
     // Check settings（use newAgenticUnified configuration）
     const settings = await getAgenticSettings();

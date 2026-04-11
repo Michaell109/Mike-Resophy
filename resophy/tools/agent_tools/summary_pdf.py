@@ -26,6 +26,37 @@ class AnalysisDependencies:
     save_paper_metadata: Callable[[str, Paper], None]
 
 
+def _build_paper_info_block(paper_title: str, paper_metadata: dict | None) -> str:
+    """Build a markdown block with paper metadata to prepend before the markdown content."""
+    if not paper_metadata:
+        return ""
+
+    parts = []
+    if paper_title:
+        parts.append(f"- **Title**: {paper_title}")
+    if paper_metadata.get("authors"):
+        parts.append(f"- **Authors**: {paper_metadata['authors']}")
+    if paper_metadata.get("affiliation"):
+        parts.append(f"- **Affiliation**: {paper_metadata['affiliation']}")
+    if paper_metadata.get("journal"):
+        parts.append(f"- **Venue**: {paper_metadata['journal']}")
+    if paper_metadata.get("year"):
+        parts.append(f"- **Year**: {paper_metadata['year']}")
+    if paper_metadata.get("arxiv_published_date"):
+        parts.append(f"- **arXiv Date**: {paper_metadata['arxiv_published_date']}")
+    elif paper_metadata.get("arxiv_url"):
+        parts.append(f"- **arXiv**: {paper_metadata['arxiv_url']}")
+    if paper_metadata.get("homepage"):
+        parts.append(f"- **Project**: {paper_metadata['homepage']}")
+    if paper_metadata.get("github"):
+        parts.append(f"- **GitHub**: {paper_metadata['github']}")
+
+    if not parts:
+        return ""
+
+    return "\n".join(parts) + "\n\n"
+
+
 def analyze_paper_task(
     task_id: str,
     paper_id: str,
@@ -38,12 +69,25 @@ def analyze_paper_task(
     system_prompt: str,
     ai_language: str,
     deps: AnalysisDependencies,
+    paper_metadata: dict | None = None,
 ) -> None:
     """Background AI interpretation task - two steps: PDF2MD -> LLM interpretation."""
     # If no system_prompt is provided, select language-specific default prompt.
     if not system_prompt:
         # Chinese default prompt
-        zh_prompt = """请以中文 markdown 的形式为这篇论文撰写一篇结构清晰、内容详尽的技术解读文章，要求包含以下三个部分：
+        zh_prompt = """请以中文 markdown 的形式为这篇论文撰写一篇结构清晰、内容详尽的技术解读文章。
+
+文章开头必须先输出论文信息头（如果输入中提供了论文信息），格式如下：
+> **Title**: 论文标题
+> **Authors**: 作者列表
+> **Affiliation**: 机构列表
+> **Venue**: 会议/期刊名称
+> **Year**: 发表年份
+> **arXiv Date**: arXiv发布日期
+> **Project**: 项目主页链接
+> **GitHub**: GitHub仓库链接
+
+然后按以下三个部分撰写正文：
 
 ## 1. 研究动机
 详细阐述本文要解决的问题是什么，现有的方法存在哪些痛点和不足，为什么这个问题值得研究。不要一笔带过，要让读者理解问题的来龙去脉。
@@ -70,7 +114,19 @@ def analyze_paper_task(
 INPUT: <MARKDOWN>"""
 
         # English default prompt
-        en_prompt = """Please write a structured, detailed technical review of this paper in English Markdown format, covering the following three sections:
+        en_prompt = """Please write a structured, detailed technical review of this paper in English Markdown format.
+
+At the beginning of the article, you must output a paper information header (if provided in the input), in the following format:
+> **Title**: Paper title
+> **Authors**: Author list
+> **Affiliation**: Affiliation list
+> **Venue**: Conference/Journal name
+> **Year**: Publication year
+> **arXiv Date**: arXiv publication date
+> **Project**: Project homepage URL
+> **GitHub**: GitHub repository URL
+
+Then write the review covering the following three sections:
 
 ## 1. Motivation
 Explain in detail what problem this paper addresses, what are the pain points and limitations of existing methods, and why this problem is worth studying. Do not gloss over this — help the reader understand the full context of the problem.
@@ -390,7 +446,12 @@ INPUT: <MARKDOWN>"""
                     "Failed to get maximum length from model information, will not be correct Markdown The content is truncated (there may be risks of overlength)"
                 )
 
-        prompt = system_prompt.replace("<MARKDOWN>", markdown_content)
+        # Inject paper metadata header before the markdown content
+        paper_title = None
+        if paper_metadata:
+            paper_title = paper_metadata.get("title")
+        paper_info_block = _build_paper_info_block(paper_title, paper_metadata)
+        prompt = system_prompt.replace("<MARKDOWN>", paper_info_block + markdown_content)
         messages = [{"role": "user", "content": prompt}]
 
         with log_lock:
