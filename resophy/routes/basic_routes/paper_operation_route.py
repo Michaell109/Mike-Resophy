@@ -1063,6 +1063,20 @@ def register_paper_operation_routes(
 
                 try:
                     shutil.copy2(paper.analysis_result_path, target_file)
+
+                    # Copy images directory if it exists alongside the result.md
+                    vlm_dir = os.path.dirname(paper.analysis_result_path)
+                    images_src = os.path.join(vlm_dir, "images")
+                    if os.path.isdir(images_src):
+                        # Put all images in target_dir/images/ (filenames are SHA hashes, no conflicts)
+                        images_dst = os.path.join(target_dir, "images")
+                        os.makedirs(images_dst, exist_ok=True)
+                        for img_file in os.listdir(images_src):
+                            src_path = os.path.join(images_src, img_file)
+                            dst_path = os.path.join(images_dst, img_file)
+                            if os.path.isfile(src_path) and not os.path.exists(dst_path):
+                                shutil.copy2(src_path, dst_path)
+
                     exported += 1
                 except Exception as exc:
                     errors.append(f"{title}: {str(exc)}")
