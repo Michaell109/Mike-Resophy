@@ -415,7 +415,9 @@ function setupEventListeners() {
             showMessage('Please select a category first', 'warning');
             return;
         }
-        const targetDir = prompt('Enter the target directory path to export MD files:');
+        const prefix = await getExportMdPathPrefix();
+        const defaultValue = prefix ? prefix.replace(/\/+$/, '') + '/' : '';
+        const targetDir = prompt('Enter the target directory path to export MD files:', defaultValue);
         if (!targetDir || !targetDir.trim()) return;
         await exportCategoryMd(currentCategoryId, targetDir.trim());
     });
@@ -5030,9 +5032,24 @@ async function onBatchExportMd() {
         showMessage('Please select a category first', 'warning');
         return;
     }
-    const targetDir = prompt('Enter the target directory path to export MD files:');
+    const prefix = await getExportMdPathPrefix();
+    const defaultValue = prefix ? prefix.replace(/\/+$/, '') + '/' : '';
+    const targetDir = prompt('Enter the target directory path to export MD files:', defaultValue);
     if (!targetDir || !targetDir.trim()) return;
     await exportCategoryMd(currentCategoryId, targetDir.trim(), Array.from(selectedPaperIds));
+}
+
+async function getExportMdPathPrefix() {
+    try {
+        const resp = await fetch('/api/settings/agentic');
+        if (resp.ok) {
+            const settings = await resp.json();
+            return settings.exportMdPathPrefix || '';
+        }
+    } catch (e) {
+        console.error('Failed to get export MD path prefix:', e);
+    }
+    return '';
 }
 
 async function exportCategoryMd(categoryId, targetDir, paperIds = null) {
@@ -13335,6 +13352,48 @@ async function initExportFeature() {
         }
     } catch (error) {
         console.error('get papers Directory path failed:', error);
+    }
+
+    // Load and save Export MD path prefix setting
+    const btnSaveExportMd = document.getElementById('btn-save-export-md-settings');
+    const exportMdPrefixEl = document.getElementById('export-md-path-prefix');
+
+    // Load current setting from agentic settings
+    try {
+        const resp = await fetch('/api/settings/agentic');
+        if (resp.ok) {
+            const settings = await resp.json();
+            if (exportMdPrefixEl && settings.exportMdPathPrefix) {
+                exportMdPrefixEl.value = settings.exportMdPathPrefix;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load export MD settings:', e);
+    }
+
+    if (btnSaveExportMd) {
+        btnSaveExportMd.addEventListener('click', async () => {
+            const prefix = exportMdPrefixEl ? exportMdPrefixEl.value.trim() : '';
+            try {
+                // Read current agentic settings and merge the new field
+                const resp = await fetch('/api/settings/agentic');
+                const currentSettings = resp.ok ? await resp.json() : {};
+                currentSettings.exportMdPathPrefix = prefix;
+                const saveResp = await fetch('/api/settings/agentic', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSettings)
+                });
+                if (saveResp.ok) {
+                    showMessage('Export MD settings saved', 'success');
+                } else {
+                    showMessage('Failed to save settings', 'error');
+                }
+            } catch (e) {
+                console.error('Failed to save export MD settings:', e);
+                showMessage('Failed to save settings', 'error');
+            }
+        });
     }
 }
 

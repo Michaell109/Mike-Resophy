@@ -265,6 +265,7 @@ def register_agent_summary_routes(
                     ai_language,
                     deps,
                     paper_metadata,
+                    llm_model,
                 ),
             )
             thread.daemon = True

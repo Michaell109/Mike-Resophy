@@ -91,6 +91,7 @@ DEFAULT_AGENTIC_SETTINGS = {
     "mineruServerUrl": "",  # PDF parsing service address (for local mode)
     "mineruUseApi": False,  # Toggle between local CLI mode and cloud API mode
     "mineruApiToken": "",  # MinerU cloud API token (for API mode)
+    "exportMdPathPrefix": "",  # Export MD files path prefix (e.g. Obsidian vault path)
     # Note: System prompts are now built-in and selected based on user's aiLanguage setting
     # Custom prompts are no longer supported
 }
