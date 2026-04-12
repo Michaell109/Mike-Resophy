@@ -11309,7 +11309,7 @@ function updateProgressUI(category, progress) {
             currentEl.textContent = displayText;
             
             // Check if the download time exceeds30Second
-            if (elapsedSeconds > 30 && !dailyArxivSlowDownloadNotified[category]) {
+            if (elapsedSeconds > 120 && !dailyArxivSlowDownloadNotified[category]) {
                 // Show slow download prompt（Use standalone notificationsID, avoid comparing withLLM APIFailure prompt conflict）
                 showRoundedNotification('The paper is too long to download from arXiv. Please check the proxy settings.', 'warning', true, 'daily-arxiv-slow-download-notification');
                 dailyArxivSlowDownloadNotified[category] = true;
