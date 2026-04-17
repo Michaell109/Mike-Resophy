@@ -28,6 +28,9 @@ from resophy.routes.basic_routes.institution_mapping_route import (
 from resophy.routes.basic_routes.paper_operation_route import (
     register_paper_operation_routes,
 )
+from resophy.routes.basic_routes.relative_paper_route import (
+    register_relative_paper_routes,
+)
 from resophy.routes.basic_routes.search_route import register_search_routes
 from resophy.routes.basic_routes.settings_route import register_settings_routes
 from resophy.routes.basic_routes.update_from_url_route import (
@@ -547,6 +550,18 @@ def register_routes():
     register_institution_mapping_routes(
         app,
         daily_arxiv_settings_file=DAILY_ARXIV_SETTINGS_FILE,
+    )
+
+    register_relative_paper_routes(
+        app,
+        get_categories=get_categories,
+        save_categories=save_categories,
+        get_category_path=get_category_path,
+        create_category_folder=create_category_folder,
+        save_paper_metadata=save_paper_metadata,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
+        upload_folder=UPLOAD_FOLDER,
+        paper_store=paper_store,
     )
 
 

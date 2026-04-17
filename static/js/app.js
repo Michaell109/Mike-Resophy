@@ -422,6 +422,15 @@ function setupEventListeners() {
         await exportCategoryMd(currentCategoryId, targetDir.trim());
     });
 
+    // Find related papers button
+    document.getElementById('find-relative-btn').addEventListener('click', () => {
+        if (!currentPaperId) {
+            showMessage('Please click on a paper first to select it, then search for related papers', 'warning');
+            return;
+        }
+        showRelativePaperModal();
+    });
+
     // Refresh button
     document.getElementById('refresh-papers').addEventListener('click', () => {
         if (currentCategoryId) {
@@ -2961,7 +2970,15 @@ function setupPaperContextMenu() {
         requestAnalysis(paperId);
         paperContextMenu.style.display = 'none';
     });
-    
+
+    document.getElementById('paper-find-relative').addEventListener('click', () => {
+        const paperId = paperContextMenu.dataset.paperId;
+        // Select the paper first so currentPaperId is set
+        selectPaper(paperId);
+        paperContextMenu.style.display = 'none';
+        showRelativePaperModal();
+    });
+
     document.getElementById('paper-delete').addEventListener('click', () => {
         const paperId = paperContextMenu.dataset.paperId;
         deletePaper(paperId);
@@ -13718,8 +13735,7 @@ async function checkAndShowOnboarding() {
     async function initOnboarding() {
         await checkAndShowOnboarding();
     }
-    
-    // if DOM Loading is complete, execute immediately
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initOnboarding);
     } else {
@@ -13727,4 +13743,201 @@ async function checkAndShowOnboarding() {
         initOnboarding();
     }
 })();
+
+// ========================================
+// Find Related Papers
+// ========================================
+
+let _relativePaperTaskId = null;
+let _relativePaperPollTimer = null;
+
+function showRelativePaperModal() {
+    const modal = document.getElementById('relative-paper-modal');
+    if (!modal) {
+        console.error('relative-paper-modal element not found');
+        return;
+    }
+    const modalBody = document.getElementById('relative-paper-modal-body');
+    const progressArea = document.getElementById('relative-paper-modal-progress');
+    const startBtn = document.getElementById('rel-modal-start');
+    const cancelBtn = document.getElementById('rel-modal-cancel');
+
+    // Reset state
+    modalBody.style.display = '';
+    progressArea.style.display = 'none';
+    startBtn.style.display = '';
+    startBtn.disabled = false;
+    cancelBtn.textContent = 'Cancel';
+
+    modal.style.display = 'block';
+}
+
+function closeRelativePaperModal() {
+    const modal = document.getElementById('relative-paper-modal');
+    modal.style.display = 'none';
+    if (_relativePaperPollTimer) {
+        clearInterval(_relativePaperPollTimer);
+        _relativePaperPollTimer = null;
+    }
+}
+
+async function startRelativePaperSearch() {
+    const startBtn = document.getElementById('rel-modal-start');
+    const cancelBtn = document.getElementById('rel-modal-cancel');
+    const modalBody = document.getElementById('relative-paper-modal-body');
+    const progressArea = document.getElementById('relative-paper-modal-progress');
+
+    // Gather options
+    const sources = [];
+    if (document.getElementById('rel-source-baseline').checked) sources.push('baseline');
+    if (document.getElementById('rel-source-citation').checked) sources.push('citation');
+    if (document.getElementById('rel-source-recommendation').checked) sources.push('recommendation');
+    if (document.getElementById('rel-source-keyword').checked) sources.push('keyword');
+
+    if (sources.length === 0) {
+        showMessage('Please select at least one search source', 'warning');
+        return;
+    }
+
+    const targetCount = parseInt(document.getElementById('rel-target-count').value) || 10;
+
+    startBtn.disabled = true;
+    modalBody.style.display = 'none';
+    progressArea.style.display = '';
+
+    try {
+        const resp = await fetch('/api/relative-paper/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                paper_id: currentPaperId,
+                target_count: targetCount,
+                sources: sources,
+            }),
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            showMessage(data.error || 'Failed to start search', 'error');
+            startBtn.disabled = false;
+            modalBody.style.display = '';
+            progressArea.style.display = 'none';
+            return;
+        }
+
+        _relativePaperTaskId = data.task_id;
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = () => cancelRelativePaperSearch();
+
+        // Start polling
+        _relativePaperPollTimer = setInterval(() => pollRelativePaperProgress(data.category_id), 1500);
+
+    } catch (err) {
+        console.error('Start relative paper search failed:', err);
+        showMessage('Failed to start search', 'error');
+        startBtn.disabled = false;
+        modalBody.style.display = '';
+        progressArea.style.display = 'none';
+    }
+}
+
+async function pollRelativePaperProgress(categoryId) {
+    if (!_relativePaperTaskId) return;
+
+    try {
+        const resp = await fetch(`/api/relative-paper/progress/${_relativePaperTaskId}`);
+        const data = await resp.json();
+        if (!data.success) return;
+
+        const p = data.progress;
+        const stepEl = document.getElementById('rel-progress-step');
+        const barEl = document.getElementById('rel-progress-bar');
+        const detailEl = document.getElementById('rel-progress-detail');
+
+        stepEl.textContent = p.current_step || 'Searching...';
+
+        // Estimate progress
+        let pct = 0;
+        if (p.status === 'running') {
+            // Rough estimate based on steps
+            pct = Math.min(90, p.found * 5 + p.downloaded * 10);
+        } else if (p.status === 'done') {
+            pct = 100;
+        } else if (p.status === 'error') {
+            pct = 100;
+        }
+        barEl.style.width = pct + '%';
+
+        if (p.found > 0) {
+            detailEl.textContent = `Found ${p.found} candidates, downloaded ${p.total_downloaded} papers`;
+        }
+
+        if (p.status === 'done') {
+            clearInterval(_relativePaperPollTimer);
+            _relativePaperPollTimer = null;
+
+            const msg = `Search complete: found ${p.found} candidates, downloaded ${p.total_downloaded} papers`;
+            stepEl.textContent = msg;
+            detailEl.textContent = '';
+            barEl.style.width = '100%';
+
+            const cancelBtn = document.getElementById('rel-modal-cancel');
+            cancelBtn.textContent = 'Close';
+            cancelBtn.onclick = () => {
+                // Cleanup task and close
+                fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
+                closeRelativePaperModal();
+                // Refresh category tree
+                loadCategories(true);
+                // Select the new category if we have it
+                if (categoryId) {
+                    setTimeout(() => {
+                        const node = document.querySelector(`[data-category-id="${categoryId}"]`);
+                        if (node) node.click();
+                    }, 500);
+                }
+            };
+
+            showMessage(msg, 'success');
+        } else if (p.status === 'error') {
+            clearInterval(_relativePaperPollTimer);
+            _relativePaperPollTimer = null;
+            stepEl.textContent = `Error: ${p.error || 'Unknown error'}`;
+            detailEl.textContent = '';
+            barEl.style.width = '100%';
+            barEl.style.background = '#ef5350';
+
+            const cancelBtn = document.getElementById('rel-modal-cancel');
+            cancelBtn.textContent = 'Close';
+            cancelBtn.onclick = () => {
+                fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
+                closeRelativePaperModal();
+            };
+        }
+    } catch (err) {
+        console.error('Poll progress failed:', err);
+    }
+}
+
+async function cancelRelativePaperSearch() {
+    if (!_relativePaperTaskId) return;
+    try {
+        await fetch(`/api/relative-paper/cancel/${_relativePaperTaskId}`, { method: 'POST' });
+        await fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' });
+    } catch (err) {
+        console.error('Cancel search failed:', err);
+    }
+    closeRelativePaperModal();
+    showMessage('Search cancelled', 'info');
+}
+
+// Bind modal events (wrapped in DOMContentLoaded for safety)
+document.addEventListener('DOMContentLoaded', function() {
+    const closeBtn = document.getElementById('relative-paper-modal-close');
+    const cancelBtn = document.getElementById('rel-modal-cancel');
+    const startBtn = document.getElementById('rel-modal-start');
+    if (closeBtn) closeBtn.addEventListener('click', closeRelativePaperModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeRelativePaperModal);
+    if (startBtn) startBtn.addEventListener('click', startRelativePaperSearch);
+});
 
