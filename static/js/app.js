@@ -13758,13 +13758,11 @@ function showRelativePaperModal() {
         return;
     }
     const modalBody = document.getElementById('relative-paper-modal-body');
-    const progressArea = document.getElementById('relative-paper-modal-progress');
     const startBtn = document.getElementById('rel-modal-start');
     const cancelBtn = document.getElementById('rel-modal-cancel');
 
     // Reset state
     modalBody.style.display = '';
-    progressArea.style.display = 'none';
     startBtn.style.display = '';
     startBtn.disabled = false;
     cancelBtn.textContent = 'Cancel';
@@ -13775,6 +13773,24 @@ function showRelativePaperModal() {
 function closeRelativePaperModal() {
     const modal = document.getElementById('relative-paper-modal');
     modal.style.display = 'none';
+}
+
+function showRelativePaperFloating() {
+    const floating = document.getElementById('relative-paper-floating');
+    if (!floating) return;
+    // Reset floating widget
+    document.getElementById('rel-floating-step').textContent = 'Searching...';
+    document.getElementById('rel-floating-bar').style.width = '0%';
+    document.getElementById('rel-floating-bar').style.background = 'var(--accent-color,#7d4a9d)';
+    document.getElementById('rel-floating-detail').textContent = '';
+    document.getElementById('rel-floating-cancel').textContent = 'Cancel';
+    document.getElementById('rel-floating-cancel').style.display = '';
+    floating.style.display = 'block';
+}
+
+function closeRelativePaperFloating() {
+    const floating = document.getElementById('relative-paper-floating');
+    if (floating) floating.style.display = 'none';
     if (_relativePaperPollTimer) {
         clearInterval(_relativePaperPollTimer);
         _relativePaperPollTimer = null;
@@ -13783,9 +13799,6 @@ function closeRelativePaperModal() {
 
 async function startRelativePaperSearch() {
     const startBtn = document.getElementById('rel-modal-start');
-    const cancelBtn = document.getElementById('rel-modal-cancel');
-    const modalBody = document.getElementById('relative-paper-modal-body');
-    const progressArea = document.getElementById('relative-paper-modal-progress');
 
     // Gather options
     const sources = [];
@@ -13802,8 +13815,6 @@ async function startRelativePaperSearch() {
     const targetCount = parseInt(document.getElementById('rel-target-count').value) || 10;
 
     startBtn.disabled = true;
-    modalBody.style.display = 'none';
-    progressArea.style.display = '';
 
     try {
         const resp = await fetch('/api/relative-paper/start', {
@@ -13820,14 +13831,17 @@ async function startRelativePaperSearch() {
         if (!data.success) {
             showMessage(data.error || 'Failed to start search', 'error');
             startBtn.disabled = false;
-            modalBody.style.display = '';
-            progressArea.style.display = 'none';
             return;
         }
 
         _relativePaperTaskId = data.task_id;
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.onclick = () => cancelRelativePaperSearch();
+
+        // Close modal, show floating progress widget
+        closeRelativePaperModal();
+        showRelativePaperFloating();
+
+        // Bind cancel button on floating widget
+        document.getElementById('rel-floating-cancel').onclick = () => cancelRelativePaperSearch();
 
         // Start polling
         _relativePaperPollTimer = setInterval(() => pollRelativePaperProgress(data.category_id), 1500);
@@ -13836,8 +13850,6 @@ async function startRelativePaperSearch() {
         console.error('Start relative paper search failed:', err);
         showMessage('Failed to start search', 'error');
         startBtn.disabled = false;
-        modalBody.style.display = '';
-        progressArea.style.display = 'none';
     }
 }
 
@@ -13850,16 +13862,15 @@ async function pollRelativePaperProgress(categoryId) {
         if (!data.success) return;
 
         const p = data.progress;
-        const stepEl = document.getElementById('rel-progress-step');
-        const barEl = document.getElementById('rel-progress-bar');
-        const detailEl = document.getElementById('rel-progress-detail');
+        const stepEl = document.getElementById('rel-floating-step');
+        const barEl = document.getElementById('rel-floating-bar');
+        const detailEl = document.getElementById('rel-floating-detail');
 
         stepEl.textContent = p.current_step || 'Searching...';
 
         // Estimate progress
         let pct = 0;
         if (p.status === 'running') {
-            // Rough estimate based on steps
             pct = Math.min(90, p.found * 5 + p.downloaded * 10);
         } else if (p.status === 'done') {
             pct = 100;
@@ -13881,15 +13892,12 @@ async function pollRelativePaperProgress(categoryId) {
             detailEl.textContent = '';
             barEl.style.width = '100%';
 
-            const cancelBtn = document.getElementById('rel-modal-cancel');
+            const cancelBtn = document.getElementById('rel-floating-cancel');
             cancelBtn.textContent = 'Close';
             cancelBtn.onclick = () => {
-                // Cleanup task and close
                 fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
-                closeRelativePaperModal();
-                // Refresh category tree
+                closeRelativePaperFloating();
                 loadCategories(true);
-                // Select the new category if we have it
                 if (categoryId) {
                     setTimeout(() => {
                         const node = document.querySelector(`[data-category-id="${categoryId}"]`);
@@ -13897,6 +13905,9 @@ async function pollRelativePaperProgress(categoryId) {
                     }, 500);
                 }
             };
+
+            const closeBtn = document.getElementById('rel-floating-close');
+            if (closeBtn) closeBtn.onclick = () => cancelBtn.click();
 
             showMessage(msg, 'success');
         } else if (p.status === 'error') {
@@ -13907,12 +13918,15 @@ async function pollRelativePaperProgress(categoryId) {
             barEl.style.width = '100%';
             barEl.style.background = '#ef5350';
 
-            const cancelBtn = document.getElementById('rel-modal-cancel');
+            const cancelBtn = document.getElementById('rel-floating-cancel');
             cancelBtn.textContent = 'Close';
             cancelBtn.onclick = () => {
                 fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
-                closeRelativePaperModal();
+                closeRelativePaperFloating();
             };
+
+            const closeBtn = document.getElementById('rel-floating-close');
+            if (closeBtn) closeBtn.onclick = () => cancelBtn.click();
         }
     } catch (err) {
         console.error('Poll progress failed:', err);
@@ -13927,11 +13941,11 @@ async function cancelRelativePaperSearch() {
     } catch (err) {
         console.error('Cancel search failed:', err);
     }
-    closeRelativePaperModal();
+    closeRelativePaperFloating();
     showMessage('Search cancelled', 'info');
 }
 
-// Bind modal events (wrapped in DOMContentLoaded for safety)
+// Bind modal & floating events
 document.addEventListener('DOMContentLoaded', function() {
     const closeBtn = document.getElementById('relative-paper-modal-close');
     const cancelBtn = document.getElementById('rel-modal-cancel');
