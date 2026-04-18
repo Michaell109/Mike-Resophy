@@ -1,3 +1,143 @@
+/**
+ * Wrap bare LaTeX formulas (without $ delimiters) so MathJax can render them.
+ * Handles:
+ *  - Display math: standalone lines that look like LaTeX
+ *  - Inline math: LaTeX snippets within text paragraphs (mixed with CJK or English)
+ */
+function wrapLatexDelimiters(text) {
+    const latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering)/;
+    const subSuper = /[_^]\{[^}]+\}/;
+
+    const lines = text.split('\n');
+    const result = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') ||
+            trimmed.startsWith('```') || trimmed.startsWith('>') ||
+            trimmed.startsWith('- ') || trimmed.startsWith('* ') ||
+            /^\d+\.\s/.test(trimmed)) {
+            result.push(line);
+            continue;
+        }
+
+        if (/\$[^$]+\$/.test(trimmed) || /\$\$[\s\S]*?\$\$/.test(trimmed)) {
+            result.push(line);
+            continue;
+        }
+
+        const lineHasLatex = latexCommand.test(trimmed) || subSuper.test(trimmed);
+        if (!lineHasLatex) {
+            result.push(line);
+            continue;
+        }
+
+        // Strip LaTeX tokens and check how much real text remains
+        const withoutLatex = trimmed
+            .replace(/\\[a-zA-Z]+(\{[^}]*\})?/g, '')
+            .replace(/[_^]\{[^}]*\}/g, '')
+            .replace(/[=+\-*/|,.\s\[\]\(\)\{\}\\~!@#$%&?;:'"]/g, '');
+        const isDisplayMath = withoutLatex.length <= Math.max(trimmed.length * 0.25, 8);
+
+        if (isDisplayMath) {
+            result.push('$$' + trimmed + '$$');
+            continue;
+        }
+
+        // Inline math mixed with text: find math segments between CJK/text boundaries
+        let processedLine = line;
+        const cjkBoundary = /[\u4e00-\u9fff\uff0c\u3002\uff1b\uff1a\uff01\uff1f\u201c\u201d\uff08\uff09\u3000]{2,}/;
+        const segments = processedLine.split(cjkBoundary);
+        const separators = processedLine.match(cjkBoundary) || [];
+
+        let rebuilt = '';
+        for (let s = 0; s < segments.length; s++) {
+            let seg = segments[s];
+            if (latexCommand.test(seg) || subSuper.test(seg)) {
+                const leading = seg.match(/^(\s*)/)[1];
+                const trailing = seg.match(/(\s*)$/)[1];
+                const core = seg.slice(leading.length, seg.length - trailing.length);
+                if (core.length > 2) {
+                    seg = leading + '$' + core + '$' + trailing;
+                }
+            }
+            rebuilt += seg;
+            if (s < separators.length) {
+                rebuilt += separators[s];
+            }
+        }
+        result.push(rebuilt);
+    }
+
+    return result.join('\n');
+}
+
+/**
+ * Protect LaTeX _ and ^ from marked's emphasis processing.
+ * Applied AFTER $$/$ preservation so only affects text outside math blocks.
+ * Uses Unicode characters that survive HTML rendering.
+ */
+function protectLatexSubSuper(text) {
+    // _{ → ⁏SUB⁏{  (using U+204F REVERSED SEMICOLON, extremely rare in text)
+    // ^{ → ⁏SUP⁏{
+    // _X (single char subscript) → ⁏SUB⁏X
+    // ^X (single char superscript) → ⁏SUP⁏X
+    text = text.replace(/_\{/g, '\u204FSUB\u204F{');
+    text = text.replace(/\^\{/g, '\u204FSUP\u204F{');
+    // Protect _ followed by single alphanumeric (like x_t, x_1)
+    text = text.replace(/_(?=[a-zA-Z0-9])/g, '\u204FSUB\u204F');
+    // Protect ^ followed by single alphanumeric (like x^2, x^n)
+    text = text.replace(/\^(?=[a-zA-Z0-9])/g, '\u204FSUP\u204F');
+    return text;
+}
+
+function restoreLatexSubSuper(html) {
+    html = html.replace(/\u204FSUB\u204F/g, '_');
+    html = html.replace(/\u204FSUP\u204F/g, '^');
+    return html;
+}
+
+/**
+ * Robustly trigger MathJax typesetting on an element.
+ * Handles: MathJax not yet loaded, still loading, or already ready.
+ * Retries up to maxRetries times with increasing delay.
+ */
+function typesetMathJax(el, maxRetries = 5) {
+    if (!el) return;
+    const tryTypeset = (attempt) => {
+        if (attempt > maxRetries) {
+            console.warn('MathJax: gave up after', maxRetries, 'retries');
+            return;
+        }
+        if (window.MathJax && MathJax.typesetPromise) {
+            // If MathJax is still starting up, wait for it
+            const ready = (MathJax.startup && MathJax.startup.promise)
+                ? MathJax.startup.promise
+                : Promise.resolve();
+            ready.then(() => {
+                // Clear any previous MathJax rendering on this element
+                if (MathJax.typesetClear) {
+                    MathJax.typesetClear([el]);
+                }
+                MathJax.typesetPromise([el]).catch(err => {
+                    console.warn('MathJax typesetPromise error:', err);
+                });
+            });
+        } else if (window.MathJax && MathJax.typeset) {
+            // MathJax 2 fallback
+            MathJax.Hub.Queue(['Typeset', MathJax.Hub, el]);
+        } else {
+            // MathJax not loaded yet — retry with exponential backoff
+            const delay = 300 * Math.pow(1.5, attempt);
+            console.log(`MathJax not ready, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1})`);
+            setTimeout(() => tryTypeset(attempt + 1), delay);
+        }
+    };
+    tryTypeset(0);
+}
+
 // Global state
 let categories = {};
 let currentCategoryId = null;
@@ -9203,6 +9343,9 @@ async function viewAnalysisResult(paperId, event) {
             });
         }
 
+        // Wrap bare LaTeX formulas (without $ delimiters) for MathJax rendering
+        markdownContent = wrapLatexDelimiters(markdownContent);
+
         let htmlContent = '';
         if (typeof marked !== 'undefined') {
             const preserved = [];
@@ -9210,14 +9353,22 @@ async function viewAnalysisResult(paperId, event) {
                 .replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
                     const id = preserved.length;
                     preserved.push(match);
-                    return `@@MJX_BLOCK_${id}@@`;
+                    return `@@MJXB${id}@@`;
                 })
                 .replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
                     const id = preserved.length;
                     preserved.push(match);
-                    return `@@MJX_INLINE_${id}@@`;
+                    return `@@MJXI${id}@@`;
                 });
-            htmlContent = marked.parse(mdPreserved).replace(/@@MJX_(BLOCK|INLINE)_(\d+)@@/g, function(_, __, idx) {
+            // Protect _ and ^ from marked's emphasis processing (outside preserved math blocks)
+            const mdProtected = protectLatexSubSuper(mdPreserved);
+            htmlContent = marked.parse(mdProtected);
+            // Restore _ and ^
+            htmlContent = restoreLatexSubSuper(htmlContent);
+            // Restore preserved math blocks
+            htmlContent = htmlContent.replace(/@@MJXB(\d+)@@/g, function(_, idx) {
+                return preserved[Number(idx)];
+            }).replace(/@@MJXI(\d+)@@/g, function(_, idx) {
                 return preserved[Number(idx)];
             });
         } else {
@@ -9246,27 +9397,7 @@ async function viewAnalysisResult(paperId, event) {
 
         // Mathematical formula typesetting（MathJax）
         const el = paperInfoEl.querySelector('.paper-info-content');
-        if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
-            MathJax.startup.promise.then(() => {
-                if (MathJax.typesetPromise) {
-                    MathJax.typesetPromise([el]);
-                } else if (MathJax.typeset) {
-                    MathJax.typeset([el]);
-                }
-            });
-        } else if (window.MathJax) {
-            if (MathJax.typesetPromise) {
-                MathJax.typesetPromise([el]);
-            } else if (MathJax.typeset) {
-                MathJax.typeset([el]);
-            }
-        } else {
-            setTimeout(() => {
-                if (window.MathJax && MathJax.typesetPromise) {
-                    MathJax.typesetPromise([el]);
-                }
-            }, 500);
-        }
+        typesetMathJax(el);
     } catch (e) {
         console.error('Failed to get results:', e);
         showMessage('Failed to get results', 'error');

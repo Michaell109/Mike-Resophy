@@ -1357,6 +1357,11 @@
             hljs: [
                 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
                 'https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js'
+            ],
+            mathjax: [
+                'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+                'https://cdn.bootcdn.net/ajax/libs/mathjax/3/es5/tex-chtml.js',
+                'https://unpkg.com/mathjax@3/es5/tex-chtml.js'
             ]
         };
         
@@ -1415,7 +1420,21 @@
             
             // Check MathJax
             if (typeof MathJax === 'undefined') {
-                console.warn('⚠️ MathJax not loaded - mathematical formulas may not render');
+                console.warn('MathJax not loaded, trying fallback sources...');
+                // MathJax needs its config before loading
+                if (!window.MathJax) {
+                    window.MathJax = {
+                        tex: {
+                            inlineMath: [["$", "$"], ["\\(", "\\)"]],
+                            displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+                        },
+                        options: {
+                            skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+                            processHtmlClass: "markdown-viewer"
+                        }
+                    };
+                }
+                loadScriptWithFallback('mathjax', cdnFallbacks.mathjax, 0);
             } else {
                 console.log('✅ MathJax already loaded');
             }

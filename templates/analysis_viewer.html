@@ -348,6 +348,119 @@
     <script>
         const paperId = {{ paper_id|tojson }};
 
+        function wrapLatexDelimiters(text) {
+            var latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering)/;
+            var subSuper = /[_^]\{[^}]+\}/;
+
+            var lines = text.split('\n');
+            var result = [];
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var trimmed = line.trim();
+
+                if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') ||
+                    trimmed.startsWith('```') || trimmed.startsWith('>') ||
+                    trimmed.startsWith('- ') || trimmed.startsWith('* ') ||
+                    /^\d+\.\s/.test(trimmed)) {
+                    result.push(line);
+                    continue;
+                }
+
+                if (/\$[^$]+\$/.test(trimmed) || /\$\$[\s\S]*?\$\$/.test(trimmed)) {
+                    result.push(line);
+                    continue;
+                }
+
+                var lineHasLatex = latexCommand.test(trimmed) || subSuper.test(trimmed);
+                if (!lineHasLatex) {
+                    result.push(line);
+                    continue;
+                }
+
+                var withoutLatex = trimmed
+                    .replace(/\\[a-zA-Z]+(\{[^}]*\})?/g, '')
+                    .replace(/[_^]\{[^}]*\}/g, '')
+                    .replace(/[=+\-*/|,.\s\[\]\(\)\{\}\\~!@#$%&?;:'"]/g, '');
+                var isDisplayMath = withoutLatex.length <= Math.max(trimmed.length * 0.25, 8);
+
+                if (isDisplayMath) {
+                    result.push('$$' + trimmed + '$$');
+                    continue;
+                }
+
+                var processedLine = line;
+                var cjkBoundary = /[\u4e00-\u9fff\uff0c\u3002\uff1b\uff1a\uff01\uff1f\u201c\u201d\uff08\uff09\u3000]{2,}/;
+                var segments = processedLine.split(cjkBoundary);
+                var separators = processedLine.match(cjkBoundary) || [];
+
+                var rebuilt = '';
+                for (var s = 0; s < segments.length; s++) {
+                    var seg = segments[s];
+                    if (latexCommand.test(seg) || subSuper.test(seg)) {
+                        var leading = seg.match(/^(\s*)/)[1];
+                        var trailing = seg.match(/(\s*)$/)[1];
+                        var core = seg.slice(leading.length, seg.length - trailing.length);
+                        if (core.length > 2) {
+                            seg = leading + '$' + core + '$' + trailing;
+                        }
+                    }
+                    rebuilt += seg;
+                    if (s < separators.length) {
+                        rebuilt += separators[s];
+                    }
+                }
+                result.push(rebuilt);
+            }
+
+            return result.join('\n');
+        }
+
+        function protectLatexSubSuper(text) {
+            text = text.replace(/_\{/g, '\u204FSUB\u204F{');
+            text = text.replace(/\^\{/g, '\u204FSUP\u204F{');
+            text = text.replace(/_(?=[a-zA-Z0-9])/g, '\u204FSUB\u204F');
+            text = text.replace(/\^(?=[a-zA-Z0-9])/g, '\u204FSUP\u204F');
+            return text;
+        }
+
+        function restoreLatexSubSuper(html) {
+            html = html.replace(/\u204FSUB\u204F/g, '_');
+            html = html.replace(/\u204FSUP\u204F/g, '^');
+            return html;
+        }
+
+        function typesetMathJax(el, maxRetries) {
+            maxRetries = maxRetries || 5;
+            if (!el) return;
+            var tryTypeset = function(attempt) {
+                if (attempt > maxRetries) {
+                    console.warn('MathJax: gave up after', maxRetries, 'retries');
+                    return;
+                }
+                if (window.MathJax && MathJax.typesetPromise) {
+                    var ready = (MathJax.startup && MathJax.startup.promise)
+                        ? MathJax.startup.promise
+                        : Promise.resolve();
+                    ready.then(function() {
+                        if (MathJax.typesetClear) {
+                            MathJax.typesetClear([el]);
+                        }
+                        MathJax.typesetPromise([el]).catch(function(err) {
+                            console.warn('MathJax typesetPromise error:', err);
+                        });
+                    });
+                } else if (window.MathJax && MathJax.typeset) {
+                    MathJax.Hub.Queue(['Typeset', MathJax.Hub, el]);
+                } else {
+                    var delay = 300 * Math.pow(1.5, attempt);
+                    console.log('MathJax not ready, retrying in ' + Math.round(delay) + 'ms (attempt ' + (attempt + 1) + ')');
+                    setTimeout(function() { tryTypeset(attempt + 1); }, delay);
+                }
+            };
+            tryTypeset(0);
+        }
+
         function rewriteImages(markdown) {
             const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
             return markdown.replace(imageRegex, (match, alt, src) => {
@@ -372,18 +485,23 @@
                         return code;
                     }
                 });
+                // Wrap bare LaTeX formulas before rendering
+                mdText = wrapLatexDelimiters(mdText);
                 const preserved = [];
                 const mdPreserved = mdText.replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
                     const id = preserved.length;
                     preserved.push(match);
-                    return `@@MJX_BLOCK_${id}@@`;
+                    return `@@MJXB${id}@@`;
                 }).replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
                     const id = preserved.length;
                     preserved.push(match);
-                    return `@@MJX_INLINE_${id}@@`;
+                    return `@@MJXI${id}@@`;
                 });
-                let html = marked.parse(mdPreserved);
-                html = html.replace(/@@MJX_(BLOCK|INLINE)_(\d+)@@/g, function(_, __, idx) {
+                let html = marked.parse(protectLatexSubSuper(mdPreserved));
+                html = restoreLatexSubSuper(html);
+                html = html.replace(/@@MJXB(\d+)@@/g, function(_, idx) {
+                    return preserved[Number(idx)];
+                }).replace(/@@MJXI(\d+)@@/g, function(_, idx) {
                     return preserved[Number(idx)];
                 });
                 const el = document.getElementById('md');
@@ -391,27 +509,7 @@
                 if (typeof hljs !== 'undefined') {
                     document.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
                 }
-                if (window.MathJax && MathJax.startup && MathJax.startup.promise) {
-                    MathJax.startup.promise.then(() => {
-                        if (MathJax.typesetPromise) {
-                            MathJax.typesetPromise([el]);
-                        } else if (MathJax.typeset) {
-                            MathJax.typeset([el]);
-                        }
-                    });
-                } else if (window.MathJax) {
-                    if (MathJax.typesetPromise) {
-                        MathJax.typesetPromise([el]);
-                    } else if (MathJax.typeset) {
-                        MathJax.typeset([el]);
-                    }
-                } else {
-                    setTimeout(() => {
-                        if (window.MathJax && MathJax.typesetPromise) {
-                            MathJax.typesetPromise([el]);
-                        }
-                    }, 500);
-                }
+                typesetMathJax(el);
             } else {
                 document.getElementById('md').innerHTML = `<pre style="white-space: pre-wrap;">${mdText}</pre>`;
             }
@@ -683,6 +781,37 @@
                 startReadingTimer();
             }
         });
+
+        // MathJax CDN fallback
+        (function() {
+            setTimeout(function() {
+                if (typeof MathJax === 'undefined') {
+                    console.warn('MathJax not loaded from primary CDN, trying fallbacks...');
+                    var urls = [
+                        'https://cdn.bootcdn.net/ajax/libs/mathjax/3/es5/tex-chtml.js',
+                        'https://unpkg.com/mathjax@3/es5/tex-chtml.js'
+                    ];
+                    var tryLoad = function(idx) {
+                        if (idx >= urls.length) {
+                            console.error('All MathJax CDN sources failed');
+                            return;
+                        }
+                        var s = document.createElement('script');
+                        s.src = urls[idx];
+                        s.async = false;
+                        s.onload = function() {
+                            console.log('MathJax loaded from fallback:', urls[idx]);
+                            // Re-typeset if content is already rendered
+                            var el = document.getElementById('md');
+                            if (el && el.innerHTML) typesetMathJax(el);
+                        };
+                        s.onerror = function() { tryLoad(idx + 1); };
+                        document.head.appendChild(s);
+                    };
+                    tryLoad(0);
+                }
+            }, 2000);
+        })();
     </script>
 </body>
 </html>

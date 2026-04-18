@@ -97,7 +97,7 @@ def analyze_paper_task(
 这是文章的核心部分，请详细讲解本文提出的方法：
 - 整体框架和核心思路
 - 每个关键模块的作用和工作方式
-- **必须保留原文中的所有重要公式**（使用原始 LaTeX 格式），并逐一解释每个公式的含义和其中各符号的物理意义
+- **必须保留原文中的所有重要公式**（使用原始 LaTeX 格式），并逐一解释每个公式的含义和其中各符号的物理意义。**所有 LaTeX 公式必须用 `$...$` 包裹（行内公式）或 `$$...$$` 包裹（独立公式行）**，例如：行内公式 $x_{\tau} = (1 - \tau) x_{0}$，独立公式 $$x_{\tau} = (1 - \tau) \cdot x_{0} + \tau \cdot z$$
 - 关键设计选择的理由
 - 如果有模型结构图、流程图等，必须插入到对应位置
 
@@ -109,7 +109,7 @@ def analyze_paper_task(
 
 注意：
 - 图片（模型结构、teaser、结果图、阐释图等）必须直接插入到正文对应位置，不要放到最后
-- 公式必须保留原始 LaTeX 格式，不要省略或简化
+- 公式必须保留原始 LaTeX 格式，不要省略或简化。所有公式必须用 `$...$`（行内）或 `$$...$$`（独立行）包裹
 - 内容要详细充分，不要过度压缩
 
 INPUT: <MARKDOWN>"""
@@ -136,7 +136,7 @@ Explain in detail what problem this paper addresses, what are the pain points an
 This is the core section. Provide a detailed explanation of the proposed method:
 - Overall framework and core ideas
 - The role and mechanism of each key module
-- **All important formulas from the original paper must be preserved** (in original LaTeX format), with explanations of each formula's meaning and the physical significance of each symbol
+- **All important formulas from the original paper must be preserved** (in original LaTeX format), with explanations of each formula's meaning and the physical significance of each symbol. **All LaTeX formulas MUST be wrapped with `$...$` for inline math or `$$...$$` for display math**, e.g.: inline $x_{\tau} = (1 - \tau) x_{0}$, display $$x_{\tau} = (1 - \tau) \cdot x_{0} + \tau \cdot z$$
 - Rationale behind key design choices
 - If there are model architecture diagrams, flowcharts, etc., they must be inserted at the corresponding positions
 
@@ -148,7 +148,7 @@ Provide comprehensive coverage of the experiments, including:
 
 Notes:
 - Images (model architecture, teaser, results, explanatory diagrams, etc.) must be inserted directly at the corresponding positions in the text, not placed at the end
-- Formulas must be preserved in their original LaTeX format — do not omit or oversimplify them
+- Formulas must be preserved in their original LaTeX format — do not omit or oversimplify them. All formulas MUST be wrapped with `$...$` (inline) or `$$...$$` (display)
 - Content should be detailed and thorough — do not over-compress
 
 INPUT: <MARKDOWN>"""
