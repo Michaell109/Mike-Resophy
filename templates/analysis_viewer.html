@@ -283,6 +283,20 @@
             background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
             margin: 2em 0;
         }
+
+        .markdown-viewer .algorithm-block {
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 12px;
+            overflow: auto;
+            margin-bottom: 1.5em;
+            border: 1px solid #e2e8f0;
+            font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            color: #2d3748;
+        }
         
         .loading { 
             height: 100vh; 
@@ -348,16 +362,50 @@
     <script>
         const paperId = {{ paper_id|tojson }};
 
+        function convertAlgorithmCodeBlocks(text) {
+            var latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering|mathscr|operatorname|boldsymbol|overset|underset|mathring|breve|check|dot|ddot)/;
+
+            return text.replace(/```([a-zA-Z0-9]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                if (!(/\$[^$]+\$/.test(code) && latexCommand.test(code))) {
+                    return match;
+                }
+
+                var lines = code.split('\n');
+                var htmlLines = [];
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    line = line.replace(/&/g, '&amp;')
+                               .replace(/</g, '&lt;')
+                               .replace(/>/g, '&gt;');
+                    htmlLines.push(line);
+                }
+
+                return '<div class="algorithm-block">\n' + htmlLines.join('<br>\n') + '\n</div>';
+            });
+        }
+
         function wrapLatexDelimiters(text) {
             var latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering)/;
             var subSuper = /[_^]\{[^}]+\}/;
 
             var lines = text.split('\n');
             var result = [];
+            var inDisplayMath = false;
 
             for (var i = 0; i < lines.length; i++) {
                 var line = lines[i];
                 var trimmed = line.trim();
+
+                if (trimmed === '$$') {
+                    inDisplayMath = !inDisplayMath;
+                    result.push(line);
+                    continue;
+                }
+
+                if (inDisplayMath) {
+                    result.push(line);
+                    continue;
+                }
 
                 if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') ||
                     trimmed.startsWith('```') || trimmed.startsWith('>') ||
@@ -485,6 +533,8 @@
                         return code;
                     }
                 });
+                // Convert algorithm code blocks to HTML divs for math rendering
+                mdText = convertAlgorithmCodeBlocks(mdText);
                 // Wrap bare LaTeX formulas before rendering
                 mdText = wrapLatexDelimiters(mdText);
                 const preserved = [];

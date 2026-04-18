@@ -110,6 +110,9 @@ def analyze_paper_task(
 注意：
 - 图片（模型结构、teaser、结果图、阐释图等）必须直接插入到正文对应位置，不要放到最后
 - 公式必须保留原始 LaTeX 格式，不要省略或简化。所有公式必须用 `$...$`（行内）或 `$$...$$`（独立行）包裹
+- 算法伪代码**不要使用代码块**（```）包裹，必须使用普通文本格式呈现，行号用"数字:"格式，这样LaTeX公式才能正确渲染。例如：
+  1: $\mathbf{z}_t^0 \gets \mathrm{VAE_{enc}}(\mathbf{o}_t)$ ▷ 编码观测
+  2: $\tau_v \sim \mathcal{U}[0,1]$ ▷ 采样时间步
 - 内容要详细充分，不要过度压缩
 
 INPUT: <MARKDOWN>"""
@@ -149,6 +152,9 @@ Provide comprehensive coverage of the experiments, including:
 Notes:
 - Images (model architecture, teaser, results, explanatory diagrams, etc.) must be inserted directly at the corresponding positions in the text, not placed at the end
 - Formulas must be preserved in their original LaTeX format — do not omit or oversimplify them. All formulas MUST be wrapped with `$...$` (inline) or `$$...$$` (display)
+- Algorithm pseudocode **MUST NOT be wrapped in code blocks** (```). Use plain text format with line numbers in "number:" format so that LaTeX formulas render correctly. For example:
+  1: $\mathbf{z}_t^0 \gets \mathrm{VAE_{enc}}(\mathbf{o}_t)$ ▷ Encode observation
+  2: $\tau_v \sim \mathcal{U}[0,1]$ ▷ Sample timestep
 - Content should be detailed and thorough — do not over-compress
 
 INPUT: <MARKDOWN>"""
