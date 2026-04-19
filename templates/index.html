@@ -325,6 +325,10 @@
                     <i class="fas fa-robot"></i>
                     <span>Agentic</span>
                 </button>
+                <button class="setting-nav-item" data-setting="chat-llm">
+                    <i class="fas fa-comments"></i>
+                    <span>Chat LLM</span>
+                </button>
                 <button class="setting-nav-item" data-setting="daily-arxiv">
                     <img src="{{ url_for('static', filename='images/arxiv-logo.svg') }}" alt="arXiv" class="setting-nav-arxiv-icon">
                     <span>Daily arXiv</span>
@@ -584,6 +588,61 @@
                     </div>
                 </div>
 
+            </div>
+
+
+            <!-- Chat LLM Panel -->
+            <div class="setting-panel" id="setting-panel-chat-llm" style="display:none;">
+                <div class="panel-header">
+                    <h2><i class="fas fa-comments"></i> Chat LLM Settings</h2>
+                    <p>LLM configuration for paper reading Q&A chat (separate from Agentic settings)</p>
+                </div>
+
+                <!-- Chat LLM API configuration -->
+                <div class="setting-card">
+                    <div class="setting-card-header">
+                        <i class="fas fa-brain"></i>
+                        <span>Chat LLM API Configuration</span>
+                    </div>
+                    <div class="setting-card-body">
+                        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                            <i class="fas fa-info-circle"></i>
+                            LLM configuration used specifically for the chat assistant in the paper viewer. You can use a different (e.g. faster/cheaper) model than the Agentic one.
+                        </p>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="chat-llm-model">Model Name</label>
+                                <small>Chat LLM model name</small>
+                            </div>
+                            <input type="text" id="chat-llm-model" placeholder="gpt-4o-mini" class="setting-input" />
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="chat-llm-base-url">Base URL</label>
+                                <small>OpenAI-compatible API base URL</small>
+                            </div>
+                            <input type="text" id="chat-llm-base-url" placeholder="https://api.openai.com/v1" class="setting-input" />
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="chat-llm-api-key">API Key</label>
+                                <small>API access key</small>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="password" id="chat-llm-api-key" placeholder="sk-..." class="setting-input" style="width: 300px; max-width: 300px;" />
+                                <button id="test-chat-llm-api" class="btn btn-secondary" style="white-space: nowrap;" title="Test Chat LLM API connection">
+                                    <i class="fas fa-vial"></i> Test
+                                </button>
+                            </div>
+                        </div>
+                        <div id="chat-llm-test-result" style="margin-top: 8px; display: none;"></div>
+                        <div style="margin-top: 16px;">
+                            <button id="save-chat-llm-settings" class="btn" style="padding: 10px 24px;">
+                                <i class="fas fa-save"></i> Save Chat LLM Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
 

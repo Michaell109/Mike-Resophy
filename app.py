@@ -17,6 +17,7 @@ from resophy.routes.agent_routes.agent_summary_route import (
 from resophy.routes.agent_routes.agent_translate_route import (
     register_agent_translate_routes,
 )
+from resophy.routes.basic_routes.chat_route import register_chat_routes
 from resophy.routes.basic_routes.category_tree_route import register_category_routes
 from resophy.routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
 from resophy.routes.basic_routes.csv_import_route import register_csv_import_routes
@@ -71,6 +72,7 @@ USER_SETTINGS_FILE = None  # User settings (name, avatar, etc.)
 READING_HISTORY_FILE = None  # Daily reading history
 AGENTIC_SETTINGS_FILE = None  # AI feature settings (uniform LLM configuration)
 DAILY_ARXIV_SETTINGS_FILE = None  # Daily arXiv settings
+CHAT_SETTINGS_FILE = None  # Chat LLM settings
 AVATARS_DIR = None  # Avatar image directory
 TEMP_PAPERS_DIR = None  # Daily arXiv temporary paper directory
 READING_LIST_TEMP_DIR = None  # Reading list temporary paper directory
@@ -97,6 +99,13 @@ DEFAULT_AGENTIC_SETTINGS = {
     "exportMdPathPrefix": "",  # Export MD files path prefix (e.g. Obsidian vault path)
     # Note: System prompts are now built-in and selected based on user's aiLanguage setting
     # Custom prompts are no longer supported
+}
+
+# Default Chat LLM settings
+DEFAULT_CHAT_SETTINGS = {
+    "chatLlmModel": "",  # Chat LLM model name
+    "chatLlmBaseUrl": "",  # Chat LLM API base URL
+    "chatLlmApiKey": "",  # Chat LLM API key
 }
 
 # Default Daily arXiv settings
@@ -258,7 +267,7 @@ def init_app(papers_dir=None):
     """Initialize application configuration and directories"""
     global UPLOAD_FOLDER, CATEGORIES_FILE, READING_LIST_FILE
     global USER_SETTINGS_FILE, READING_HISTORY_FILE, AGENTIC_SETTINGS_FILE, AVATARS_DIR
-    global DAILY_ARXIV_SETTINGS_FILE, TEMP_PAPERS_DIR, READING_LIST_TEMP_DIR
+    global DAILY_ARXIV_SETTINGS_FILE, CHAT_SETTINGS_FILE, TEMP_PAPERS_DIR, READING_LIST_TEMP_DIR
     global SEARCH_INDEX_DB, search_index
     global init_categories, get_categories, save_categories, create_category_folder, get_papers_in_category
 
@@ -279,6 +288,7 @@ def init_app(papers_dir=None):
     READING_HISTORY_FILE = os.path.join(UPLOAD_FOLDER, "reading_history.json")
     AGENTIC_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "agentic_settings.json")
     DAILY_ARXIV_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "daily_arxiv_settings.json")
+    CHAT_SETTINGS_FILE = os.path.join(UPLOAD_FOLDER, "chat_settings.json")
     AVATARS_DIR = os.path.join(UPLOAD_FOLDER, ".avatars")
     TEMP_PAPERS_DIR = os.path.join(UPLOAD_FOLDER, ".daily_arxiv_temp")
     READING_LIST_TEMP_DIR = os.path.join(UPLOAD_FOLDER, "_ReadingListTemp")
@@ -317,6 +327,11 @@ def init_app(papers_dir=None):
     if not os.path.exists(DAILY_ARXIV_SETTINGS_FILE):
         with open(DAILY_ARXIV_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_DAILY_ARXIV_SETTINGS, f, ensure_ascii=False, indent=2)
+
+    # Initialize Chat LLM settings file
+    if not os.path.exists(CHAT_SETTINGS_FILE):
+        with open(CHAT_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CHAT_SETTINGS, f, ensure_ascii=False, indent=2)
 
     # Bind basic tool functions
     init_categories = partial(category_manager.init_categories, CATEGORIES_FILE)
@@ -457,6 +472,12 @@ def register_routes():
         default_agentic_settings=DEFAULT_AGENTIC_SETTINGS,
         avatars_dir=AVATARS_DIR,
         start_daily_arxiv_callback=start_daily_arxiv_if_configured,
+    )
+
+    register_chat_routes(
+        app,
+        chat_settings_file=CHAT_SETTINGS_FILE,
+        default_chat_settings=DEFAULT_CHAT_SETTINGS,
     )
 
     register_paper_operation_routes(

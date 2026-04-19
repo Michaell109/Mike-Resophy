@@ -5604,6 +5604,99 @@ async function loadAgenticSettings() {
     }
 }
 
+// ========================================
+// Chat LLM Settings
+// ========================================
+async function loadChatLlmSettings() {
+    try {
+        const response = await fetch('/api/settings/chat');
+        if (response.ok) {
+            const settings = await response.json();
+            const modelEl = document.getElementById('chat-llm-model');
+            const baseUrlEl = document.getElementById('chat-llm-base-url');
+            const apiKeyEl = document.getElementById('chat-llm-api-key');
+
+            if (modelEl) modelEl.value = settings.chatLlmModel || '';
+            if (baseUrlEl) baseUrlEl.value = settings.chatLlmBaseUrl || '';
+            if (apiKeyEl) apiKeyEl.value = settings.chatLlmApiKey || '';
+
+            // Bind save button
+            const saveBtn = document.getElementById('save-chat-llm-settings');
+            if (saveBtn) {
+                saveBtn.onclick = saveChatLlmSettings;
+            }
+            // Bind test button
+            const testBtn = document.getElementById('test-chat-llm-api');
+            if (testBtn) {
+                testBtn.onclick = testChatLlmAPI;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load Chat LLM settings:', e);
+    }
+}
+
+async function saveChatLlmSettings() {
+    const settings = {
+        chatLlmModel: (document.getElementById('chat-llm-model')?.value || '').trim(),
+        chatLlmBaseUrl: (document.getElementById('chat-llm-base-url')?.value || '').trim(),
+        chatLlmApiKey: (document.getElementById('chat-llm-api-key')?.value || '').trim(),
+    };
+
+    try {
+        const response = await fetch('/api/settings/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+            showMessage('Chat LLM settings saved', 'success');
+        } else {
+            showMessage(`Save failed: ${result.error || 'Unknown error'}`, 'error');
+        }
+    } catch (e) {
+        showMessage(`Save failed: ${e.message}`, 'error');
+    }
+}
+
+async function testChatLlmAPI() {
+    const model = (document.getElementById('chat-llm-model')?.value || '').trim();
+    const baseUrl = (document.getElementById('chat-llm-base-url')?.value || '').trim();
+    const apiKey = (document.getElementById('chat-llm-api-key')?.value || '').trim();
+    const resultEl = document.getElementById('chat-llm-test-result');
+
+    if (!model || !baseUrl || !apiKey) {
+        if (resultEl) {
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = '<span style="color: #dc3545;"><i class="fas fa-times-circle"></i> Please fill in all fields first</span>';
+        }
+        return;
+    }
+
+    if (resultEl) {
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = '<span style="color: #007bff;"><i class="fas fa-spinner fa-spin"></i> Testing connection...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/settings/test/chat-llm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatLlmModel: model, chatLlmBaseUrl: baseUrl, chatLlmApiKey: apiKey })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            resultEl.innerHTML = `<span style="color: #28a745;"><i class="fas fa-check-circle"></i> ${result.message}</span>`;
+        } else {
+            resultEl.innerHTML = `<span style="color: #dc3545;"><i class="fas fa-times-circle"></i> ${result.error}</span>`;
+        }
+    } catch (e) {
+        resultEl.innerHTML = `<span style="color: #dc3545;"><i class="fas fa-times-circle"></i> Test failed: ${e.message}</span>`;
+    }
+}
+
 // Toggle MinerU config UI based on selected mode
 function toggleMineruConfigUI() {
     try {
@@ -8513,6 +8606,11 @@ async function switchSettingPanel(panelName) {
         }
         // Bind the enter event of the keyword input box
         setupDailyArxivKeywordInput();
+    }
+
+    // If you switch to Chat LLM Panel, load settings
+    if (panelName === 'chat-llm') {
+        await loadChatLlmSettings();
     }
     
     // save state

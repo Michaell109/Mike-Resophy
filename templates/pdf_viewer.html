@@ -6,6 +6,7 @@
     <title>{{ paper_title or 'PDF Viewer' }} - Resophy</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -15,7 +16,7 @@
             color: white;
             overflow: hidden;
         }
-        
+
         .header {
             background: #1a1a1a;
             border-bottom: 1px solid #444;
@@ -25,13 +26,17 @@
             align-items: center;
             z-index: 1000;
         }
-        
+
         .header h3 {
             margin: 0;
             font-size: 16px;
             color: white;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 50%;
         }
-        
+
         .btn {
             background: #007bff;
             color: white;
@@ -46,30 +51,65 @@
             gap: 5px;
             transition: background-color 0.2s;
         }
-        
+
         .btn:hover {
             background: #0056b3;
         }
-        
+
         .btn-secondary {
             background: #6c757d;
         }
-        
+
         .btn-secondary:hover {
             background: #545b62;
         }
-        
-        .pdf-container {
+
+        .header-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .chat-toggle-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: background-color 0.2s;
+        }
+
+        .chat-toggle-btn:hover {
+            background: #545b62;
+        }
+
+        .chat-toggle-btn.active {
+            background: #007bff;
+        }
+
+        .main-container {
+            display: flex;
             height: calc(100vh - 60px);
             width: 100%;
         }
-        
+
+        .pdf-container {
+            flex: 1;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+
         iframe {
             width: 100%;
             height: 100%;
             border: none;
         }
-        
+
         .loading {
             display: flex;
             justify-content: center;
@@ -78,7 +118,7 @@
             flex-direction: column;
             color: #ccc;
         }
-        
+
         .spinner {
             width: 40px;
             height: 40px;
@@ -88,10 +128,281 @@
             animation: spin 1s linear infinite;
             margin-bottom: 15px;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        /* Chat Sidebar */
+        .chat-sidebar {
+            width: 0;
+            min-width: 0;
+            background: #1e1e1e;
+            border-left: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .chat-sidebar.open {
+            width: 420px;
+            min-width: 420px;
+        }
+
+        .chat-header {
+            padding: 12px 16px;
+            background: #252525;
+            border-bottom: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-header-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-header-title i {
+            color: #007bff;
+        }
+
+        .chat-context-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: #1a472a;
+            color: #4caf50;
+            font-weight: 500;
+        }
+
+        .chat-context-badge.no-context {
+            background: #4a3728;
+            color: #ff9800;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chat-message {
+            max-width: 95%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+
+        .chat-message.user {
+            align-self: flex-end;
+            background: #007bff;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.assistant {
+            align-self: flex-start;
+            background: #333;
+            color: #e0e0e0;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-message.assistant .md-content h1,
+        .chat-message.assistant .md-content h2,
+        .chat-message.assistant .md-content h3 {
+            margin: 8px 0 4px;
+            color: #fff;
+            font-size: 15px;
+        }
+
+        .chat-message.assistant .md-content p {
+            margin: 4px 0;
+        }
+
+        .chat-message.assistant .md-content code {
+            background: #444;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .chat-message.assistant .md-content pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .chat-message.assistant .md-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .chat-message.assistant .md-content ul,
+        .chat-message.assistant .md-content ol {
+            margin: 4px 0;
+            padding-left: 20px;
+        }
+
+        .chat-message.assistant .md-content li {
+            margin: 2px 0;
+        }
+
+        .chat-message.assistant .md-content strong {
+            color: #fff;
+        }
+
+        .chat-message.error {
+            align-self: center;
+            background: #4a2020;
+            color: #ff6b6b;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .chat-message .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 16px;
+            background: #007bff;
+            animation: blink 0.7s infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .chat-welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: #888;
+            padding: 20px;
+        }
+
+        .chat-welcome i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #555;
+        }
+
+        .chat-welcome p {
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 4px 0;
+        }
+
+        .chat-input-area {
+            padding: 12px 16px;
+            background: #252525;
+            border-top: 1px solid #444;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            max-height: 120px;
+            min-height: 40px;
+            line-height: 1.5;
+        }
+
+        .chat-input:focus {
+            border-color: #007bff;
+        }
+
+        .chat-input::placeholder {
+            color: #777;
+        }
+
+        .chat-send-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+            min-width: 40px;
+            height: 40px;
+        }
+
+        .chat-send-btn:hover {
+            background: #0056b3;
+        }
+
+        .chat-send-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .chat-clear-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .chat-clear-btn:hover {
+            color: #ff6b6b;
+            background: #333;
+        }
+
+        /* Scrollbar for chat */
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 3px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #777;
         }
     </style>
 </head>
@@ -103,31 +414,77 @@
             </button>
         </div>
         <h3 id="pdf-title">{{ paper_title or 'PDF Viewer' }}</h3>
-        <div>
+        <div class="header-right">
+            <button id="chat-toggle-btn" class="chat-toggle-btn" title="Toggle chat sidebar">
+                <i class="fas fa-comments"></i> Chat
+            </button>
             <a href="/api/paper/{{ paper_id }}/file" class="btn btn-secondary" download>
                 <i class="fas fa-download"></i> Download
             </a>
         </div>
     </div>
-    
-    <div class="pdf-container">
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p>Loading PDF viewer...</p>
+
+    <div class="main-container">
+        <div class="pdf-container">
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Loading PDF viewer...</p>
+            </div>
+            <iframe
+                id="pdf-iframe"
+                style="display: none;"
+                src=""
+                title="PDF Viewer">
+            </iframe>
         </div>
-        <iframe 
-            id="pdf-iframe" 
-            style="display: none;"
-            src=""
-            title="PDF Viewer">
-        </iframe>
+
+        <div class="chat-sidebar" id="chat-sidebar">
+            <div class="chat-header">
+                <div class="chat-header-title">
+                    <i class="fas fa-comments"></i>
+                    <span>Paper Q&A</span>
+                    <span class="chat-context-badge" id="chat-context-badge" style="display:none;">Paper loaded</span>
+                </div>
+                <button class="chat-clear-btn" id="chat-clear-btn" title="Clear conversation">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="chat-welcome" id="chat-welcome">
+                    <i class="fas fa-robot"></i>
+                    <p>Ask questions about this paper</p>
+                    <p style="font-size: 12px; color: #666; margin-top: 8px;">
+                        The AI analysis result is used as context.<br>
+                        Select text and paste it here to ask about specific parts.
+                    </p>
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <div class="chat-input-wrapper">
+                    <textarea
+                        class="chat-input"
+                        id="chat-input"
+                        placeholder="Ask about this paper..."
+                        rows="1"
+                    ></textarea>
+                    <button class="chat-send-btn" id="chat-send-btn" title="Send message">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
-    
+
     <script>
+        const PAPER_ID = '{{ paper_id }}';
+        let chatMessages = []; // {role, content}
+        let isChatStreaming = false;
+        let hasPaperContext = false;
+
         // Get paper information and set title
         async function loadPaperInfo() {
             try {
-                const response = await fetch('/api/paper/{{ paper_id }}');
+                const response = await fetch('/api/paper/' + PAPER_ID);
                 if (response.ok) {
                     const paper = await response.json();
                     const resolvedTitle = paper.title || paper.filename || 'PDF Viewer';
@@ -136,102 +493,101 @@
                         titleEl.textContent = resolvedTitle;
                     }
                     document.title = resolvedTitle;
+                    // Check if paper has analysis result
+                    hasPaperContext = !!paper.has_analysis_result;
+                    updateContextBadge();
                 }
             } catch (error) {
                 console.error('Failed to load paper info:', error);
             }
         }
-        
+
+        function updateContextBadge() {
+            const badge = document.getElementById('chat-context-badge');
+            if (!badge) return;
+            badge.style.display = 'inline-block';
+            if (hasPaperContext) {
+                badge.textContent = 'Paper loaded';
+                badge.className = 'chat-context-badge';
+            } else {
+                badge.textContent = 'No analysis';
+                badge.className = 'chat-context-badge no-context';
+            }
+        }
+
         // initialization PDF Viewer
         function initPDFViewer() {
             const iframe = document.getElementById('pdf-iframe');
             const loading = document.getElementById('loading');
-            
+
             // Check whether to use Chinese version (from data attribute)
             const useChinese = (document.body.getAttribute('data-use-chinese') === 'true');
-            let pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/file';
-            
+            let pdfUrl = window.location.origin + '/api/paper/' + PAPER_ID + '/file';
+
             if (useChinese) {
-                pdfUrl = window.location.origin + '/api/paper/{{ paper_id }}/chinese/file';
+                pdfUrl = window.location.origin + '/api/paper/' + PAPER_ID + '/chinese/file';
             }
-            
+
             console.log('PDF URL:', pdfUrl);
             console.log('Use Chinese version:', useChinese);
-            
+
             // Use fetch to check if file exists
             fetch(pdfUrl, { method: 'HEAD' })
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
                     console.log('PDF file check succeeded');
-                    
+
                     // Load the raw PDF in iframe to avoid cross-origin issues
                     iframe.src = pdfUrl;
-                    
+
                     // Listen for iframe load
                     iframe.onload = function() {
                         console.log('PDF iframe loaded');
                         loading.style.display = 'none';
                         iframe.style.display = 'block';
                     };
-                    
+
                     // Timeout: if not loaded in 10s, show error
-                    setTimeout(() => {
+                    setTimeout(function() {
                         if (loading.style.display !== 'none') {
                             console.error('PDF load timeout');
-                            loading.innerHTML = `
-                                <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                                <p style="color: #dc3545;">PDF load timeout</p>
-                                <p style="color: #999; font-size: 12px; margin-top: 10px;">Please check if the PDF file exists, or try downloading directly.</p>
-                                <button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button>
-                                <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
-                            `;
+                            loading.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i><p style="color: #dc3545;">PDF load timeout</p><p style="color: #999; font-size: 12px; margin-top: 10px;">Please check if the PDF file exists, or try downloading directly.</p><button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button><a href="' + pdfUrl + '" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>';
                         }
                     }, 10000);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('PDF file check failed:', error);
-                    loading.innerHTML = `
-                        <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                        <p style="color: #dc3545;">PDF load failed</p>
-                        <p style="color: #999; font-size: 12px; margin-top: 10px;">Error: ${error.message}</p>
-                        <button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button>
-                        <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
-                    `;
+                    loading.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i><p style="color: #dc3545;">PDF load failed</p><p style="color: #999; font-size: 12px; margin-top: 10px;">Error: ' + error.message + '</p><button class="btn" onclick="location.reload()" style="margin-top: 15px;">Reload</button><a href="' + pdfUrl + '" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>';
                 });
-            
+
             // Fallback error handler
             iframe.onerror = function() {
                 console.error('PDF iframe load error');
-                loading.innerHTML = `
-                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
-                    <p style="color: #dc3545;">PDF load failed</p>
-                    <button class="btn" onclick="location.reload()">Reload</button>
-                    <a href="${pdfUrl}" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>
-                `;
+                loading.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i><p style="color: #dc3545;">PDF load failed</p><button class="btn" onclick="location.reload()">Reload</button><a href="' + pdfUrl + '" class="btn btn-secondary" download style="margin-top: 10px; margin-left: 10px;">Download PDF</a>';
             };
         }
-        
+
         // Close window helper
         function closeWindow() {
             if (window.opener) {
                 window.close();
             } else {
                 const closed = window.close();
-                setTimeout(() => {
+                setTimeout(function() {
                     if (!closed && !window.closed) {
                         window.location.href = '/';
                     }
                 }, 100);
             }
         }
-        
+
         // Back button wiring
         function setupBackButton() {
             const backBtn = document.getElementById('back-btn');
             backBtn.addEventListener('click', closeWindow);
-            
+
             // Keyboard shortcuts
             document.addEventListener('keydown', function(e) {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
@@ -243,56 +599,224 @@
                 }
             });
         }
-        
+
+        // ========================================
+        // Chat functionality
+        // ========================================
+        function setupChat() {
+            const toggleBtn = document.getElementById('chat-toggle-btn');
+            const sidebar = document.getElementById('chat-sidebar');
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('chat-send-btn');
+            const clearBtn = document.getElementById('chat-clear-btn');
+
+            toggleBtn.addEventListener('click', function() {
+                sidebar.classList.toggle('open');
+                toggleBtn.classList.toggle('active');
+                if (sidebar.classList.contains('open')) {
+                    input.focus();
+                }
+            });
+
+            sendBtn.addEventListener('click', sendChatMessage);
+
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+
+            // Auto-resize textarea
+            input.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+
+            clearBtn.addEventListener('click', clearChat);
+        }
+
+        function clearChat() {
+            chatMessages = [];
+            const messagesEl = document.getElementById('chat-messages');
+            messagesEl.innerHTML = '<div class="chat-welcome" id="chat-welcome"><i class="fas fa-robot"></i><p>Ask questions about this paper</p><p style="font-size: 12px; color: #666; margin-top: 8px;">The AI analysis result is used as context.<br>Select text and paste it here to ask about specific parts.</p></div>';
+        }
+
+        async function sendChatMessage() {
+            if (isChatStreaming) return;
+
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Hide welcome message
+            const welcome = document.getElementById('chat-welcome');
+            if (welcome) welcome.remove();
+
+            // Add user message
+            chatMessages.push({ role: 'user', content: message });
+            appendMessageToUI('user', message);
+
+            // Clear input
+            input.value = '';
+            input.style.height = 'auto';
+
+            // Disable send button
+            isChatStreaming = true;
+            document.getElementById('chat-send-btn').disabled = true;
+
+            // Create assistant message placeholder
+            const assistantEl = appendMessageToUI('assistant', '');
+            const mdContentEl = assistantEl.querySelector('.md-content') || assistantEl;
+
+            try {
+                const response = await fetch('/api/paper/' + PAPER_ID + '/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: chatMessages })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(function() { return {}; });
+                    throw new Error(errorData.error || 'Request failed');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullContent = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i].trim();
+                        if (!line.startsWith('data: ')) continue;
+                        var data = line.slice(6);
+
+                        if (data === '[DONE]') break;
+
+                        try {
+                            var parsed = JSON.parse(data);
+                            if (parsed.error) {
+                                throw new Error(parsed.error);
+                            }
+                            if (parsed.content) {
+                                fullContent += parsed.content;
+                                // Render markdown
+                                if (typeof marked !== 'undefined') {
+                                    mdContentEl.innerHTML = '<div class="md-content">' + marked.parse(fullContent) + '<span class="typing-cursor"></span></div>';
+                                } else {
+                                    mdContentEl.textContent = fullContent + '|';
+                                }
+                                // Auto scroll
+                                var chatMessagesEl = document.getElementById('chat-messages');
+                                chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+                            }
+                        } catch (e) {
+                            if (e.message && !e.message.includes('JSON')) {
+                                throw e;
+                            }
+                        }
+                    }
+                }
+
+                // Final render without cursor
+                chatMessages.push({ role: 'assistant', content: fullContent });
+                if (typeof marked !== 'undefined') {
+                    mdContentEl.innerHTML = '<div class="md-content">' + marked.parse(fullContent) + '</div>';
+                } else {
+                    mdContentEl.textContent = fullContent;
+                }
+
+            } catch (error) {
+                console.error('Chat error:', error);
+                mdContentEl.innerHTML = '<div style="color: #ff6b6b;"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(error.message) + '</div>';
+            } finally {
+                isChatStreaming = false;
+                document.getElementById('chat-send-btn').disabled = false;
+                input.focus();
+            }
+        }
+
+        function appendMessageToUI(role, content) {
+            var messagesEl = document.getElementById('chat-messages');
+            var msgEl = document.createElement('div');
+            msgEl.className = 'chat-message ' + role;
+
+            if (role === 'assistant') {
+                if (typeof marked !== 'undefined' && content) {
+                    msgEl.innerHTML = '<div class="md-content">' + marked.parse(content) + '</div>';
+                } else {
+                    msgEl.textContent = content;
+                }
+            } else {
+                msgEl.textContent = content;
+            }
+
+            messagesEl.appendChild(msgEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return msgEl;
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(text));
+            return div.innerHTML;
+        }
+
         // Reading time tracking
         let readStartTime = null;
         let readTimeInterval = null;
-        let lastRecordedSeconds = 0; // last recorded seconds
-        let lastActivityTime = null; // last user activity timestamp
-        let isTimerActive = true; // whether timer is active (for inactivity detection)
-        let activityCheckInterval = null; // inactivity checker
-        const INACTIVITY_THRESHOLD = 60000; // 1 minute
-        const TIMER_INTERVAL = 10000; // 10 seconds (reduced from 30s for better accuracy)
-        let isPageUnloading = false; // Flag to track if page is unloading
-        
+        let lastRecordedSeconds = 0;
+        let lastActivityTime = null;
+        let isTimerActive = true;
+        let activityCheckInterval = null;
+        const INACTIVITY_THRESHOLD = 60000;
+        const TIMER_INTERVAL = 10000;
+        let isPageUnloading = false;
+
         // Format date as YYYY-MM-DD (local time)
         function formatDateLocal(date) {
             const d = date || new Date();
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
+            return year + '-' + month + '-' + day;
         }
-        
+
         // User activity handler
         function recordUserActivity() {
             const now = Date.now();
             const wasInactive = !isTimerActive;
             lastActivityTime = now;
-            
+
             if (wasInactive) {
                 console.log('User activity detected, resume timing');
                 isTimerActive = true;
                 readStartTime = now;
             }
         }
-        
+
         // Check for long inactivity
         function checkUserActivity() {
             if (!lastActivityTime || !isTimerActive) {
                 return;
             }
-            
+
             const now = Date.now();
             const timeSinceLastActivity = now - lastActivityTime;
-            
+
             if (timeSinceLastActivity > INACTIVITY_THRESHOLD && isTimerActive) {
                 console.log('Inactivity > 1 minute, pause timing');
                 isTimerActive = false;
                 if (readStartTime) {
                     const elapsed = Math.floor((lastActivityTime - readStartTime) / 1000);
                     const incrementSeconds = elapsed - lastRecordedSeconds;
-                    
+
                     if (incrementSeconds > 0) {
                         console.log('Saving reading time before inactivity:', incrementSeconds, 'seconds');
                         sendReadingTime(incrementSeconds, false);
@@ -302,31 +826,31 @@
                 }
             }
         }
-        
+
         // Start monitoring activity
         function startActivityMonitoring() {
             const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-            
-            activityEvents.forEach(eventType => {
+
+            activityEvents.forEach(function(eventType) {
                 document.addEventListener(eventType, recordUserActivity, { passive: true });
                 const iframe = document.getElementById('pdf-iframe');
                 if (iframe) {
                     try {
-                        iframe.contentWindow?.document?.addEventListener(eventType, recordUserActivity, { passive: true });
+                        iframe.contentWindow && iframe.contentWindow.document && iframe.contentWindow.document.addEventListener(eventType, recordUserActivity, { passive: true });
                     } catch (e) {
                         // Cross-origin, ignore
                     }
                 }
             });
-            
+
             lastActivityTime = Date.now();
             isTimerActive = true;
-            
+
             activityCheckInterval = setInterval(checkUserActivity, 10000);
-            
+
             console.log('Activity monitoring started');
         }
-        
+
         // Stop monitoring
         function stopActivityMonitoring() {
             if (activityCheckInterval) {
@@ -335,62 +859,59 @@
             }
             console.log('Activity monitoring stopped');
         }
-        
+
         // Send reading time to server (with sendBeacon support for page unload)
-        function sendReadingTime(seconds, useBeacon = false) {
+        function sendReadingTime(seconds, useBeacon) {
             if (seconds <= 0) return;
-            
-            const url = `/api/paper/{{ paper_id }}/read-time`;
+
+            const url = '/api/paper/' + PAPER_ID + '/read-time';
             const data = JSON.stringify({ increment: seconds });
-            
+
             if (useBeacon && navigator.sendBeacon) {
-                // Use sendBeacon for reliable delivery during page unload
                 const blob = new Blob([data], { type: 'application/json' });
                 const sent = navigator.sendBeacon(url, blob);
                 if (sent) {
                     console.log('Reading time sent via sendBeacon:', seconds, 'seconds');
                 } else {
                     console.warn('sendBeacon failed, falling back to fetch');
-                    // Fallback to fetch with keepalive
                     fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: data,
                         keepalive: true
-                    }).catch(err => console.error('Failed to record reading time:', err));
+                    }).catch(function(err) { console.error('Failed to record reading time:', err); });
                 }
             } else {
-                // Normal fetch request
                 fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: data,
-                    keepalive: useBeacon // Use keepalive if requested
-                }).catch(err => console.error('Failed to record reading time:', err));
+                    keepalive: useBeacon
+                }).catch(function(err) { console.error('Failed to record reading time:', err); });
             }
         }
-        
+
         // Record daily reading time to server (and localStorage as backup)
         function recordDailyReadingTime(seconds) {
             if (seconds <= 0) return;
-            
+
             const today = formatDateLocal(new Date());
             const minutes = Math.ceil(seconds / 60);
-            
+
             fetch('/api/settings/reading-history/record', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ minutes, date: today })
-            }).then(response => {
+                body: JSON.stringify({ minutes: minutes, date: today })
+            }).then(function(response) {
                 if (response.ok) {
-                    console.log(`Recorded daily reading time: ${minutes} minutes`);
+                    console.log('Recorded daily reading time: ' + minutes + ' minutes');
                 }
-            }).catch(err => {
+            }).catch(function(err) {
                 console.error('Failed to record daily reading time:', err);
             });
-            
+
             try {
                 const key = 'dailyReadingData';
                 let data = {};
@@ -399,11 +920,11 @@
                     data = JSON.parse(saved);
                 }
                 data[today] = (data[today] || 0) + minutes;
-                
+
                 const cutoffDate = new Date();
                 cutoffDate.setDate(cutoffDate.getDate() - 400);
                 const cutoffStr = formatDateLocal(cutoffDate);
-                Object.keys(data).forEach(date => {
+                Object.keys(data).forEach(function(date) {
                     if (date < cutoffStr) {
                         delete data[date];
                     }
@@ -413,21 +934,21 @@
                 console.error('Failed to save to localStorage:', e);
             }
         }
-        
+
         function startReadingTimer() {
             readStartTime = Date.now();
             lastRecordedSeconds = 0;
             isTimerActive = true;
             console.log('Start recording reading time');
-            
+
             startActivityMonitoring();
-            
+
             readTimeInterval = setInterval(function() {
                 if (readStartTime && isTimerActive && !isPageUnloading) {
                     const now = Date.now();
                     const elapsed = Math.floor((now - readStartTime) / 1000);
                     const incrementSeconds = elapsed - lastRecordedSeconds;
-                    
+
                     if (incrementSeconds > 0) {
                         sendReadingTime(incrementSeconds, false);
                         recordDailyReadingTime(incrementSeconds);
@@ -436,58 +957,58 @@
                 }
             }, TIMER_INTERVAL);
         }
-        
-        function stopReadingTimer(useBeacon = false) {
+
+        function stopReadingTimer(useBeacon) {
             stopActivityMonitoring();
-            
+
             if (readStartTime && isTimerActive) {
                 const now = Date.now();
                 const elapsed = Math.floor((now - readStartTime) / 1000);
                 const incrementSeconds = elapsed - lastRecordedSeconds;
-                console.log('Stop recording reading time, increment:', incrementSeconds, 'seconds', useBeacon ? '(using beacon)' : '');
-                
+                console.log('Stop recording reading time, increment:', incrementSeconds, 'seconds');
+
                 if (incrementSeconds > 0) {
-                    // Use sendBeacon if page is unloading, otherwise use normal fetch
                     sendReadingTime(incrementSeconds, useBeacon);
                     recordDailyReadingTime(incrementSeconds);
                 }
             }
-            
+
             readStartTime = null;
             lastRecordedSeconds = 0;
             isTimerActive = false;
             lastActivityTime = null;
-            
+
             if (readTimeInterval) {
                 clearInterval(readTimeInterval);
                 readTimeInterval = null;
             }
         }
-        
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupBackButton();
             loadPaperInfo();
             initPDFViewer();
+            setupChat();
             startReadingTimer();
         });
-        
+
         // Stop timer on unload (use sendBeacon for reliable delivery)
         window.addEventListener('beforeunload', function() {
             isPageUnloading = true;
-            stopReadingTimer(true); // Use sendBeacon when page is unloading
+            stopReadingTimer(true);
         });
-        
+
         // Also handle pagehide event (more reliable in some browsers)
         window.addEventListener('pagehide', function() {
             isPageUnloading = true;
-            stopReadingTimer(true); // Use sendBeacon when page is hiding
+            stopReadingTimer(true);
         });
-        
+
         // Pause/resume timer on visibility change
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
-                stopReadingTimer(false); // Normal fetch when just hiding
+                stopReadingTimer(false);
             } else {
                 startReadingTimer();
             }
