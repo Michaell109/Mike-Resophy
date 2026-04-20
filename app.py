@@ -18,6 +18,7 @@ from resophy.routes.agent_routes.agent_translate_route import (
     register_agent_translate_routes,
 )
 from resophy.routes.basic_routes.chat_route import register_chat_routes
+from resophy.routes.basic_routes.bilingual_route import register_bilingual_routes
 from resophy.routes.basic_routes.category_tree_route import register_category_routes
 from resophy.routes.basic_routes.daily_arxiv_route import register_daily_arxiv_routes
 from resophy.routes.basic_routes.csv_import_route import register_csv_import_routes
@@ -368,6 +369,10 @@ analysis_tasks = (
 )  # {task_id: {paper_id, process, logs, status, start_time, log_lock, step}}
 analysis_tasks_lock = threading.Lock()  # Protect interpretation task dictionary
 
+# Bilingual translation task management
+bilingual_tasks = {}
+bilingual_tasks_lock = threading.Lock()
+
 
 @app.route("/")
 def index():
@@ -585,19 +590,33 @@ def register_routes():
         paper_store=paper_store,
     )
 
+    register_bilingual_routes(
+        app,
+        bilingual_tasks=bilingual_tasks,
+        bilingual_tasks_lock=bilingual_tasks_lock,
+        get_categories=get_categories,
+        get_category_path=get_category_path,
+        get_papers_in_category=get_papers_in_category,
+        save_paper_metadata=save_paper_metadata,
+        agentic_settings_file=AGENTIC_SETTINGS_FILE,
+    )
+
 
 @app.route("/viewer/<paper_id>")
 def pdf_viewer(paper_id):
     """PDF reader page"""
     use_chinese = request.args.get("chinese", "false").lower() == "true"
     paper_title = None
+    has_bilingual = False
     paper = paper_store.get(paper_id)
     if paper:
         paper_title = paper.title or paper.filename or paper.original_filename
+        has_bilingual = paper.has_bilingual_version
     return render_template(
         "pdf_viewer.html",
         paper_id=paper_id,
         use_chinese=use_chinese,
+        has_bilingual=has_bilingual,
         paper_title=paper_title,
     )
 
@@ -606,6 +625,18 @@ def pdf_viewer(paper_id):
 def analysis_viewer(paper_id):
     """AI interpretation Markdown full-screen view page"""
     return render_template("analysis_viewer.html", paper_id=paper_id)
+
+
+@app.route("/viewer/bilingual/<paper_id>")
+def bilingual_viewer(paper_id):
+    """Bilingual translation view page"""
+    paper_title = None
+    paper = paper_store.get(paper_id)
+    if paper:
+        paper_title = paper.title or paper.filename or paper.original_filename
+    return render_template(
+        "bilingual_viewer.html", paper_id=paper_id, paper_title=paper_title
+    )
 
 
 if __name__ == "__main__":

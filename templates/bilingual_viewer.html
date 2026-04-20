@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ paper_title or 'Bilingual Reader' }} - Resophy</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/website_logo.png') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [["$", "$"], ["\\(", "\\)"]],
+                displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+            },
+            options: {
+                skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"],
+                processHtmlClass: "md-render"
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #16213e;
+            border-bottom: 1px solid #333;
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header h3 {
+            font-size: 15px;
+            color: #e0e0e0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 400px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn {
+            background: #0f3460;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover { background: #1a4a7a; border-color: #555; }
+
+        .btn.active { background: #007bff; border-color: #007bff; color: white; }
+
+        .btn-close {
+            background: #555;
+            border-color: #666;
+        }
+
+        .btn-close:hover { background: #666; }
+
+        .layout-toggle {
+            display: flex;
+            border: 1px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .layout-toggle .toggle-btn {
+            background: transparent;
+            color: #aaa;
+            border: none;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s;
+        }
+
+        .layout-toggle .toggle-btn.active {
+            background: #007bff;
+            color: white;
+        }
+
+        .layout-toggle .toggle-btn:not(:last-child) {
+            border-right: 1px solid #444;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Vertical layout */
+        .vertical-layout .segment {
+            margin-bottom: 24px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .vertical-layout .segment-header {
+            padding: 6px 16px;
+            font-size: 12px;
+            color: #888;
+            background: #1e1e3a;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .vertical-layout .segment-header i { font-size: 11px; }
+
+        .vertical-layout .original-block {
+            padding: 16px 20px;
+            background: #1e2a3a;
+            border-left: 3px solid #4a6fa5;
+        }
+
+        .vertical-layout .translated-block {
+            padding: 16px 20px;
+            background: #2a1e1e;
+            border-left: 3px solid #a54a4a;
+        }
+
+        /* Horizontal layout */
+        .horizontal-layout {
+            display: flex;
+            gap: 24px;
+            height: calc(100vh - 60px);
+            padding: 24px;
+            max-width: none;
+        }
+
+        .horizontal-layout .column {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .horizontal-layout .column-header {
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #ccc;
+            background: #16213e;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .horizontal-layout .column-content {
+            background: #1e1e2e;
+            border-radius: 0 0 8px 8px;
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .horizontal-layout .column.original .column-content {
+            border: 1px solid #4a6fa5;
+            border-top: none;
+        }
+
+        .horizontal-layout .column.translated .column-content {
+            border: 1px solid #a54a4a;
+            border-top: none;
+        }
+
+        /* Markdown styles */
+        .md-render h1 { font-size: 1.8em; margin: 0.5em 0 0.3em; color: #fff; font-weight: 700; }
+        .md-render h2 { font-size: 1.4em; margin: 0.8em 0 0.3em; color: #ddd; font-weight: 600; border-bottom: 1px solid #444; padding-bottom: 0.3em; }
+        .md-render h3 { font-size: 1.2em; margin: 0.6em 0 0.2em; color: #ccc; font-weight: 600; }
+        .md-render p { line-height: 1.8; margin-bottom: 0.8em; }
+        .md-render ul, .md-render ol { margin-left: 1.5em; margin-bottom: 0.8em; line-height: 1.8; }
+        .md-render li { margin-bottom: 0.3em; }
+        .md-render code { padding: 2px 5px; background: #333; border-radius: 3px; font-size: 0.9em; color: #88c0d0; }
+        .md-render pre { padding: 16px; background: #111; border-radius: 8px; overflow-x: auto; margin: 0.8em 0; }
+        .md-render pre code { background: none; color: #e0e0e0; padding: 0; }
+        .md-render img { max-width: 100%; height: auto; border-radius: 8px; margin: 0.8em 0; }
+        .md-render blockquote { margin: 0.8em 0; padding: 8px 16px; border-left: 3px solid #666; background: #222; }
+        .md-render table { width: 100%; border-collapse: collapse; margin: 0.8em 0; }
+        .md-render th, .md-render td { padding: 8px 12px; border: 1px solid #444; }
+        .md-render th { background: #333; font-weight: 600; }
+        .md-render a { color: #5b9bd5; text-decoration: none; }
+        .md-render a:hover { text-decoration: underline; }
+
+        .md-render .algorithm-block {
+            padding: 16px; background: #1a1a1a; border-radius: 8px;
+            overflow: auto; margin: 0.8em 0; font-family: monospace;
+            font-size: 14px; line-height: 1.8; white-space: pre-wrap;
+        }
+
+        /* Loading */
+        .loading {
+            height: 100vh; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; color: #aaa;
+        }
+        .loading::before {
+            content: ''; width: 40px; height: 40px;
+            border: 4px solid #444; border-top-color: #007bff;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Error */
+        .error-msg {
+            text-align: center; padding: 60px 20px; color: #ff6b6b;
+        }
+        .error-msg i { font-size: 48px; margin-bottom: 16px; display: block; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <button class="btn btn-close" id="close-btn" title="Close (Ctrl+W / Esc)">
+                <i class="fas fa-arrow-left"></i> Back
+            </button>
+            <h3 id="paper-title">{{ paper_title or 'Bilingual Reader' }}</h3>
+        </div>
+        <div class="header-right">
+            <div class="layout-toggle" id="layout-toggle">
+                <button class="toggle-btn active" data-layout="vertical" title="Vertical: alternating original and translation">
+                    <i class="fas fa-arrows-alt-v"></i> Vertical
+                </button>
+                <button class="toggle-btn" data-layout="horizontal" title="Horizontal: side-by-side columns">
+                    <i class="fas fa-columns"></i> Horizontal
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">Loading bilingual content...</div>
+    <div id="error" class="error-msg" style="display:none;"></div>
+    <div id="content-wrapper" style="display:none;">
+        <div class="container" id="bilingual-container"></div>
+    </div>
+
+    <script>
+        const paperId = {{ paper_id|tojson }};
+        let currentLayout = 'vertical';
+        let bilingualData = null;
+
+        // Markdown rendering helpers (from analysis_viewer.html)
+        function convertAlgorithmCodeBlocks(text) {
+            var latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering|mathscr|operatorname|boldsymbol|overset|underset)/;
+            return text.replace(/```([a-zA-Z0-9]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                if (!(/\$[^$]+\$/.test(code) && latexCommand.test(code))) return match;
+                var lines = code.split('\n');
+                var htmlLines = [];
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    htmlLines.push(line);
+                }
+                return '<div class="algorithm-block">\n' + htmlLines.join('<br>\n') + '\n</div>';
+            });
+        }
+
+        function wrapLatexDelimiters(text) {
+            var latexCommand = /\\(?:frac|sum|prod|int|sqrt|cdot|times|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|tau|omega|phi|psi|pi|infty|partial|nabla|text|mathrm|mathbf|mathcal|mathbb|mathit|left|right|bigl|bigr|quad|qquad|label|eqref|hat|bar|vec|tilde|overline|underline|xrightarrow|xleftarrow|lim|log|sin|cos|exp|tag|begin|end|nonumber|centering)/;
+            var subSuper = /[_^]\{[^}]+\}/;
+            var lines = text.split('\n');
+            var result = [];
+            var inDisplayMath = false;
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var trimmed = line.trim();
+                if (trimmed === '$$') {
+                    inDisplayMath = !inDisplayMath;
+                    result.push(line);
+                    continue;
+                }
+                if (inDisplayMath) { result.push(line); continue; }
+                if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') || trimmed.startsWith('```') || trimmed.startsWith('>') || trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed)) {
+                    result.push(line); continue;
+                }
+                if (/\$[^$]+\$/.test(trimmed) || /\$\$[\s\S]*?\$\$/.test(trimmed)) {
+                    result.push(line); continue;
+                }
+                var lineHasLatex = latexCommand.test(trimmed) || subSuper.test(trimmed);
+                if (!lineHasLatex) { result.push(line); continue; }
+                var withoutLatex = trimmed.replace(/\\[a-zA-Z]+(\{[^}]*\})?/g, '').replace(/[_^]\{[^}]*\}/g, '').replace(/[=+\-*/|,.\s\[\]\(\)\{\}\\~!@#$%&?;:'"]/g, '');
+                var isDisplayMath = withoutLatex.length <= Math.max(trimmed.length * 0.25, 8);
+                if (isDisplayMath) { result.push('$$' + trimmed + '$$'); continue; }
+                result.push(line);
+            }
+            return result.join('\n');
+        }
+
+        function protectLatexSubSuper(text) {
+            text = text.replace(/_\{/g, '\u204FSUB\u204F{');
+            text = text.replace(/\^\{/g, '\u204FSUP\u204F{');
+            text = text.replace(/_(?=[a-zA-Z0-9])/g, '\u204FSUB\u204F');
+            text = text.replace(/\^(?=[a-zA-Z0-9])/g, '\u204FSUP\u204F');
+            return text;
+        }
+
+        function restoreLatexSubSuper(html) {
+            html = html.replace(/\u204FSUB\u204F/g, '_');
+            html = html.replace(/\u204FSUP\u204F/g, '^');
+            return html;
+        }
+
+        function rewriteImages(markdown) {
+            return markdown.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, src) {
+                if (!src.startsWith('http') && !src.startsWith('/')) {
+                    return '![' + alt + '](/api/paper/' + paperId + '/bilingual/image?path=' + encodeURIComponent(src) + ')';
+                }
+                return match;
+            });
+        }
+
+        function typesetMathJax(el, maxRetries) {
+            maxRetries = maxRetries || 5;
+            if (!el) return;
+            var tryTypeset = function(attempt) {
+                if (attempt > maxRetries) return;
+                if (window.MathJax && MathJax.typesetPromise) {
+                    var ready = (MathJax.startup && MathJax.startup.promise) ? MathJax.startup.promise : Promise.resolve();
+                    ready.then(function() {
+                        if (MathJax.typesetClear) MathJax.typesetClear([el]);
+                        MathJax.typesetPromise([el]).catch(function(err) { console.warn('MathJax error:', err); });
+                    });
+                } else {
+                    var delay = 300 * Math.pow(1.5, attempt);
+                    setTimeout(function() { tryTypeset(attempt + 1); }, delay);
+                }
+            };
+            tryTypeset(0);
+        }
+
+        function renderMarkdown(mdText) {
+            if (typeof marked === 'undefined') return '<pre>' + mdText + '</pre>';
+            marked.setOptions({
+                breaks: true, gfm: true,
+                highlight: function(code, lang) {
+                    if (typeof hljs !== 'undefined' && lang) {
+                        try { return hljs.highlight(code, { language: lang }).value; } catch (e) { return hljs.highlightAuto(code).value; }
+                    }
+                    return code;
+                }
+            });
+            mdText = convertAlgorithmCodeBlocks(mdText);
+            mdText = wrapLatexDelimiters(mdText);
+            var preserved = [];
+            var mdPreserved = mdText.replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
+                var id = preserved.length; preserved.push(match); return '@@MJXB' + id + '@@';
+            }).replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
+                var id = preserved.length; preserved.push(match); return '@@MJXI' + id + '@@';
+            });
+            var html = marked.parse(protectLatexSubSuper(mdPreserved));
+            html = restoreLatexSubSuper(html);
+            html = html.replace(/@@MJXB(\d+)@@/g, function(_, idx) { return preserved[Number(idx)]; })
+                       .replace(/@@MJXI(\d+)@@/g, function(_, idx) { return preserved[Number(idx)]; });
+            return html;
+        }
+
+        // Render bilingual content
+        function renderBilingual(data, layout) {
+            var container = document.getElementById('bilingual-container');
+            container.innerHTML = '';
+            container.className = '';
+
+            if (layout === 'vertical') {
+                renderVertical(container, data);
+            } else {
+                renderHorizontal(container, data);
+            }
+
+            // Typeset all math
+            typesetMathJax(container);
+        }
+
+        function renderVertical(container, data) {
+            container.classList.add('vertical-layout');
+            for (var i = 0; i < data.length; i++) {
+                var seg = data[i];
+                var segmentEl = document.createElement('div');
+                segmentEl.className = 'segment';
+
+                var isHeading = seg.type === 'heading';
+
+                // Original block
+                var origBlock = document.createElement('div');
+                origBlock.className = 'original-block';
+                origBlock.innerHTML = '<div class="md-render">' + renderMarkdown(rewriteImages(seg.original)) + '</div>';
+
+                // Translated block
+                var transBlock = document.createElement('div');
+                transBlock.className = 'translated-block';
+                transBlock.innerHTML = '<div class="md-render">' + renderMarkdown(rewriteImages(seg.translated)) + '</div>';
+
+                segmentEl.appendChild(origBlock);
+                segmentEl.appendChild(transBlock);
+                container.appendChild(segmentEl);
+            }
+        }
+
+        function renderHorizontal(container, data) {
+            container.classList.add('horizontal-layout');
+
+            var origColumn = document.createElement('div');
+            origColumn.className = 'column original';
+            origColumn.innerHTML = '<div class="column-header"><i class="fas fa-font"></i> Original</div><div class="column-content" id="orig-content"></div>';
+
+            var transColumn = document.createElement('div');
+            transColumn.className = 'column translated';
+            transColumn.innerHTML = '<div class="column-header"><i class="fas fa-language"></i> 中文翻译</div><div class="column-content" id="trans-content"></div>';
+
+            container.appendChild(origColumn);
+            container.appendChild(transColumn);
+
+            var origHtml = '';
+            var transHtml = '';
+            for (var i = 0; i < data.length; i++) {
+                origHtml += '<div style="margin-bottom: 16px;" class="md-render">' + renderMarkdown(rewriteImages(data[i].original)) + '</div>';
+                transHtml += '<div style="margin-bottom: 16px;" class="md-render">' + renderMarkdown(rewriteImages(data[i].translated)) + '</div>';
+            }
+
+            document.getElementById('orig-content').innerHTML = origHtml;
+            document.getElementById('trans-content').innerHTML = transHtml;
+
+            // Sync scrolling
+            var origEl = document.getElementById('orig-content');
+            var transEl = document.getElementById('trans-content');
+            var syncing = false;
+            origEl.addEventListener('scroll', function() {
+                if (syncing) return;
+                syncing = true;
+                transEl.scrollTop = origEl.scrollTop / origEl.scrollHeight * transEl.scrollHeight;
+                syncing = false;
+            });
+            transEl.addEventListener('scroll', function() {
+                if (syncing) return;
+                syncing = true;
+                origEl.scrollTop = transEl.scrollTop / transEl.scrollHeight * origEl.scrollHeight;
+                syncing = false;
+            });
+        }
+
+        // Load content
+        async function loadContent() {
+            try {
+                var res = await fetch('/api/paper/' + paperId + '/bilingual/result');
+                var json = await res.json();
+                if (!res.ok || !json.success) throw new Error(json.error || 'Failed to load');
+
+                bilingualData = typeof json.content === 'string' ? JSON.parse(json.content) : json.content;
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content-wrapper').style.display = 'block';
+                renderBilingual(bilingualData, currentLayout);
+            } catch (e) {
+                document.getElementById('loading').style.display = 'none';
+                var errorEl = document.getElementById('error');
+                errorEl.style.display = 'block';
+                errorEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i><p style="font-size: 18px; margin-bottom: 8px;">Bilingual translation not available</p><p style="font-size: 14px; color: #aaa;">' + escapeHtml(e.message) + '</p>';
+            }
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(text));
+            return div.innerHTML;
+        }
+
+        // Layout toggle
+        function setupLayoutToggle() {
+            var buttons = document.querySelectorAll('#layout-toggle .toggle-btn');
+            buttons.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    buttons.forEach(function(b) { b.classList.remove('active'); });
+                    btn.classList.add('active');
+                    currentLayout = btn.getAttribute('data-layout');
+                    if (bilingualData) {
+                        renderBilingual(bilingualData, currentLayout);
+                    }
+                });
+            });
+        }
+
+        // Close button
+        function setupClose() {
+            document.getElementById('close-btn').addEventListener('click', function() { window.close(); });
+            window.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') { e.preventDefault(); window.close(); }
+                else if (e.key === 'Escape') { e.preventDefault(); window.close(); }
+            });
+        }
+
+        // Reading time tracking
+        let readStartTime = null, readTimeInterval = null, lastRecordedSeconds = 0;
+        let lastActivityTime = null, isTimerActive = true, activityCheckInterval = null;
+        const INACTIVITY_THRESHOLD = 60000, TIMER_INTERVAL = 30000;
+        let isPageUnloading = false;
+
+        function formatDateLocal(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+        function recordUserActivity() {
+            var now = Date.now(), wasInactive = !isTimerActive;
+            lastActivityTime = now;
+            if (wasInactive) { isTimerActive = true; readStartTime = now; }
+        }
+
+        function checkUserActivity() {
+            if (!lastActivityTime || !isTimerActive) return;
+            if (Date.now() - lastActivityTime > INACTIVITY_THRESHOLD && isTimerActive) {
+                isTimerActive = false;
+                if (readStartTime) {
+                    var elapsed = Math.floor((lastActivityTime - readStartTime) / 1000);
+                    var inc = elapsed - lastRecordedSeconds;
+                    if (inc > 0) { sendReadingTime(inc); recordDailyReadingTime(inc); lastRecordedSeconds += inc; }
+                }
+            }
+        }
+
+        function startActivityMonitoring() {
+            ['mousemove','mousedown','keydown','scroll','touchstart','click'].forEach(function(evt) {
+                document.addEventListener(evt, recordUserActivity, { passive: true });
+            });
+            lastActivityTime = Date.now(); isTimerActive = true;
+            activityCheckInterval = setInterval(checkUserActivity, 10000);
+        }
+
+        function sendReadingTime(seconds) {
+            if (seconds <= 0) return;
+            fetch('/api/paper/' + paperId + '/analysis-view-time', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ increment: seconds })
+            }).catch(function(err) { console.error('Failed to record reading time:', err); });
+        }
+
+        function recordDailyReadingTime(seconds) {
+            if (seconds <= 0) return;
+            var today = formatDateLocal(new Date()), minutes = Math.ceil(seconds / 60);
+            fetch('/api/settings/reading-history/record', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minutes: minutes, date: today })
+            }).catch(function() {});
+            try {
+                var key = 'dailyReadingData', data = {};
+                var saved = localStorage.getItem(key);
+                if (saved) data = JSON.parse(saved);
+                data[today] = (data[today] || 0) + minutes;
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (e) {}
+        }
+
+        function startReadingTimer() {
+            readStartTime = Date.now(); lastRecordedSeconds = 0; isTimerActive = true;
+            startActivityMonitoring();
+            readTimeInterval = setInterval(function() {
+                if (readStartTime && isTimerActive && !isPageUnloading) {
+                    var elapsed = Math.floor((Date.now() - readStartTime) / 1000);
+                    var inc = elapsed - lastRecordedSeconds;
+                    if (inc > 0) { sendReadingTime(inc); recordDailyReadingTime(inc); lastRecordedSeconds = elapsed; }
+                }
+            }, TIMER_INTERVAL);
+        }
+
+        function stopReadingTimer() {
+            if (activityCheckInterval) { clearInterval(activityCheckInterval); activityCheckInterval = null; }
+            if (readStartTime && isTimerActive) {
+                var inc = Math.floor((Date.now() - readStartTime) / 1000) - lastRecordedSeconds;
+                if (inc > 0) { sendReadingTime(inc); recordDailyReadingTime(inc); }
+            }
+            readStartTime = null; lastRecordedSeconds = 0; isTimerActive = false; lastActivityTime = null;
+            if (readTimeInterval) { clearInterval(readTimeInterval); readTimeInterval = null; }
+        }
+
+        setupClose();
+        setupLayoutToggle();
+        loadContent();
+        startReadingTimer();
+
+        window.addEventListener('beforeunload', function() { isPageUnloading = true; stopReadingTimer(); });
+        window.addEventListener('pagehide', function() { isPageUnloading = true; stopReadingTimer(); });
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) stopReadingTimer(); else startReadingTimer();
+        });
+
+        // MathJax CDN fallback
+        (function() {
+            setTimeout(function() {
+                if (typeof MathJax === 'undefined') {
+                    var urls = ['https://cdn.bootcdn.net/ajax/libs/mathjax/3/es5/tex-chtml.js', 'https://unpkg.com/mathjax@3/es5/tex-chtml.js'];
+                    var tryLoad = function(idx) {
+                        if (idx >= urls.length) return;
+                        var s = document.createElement('script');
+                        s.src = urls[idx]; s.async = false;
+                        s.onload = function() { var el = document.getElementById('bilingual-container'); if (el && el.innerHTML) typesetMathJax(el); };
+                        s.onerror = function() { tryLoad(idx + 1); };
+                        document.head.appendChild(s);
+                    };
+                    tryLoad(0);
+                }
+            }, 2000);
+        })();
+    </script>
+</body>
+</html>

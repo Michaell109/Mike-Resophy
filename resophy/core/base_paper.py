@@ -58,6 +58,8 @@ class Paper:
     use_chinese_version: bool = False
     has_analysis_result: bool = False
     analysis_result_path: Optional[str] = None
+    has_bilingual_version: bool = False
+    bilingual_version_path: Optional[str] = None
     read_time: int = 0
     analysis_view_time: int = 0
     translation_time: int = 0
@@ -166,6 +168,11 @@ class Paper:
         has_result = bool(result_path and os.path.exists(result_path))
         self.has_analysis_result = has_result
         self.analysis_result_path = result_path if has_result else None
+
+    def mark_bilingual_version(self, bilingual_path: Optional[str]) -> None:
+        has_version = bool(bilingual_path and os.path.exists(bilingual_path))
+        self.has_bilingual_version = has_version
+        self.bilingual_version_path = bilingual_path if has_version else None
 
     def record_read_time(self, seconds: int) -> None:
         """Accumulated reading time（Second）"""

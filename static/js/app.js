@@ -1459,6 +1459,19 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     } else {
         analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paper.id}', event)" title="AI Interpretation"><i class="fas fa-brain"></i></button></div>`;
     }
+
+    // Bilingual column (always render wrapper for consistent index access)
+    const bStatus = bilingualStatus[paper.id];
+    let bilingualInner = '';
+    if (bStatus && bStatus.status === 'running') {
+        const prog = bStatus.total ? ` (${bStatus.current}/${bStatus.total})` : '';
+        bilingualInner = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Bilingual${prog}<button class="paper-action-stop" onclick="cancelBilingualTranslation('${paper.id}', event)" title="Cancel"><i class="fas fa-times"></i></button></span>`;
+    } else if (paper.has_bilingual_version) {
+        bilingualInner = `<button class="paper-col-btn view chinese" onclick="openBilingualVersion('${paper.id}', event)"><i class="fas fa-book-open"></i> Bilingual</button>`;
+    } else if (paper.has_analysis_result) {
+        bilingualInner = `<button class="paper-col-btn translate icon-only" onclick="requestBilingualTranslation('${paper.id}', event)" title="Bilingual Translate"><i class="fas fa-book-open"></i></button>`;
+    }
+    const bilingualCol = `<div class="paper-col-action bilingual-action-col">${bilingualInner}</div>`;
     
     // Column to be read
     const isInReadingList = readingListPaperIds.has(paper.id);
@@ -1469,7 +1482,7 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="addToReadingList('${paper.id}', event)" title="Add to Readling List"><i class="fas fa-book-open"></i></button></div>`;
     }
     
-    return iconCol + titleCol + dateCol + translateCol + analyzeCol + readingCol;
+    return iconCol + titleCol + dateCol + translateCol + analyzeCol + bilingualCol + readingCol;
 }
 
 // Render paper list
@@ -1773,6 +1786,25 @@ function renderPaperInfo(paper) {
                 <div class="info-content">
                     <button class="btn btn-primary btn-block" onclick="openChineseVersion('${paper.id}')">
                         <i class="fas fa-language"></i> Open Chinese version
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+            <!-- Bilingual version -->
+            ${paper.has_bilingual_version ? `
+            <div class="info-section compact">
+                <div class="info-content">
+                    <button class="btn btn-primary btn-block" onclick="openBilingualVersion('${paper.id}')">
+                        <i class="fas fa-book-open"></i> Open Bilingual version
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+            ${(!paper.has_bilingual_version && paper.has_analysis_result) ? `
+            <div class="info-section compact">
+                <div class="info-content">
+                    <button class="btn btn-secondary btn-block" onclick="requestBilingualTranslation('${paper.id}')">
+                        <i class="fas fa-book-open"></i> Bilingual Translate
                     </button>
                 </div>
             </div>
@@ -3669,6 +3701,97 @@ function openChineseVersion(paperId) {
     const viewerUrl = `/viewer/${paperId}?chinese=true`;
     window.open(viewerUrl, '_blank');
     markPaperViewed(paperId);
+}
+
+// Open Bilingual version
+function openBilingualVersion(paperId) {
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper || !paper.has_bilingual_version) {
+        showMessage('Bilingual version does not exist. Please run bilingual translation first.', 'error');
+        return;
+    }
+    window.open(`/viewer/bilingual/${paperId}`, '_blank');
+    markPaperViewed(paperId);
+}
+
+// Bilingual translation status tracking
+const bilingualStatus = {};
+
+async function requestBilingualTranslation(paperId, event) {
+    if (event) event.stopPropagation();
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) return;
+
+    if (!paper.has_analysis_result) {
+        showMessage('Please run AI analysis first to parse the PDF into Markdown', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/paper/bilingual-translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paper_id: paperId })
+        });
+        const result = await response.json();
+        if (result.success) {
+            bilingualStatus[paperId] = { status: 'running', task_id: result.task_id };
+            showMessage('Bilingual translation started', 'success');
+            refreshPapers();
+            pollBilingualStatus(paperId, result.task_id);
+        } else {
+            showMessage(result.error || 'Failed to start bilingual translation', 'error');
+        }
+    } catch (e) {
+        showMessage('Failed to start bilingual translation: ' + e.message, 'error');
+    }
+}
+
+async function pollBilingualStatus(paperId, taskId) {
+    const poll = async () => {
+        try {
+            const res = await fetch(`/api/paper/bilingual-translate/${taskId}/logs`);
+            const data = await res.json();
+            if (data.status === 'completed') {
+                bilingualStatus[paperId] = { status: 'completed' };
+                const paper = papers.find(p => p.id === paperId);
+                if (paper) paper.has_bilingual_version = true;
+                showMessage('Bilingual translation completed!', 'success');
+                refreshPapers();
+                return;
+            } else if (data.status === 'failed') {
+                bilingualStatus[paperId] = { status: 'failed' };
+                showMessage('Bilingual translation failed: ' + (data.result?.error || 'Unknown error'), 'error');
+                refreshPapers();
+                return;
+            } else if (data.status === 'cancelled') {
+                bilingualStatus[paperId] = { status: 'cancelled' };
+                refreshPapers();
+                return;
+            }
+            const progress = data.progress;
+            if (progress && progress.total > 0) {
+                bilingualStatus[paperId] = { status: 'running', current: progress.current, total: progress.total };
+                refreshPapers();
+            }
+            setTimeout(poll, 3000);
+        } catch (e) {
+            setTimeout(poll, 5000);
+        }
+    };
+    setTimeout(poll, 2000);
+}
+
+async function cancelBilingualTranslation(paperId, event) {
+    if (event) event.stopPropagation();
+    const status = bilingualStatus[paperId];
+    if (!status || !status.task_id) return;
+    try {
+        await fetch(`/api/paper/bilingual-translate/${status.task_id}/cancel`, { method: 'POST' });
+        showMessage('Bilingual translation cancelled', 'success');
+    } catch (e) {
+        showMessage('Failed to cancel: ' + e.message, 'error');
+    }
 }
 
 // Open PDF reader（Open the original version）
@@ -8991,6 +9114,22 @@ function updatePaperStatusDisplay(paperId) {
             analyzeColHtml = `<button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paperId}', event)" title="AI Interpretation"><i class="fas fa-brain"></i></button>`;
         }
         analyzeActionCol.innerHTML = analyzeColHtml;
+
+        // Update bilingual column (index 2 = translate(0), analyze(1), bilingual(2), reading(3))
+        const bilingualActionCol = actionCols[2];
+        if (bilingualActionCol) {
+            const bStatus = bilingualStatus[paperId];
+            let bilingualColHtml = '';
+            if (bStatus && bStatus.status === 'running') {
+                const prog = bStatus.total ? ` (${bStatus.current}/${bStatus.total})` : '';
+                bilingualColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Bilingual${prog}<button class="paper-action-stop" onclick="cancelBilingualTranslation('${paperId}', event)" title="Cancel"><i class="fas fa-times"></i></button></span>`;
+            } else if (paper.has_bilingual_version) {
+                bilingualColHtml = `<button class="paper-col-btn view chinese" onclick="openBilingualVersion('${paperId}', event)"><i class="fas fa-book-open"></i> Bilingual</button>`;
+            } else if (paper.has_analysis_result) {
+                bilingualColHtml = `<button class="paper-col-btn translate icon-only" onclick="requestBilingualTranslation('${paperId}', event)" title="Bilingual Translate"><i class="fas fa-book-open"></i></button>`;
+            }
+            bilingualActionCol.innerHTML = bilingualColHtml;
+        }
     }
     
     // Update simultaneously .paper-meta in state（for detail view）
