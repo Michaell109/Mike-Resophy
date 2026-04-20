@@ -9646,7 +9646,7 @@ async function viewAnalysisResult(paperId, event) {
 function openAnalysisFullscreen(paperId) {
     // Open full screen viewer in new window
     const url = `/viewer/analysis/${paperId}`;
-    window.open(url, '_blank', 'width=1200,height=800');
+    window.open(url, '_blank');
 }
 
 function closeAnalysisView() {
