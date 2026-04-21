@@ -225,12 +225,32 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: all 0.3s ease;
+            position: relative;
+            transition: width 0.3s ease, min-width 0.3s ease;
         }
 
         .chat-sidebar.open {
             width: 420px;
             min-width: 420px;
+        }
+
+        .chat-sidebar.resizing {
+            transition: none;
+        }
+
+        .chat-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            cursor: col-resize;
+            z-index: 10;
+        }
+
+        .chat-resize-handle:hover,
+        .chat-resize-handle.active {
+            background: #667eea;
         }
 
         .chat-header {
@@ -880,6 +900,11 @@
             border-left-color: #444;
         }
 
+        body.dark-theme .chat-resize-handle:hover,
+        body.dark-theme .chat-resize-handle.active {
+            background: #8fa4f0;
+        }
+
         body.dark-theme .chat-header {
             background: #252525;
             border-bottom-color: #444;
@@ -999,6 +1024,7 @@
             </div>
         </div>
         <div class="chat-sidebar open" id="chat-sidebar">
+            <div class="chat-resize-handle" id="chat-resize-handle"></div>
             <div class="chat-header">
                 <div class="chat-header-title">
                     <i class="fas fa-comments"></i>
@@ -1527,6 +1553,9 @@
                 toggleBtn.classList.toggle('active');
                 if (sidebar.classList.contains('open')) {
                     input.focus();
+                } else {
+                    sidebar.style.width = '';
+                    sidebar.style.minWidth = '';
                 }
             });
 
@@ -1739,6 +1768,42 @@
             applyZoom(zoomLevel);
         }
 
+        // Chat sidebar resize
+        function setupChatResize() {
+            const handle = document.getElementById('chat-resize-handle');
+            const sidebar = document.getElementById('chat-sidebar');
+            const MIN_WIDTH = 300;
+            const MAX_WIDTH = 700;
+            let isResizing = false;
+
+            handle.addEventListener('mousedown', function(e) {
+                if (!sidebar.classList.contains('open')) return;
+                isResizing = true;
+                sidebar.classList.add('resizing');
+                handle.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!isResizing) return;
+                const newWidth = window.innerWidth - e.clientX;
+                const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+                sidebar.style.width = clamped + 'px';
+                sidebar.style.minWidth = clamped + 'px';
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (!isResizing) return;
+                isResizing = false;
+                sidebar.classList.remove('resizing');
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            });
+        }
+
         // Theme toggle
         function setupThemeToggle() {
             const btn = document.getElementById('theme-toggle-btn');
@@ -1776,6 +1841,7 @@
         setupZoom();
         setupFontSize();
         setupThemeToggle();
+        setupChatResize();
         setupChat();
         
         // Stop timing when page is closed or navigated away
