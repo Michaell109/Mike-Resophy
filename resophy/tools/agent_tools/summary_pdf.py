@@ -100,6 +100,7 @@ def analyze_paper_task(
 - **必须保留原文中的所有重要公式**（使用原始 LaTeX 格式），并逐一解释每个公式的含义和其中各符号的物理意义。**所有 LaTeX 公式必须用 `$...$` 包裹（行内公式）或 `$$...$$` 包裹（独立公式行）**，例如：行内公式 $x_{\tau} = (1 - \tau) x_{0}$，独立公式 $$x_{\tau} = (1 - \tau) \cdot x_{0} + \tau \cdot z$$
 - 关键设计选择的理由
 - 如果有模型结构图、流程图等，必须插入到对应位置
+- **如果论文包含算法（Algorithm），必须将算法伪代码完整呈现**，使用普通文本格式（行号用"数字:"格式），不要使用代码块包裹。同时必须对算法的整体流程和每一步的作用进行详细文字说明，帮助读者理解算法的输入输出、核心步骤和关键技巧
 
 ## 3. 实验结果
 充分展示实验内容，包括：
@@ -142,6 +143,7 @@ This is the core section. Provide a detailed explanation of the proposed method:
 - **All important formulas from the original paper must be preserved** (in original LaTeX format), with explanations of each formula's meaning and the physical significance of each symbol. **All LaTeX formulas MUST be wrapped with `$...$` for inline math or `$$...$$` for display math**, e.g.: inline $x_{\tau} = (1 - \tau) x_{0}$, display $$x_{\tau} = (1 - \tau) \cdot x_{0} + \tau \cdot z$$
 - Rationale behind key design choices
 - If there are model architecture diagrams, flowcharts, etc., they must be inserted at the corresponding positions
+- **If the paper contains algorithms, the full pseudocode must be presented** using plain text format with line numbers in "number:" format (NOT wrapped in code blocks). Additionally, you must provide a detailed textual explanation of the algorithm's overall flow, the purpose of each step, its inputs/outputs, and any key techniques or tricks used
 
 ## 3. Experimental Results
 Provide comprehensive coverage of the experiments, including:
