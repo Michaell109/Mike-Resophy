@@ -477,6 +477,31 @@
             border-right: 1px solid #555;
         }
 
+        .font-size-select {
+            display: none;
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .font-size-select:hover {
+            border-color: #777;
+        }
+
+        .font-size-select option {
+            background: #222;
+            color: #e0e0e0;
+        }
+
+        .bilingual-active .font-size-select {
+            display: inline-block;
+        }
+
         /* Vertical bilingual layout */
         .vertical-layout .segment {
             margin-bottom: 20px;
@@ -702,6 +727,17 @@
             border-right-color: #ccc;
         }
 
+        body.light-theme .font-size-select {
+            background: #f0f0f0;
+            color: #333;
+            border-color: #ccc;
+        }
+
+        body.light-theme .font-size-select option {
+            background: #fff;
+            color: #333;
+        }
+
         /* Bilingual light theme */
         body.light-theme #bilingual-container {
             color: #333;
@@ -748,6 +784,13 @@
         </div>
         <h3 id="pdf-title">{{ paper_title or 'PDF Viewer' }}</h3>
         <div class="header-right">
+            <select id="font-size-select" class="font-size-select" title="Font size">
+                <option value="14">字号 14</option>
+                <option value="16" selected>字号 16</option>
+                <option value="18">字号 18</option>
+                <option value="20">字号 20</option>
+                <option value="24">字号 24</option>
+            </select>
             <div class="layout-toggle" id="layout-toggle">
                 <button class="toggle-btn active" data-layout="vertical" title="Vertical: alternating original and translation">
                     <i class="fas fa-arrows-alt-v"></i> Vertical
@@ -1086,6 +1129,23 @@
                         renderBilingual(bilingualData, currentBilingualLayout);
                     }
                 });
+            });
+        }
+
+        // Font size control
+        function setupFontSize() {
+            var select = document.getElementById('font-size-select');
+            var saved = localStorage.getItem('resophy-pdf-fontsize');
+            if (saved && select.querySelector('option[value="' + saved + '"]')) {
+                select.value = saved;
+                document.getElementById('bilingual-container').style.fontSize = saved + 'px';
+            }
+            select.addEventListener('change', function() {
+                var size = this.value;
+                document.getElementById('bilingual-container').style.fontSize = size + 'px';
+                try { localStorage.setItem('resophy-pdf-fontsize', size); } catch(e) {}
+                var el = document.getElementById('bilingual-container');
+                if (el && el.innerHTML) typesetMathJax(el);
             });
         }
 
@@ -1582,6 +1642,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             setupBackButton();
             setupLayoutToggle();
+            setupFontSize();
             loadPaperInfo();
 
             var useChinese = (document.body.getAttribute('data-use-chinese') === 'true');

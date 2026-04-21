@@ -156,6 +156,64 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
             animation: fadeIn 0.5s ease-out;
             flex-shrink: 0;
+            transition: width 0.15s ease, padding 0.15s ease;
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            background: rgba(103, 126, 234, 0.1);
+            border-radius: 8px;
+            padding: 2px;
+        }
+
+        .zoom-btn {
+            background: none;
+            border: none;
+            color: #667eea;
+            cursor: pointer;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .zoom-btn:hover {
+            background: rgba(103, 126, 234, 0.2);
+        }
+
+        .zoom-level {
+            font-size: 12px;
+            font-weight: 600;
+            color: #667eea;
+            min-width: 38px;
+            text-align: center;
+            user-select: none;
+        }
+
+        .font-size-select {
+            background: rgba(103, 126, 234, 0.1);
+            color: #667eea;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .font-size-select:hover {
+            background: rgba(103, 126, 234, 0.2);
+        }
+
+        .font-size-select option {
+            background: #fff;
+            color: #333;
         }
 
         /* Chat Sidebar */
@@ -473,11 +531,11 @@
             font-weight: 600;
         }
         
-        .markdown-viewer p { 
-            line-height: 1.8; 
+        .markdown-viewer p {
+            line-height: 1.8;
             margin-bottom: 1.2em;
             color: #2d3748;
-            font-size: 16px;
+            font-size: 1em;
         }
         
         .markdown-viewer ul, .markdown-viewer ol {
@@ -517,7 +575,7 @@
             border: none;
             color: #e2e8f0;
             padding: 0;
-            font-size: 14px;
+            font-size: 0.875em;
         }
         
         .markdown-viewer img { 
@@ -597,7 +655,7 @@
             margin-bottom: 1.5em;
             border: 1px solid #e2e8f0;
             font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
-            font-size: 14px;
+            font-size: 0.875em;
             line-height: 1.8;
             white-space: pre-wrap;
             color: #2d3748;
@@ -656,6 +714,18 @@
             </button>
             <div class="title">AI Analysis Reader</div>
             <div class="header-right">
+                <div class="zoom-controls">
+                    <button id="zoom-out-btn" class="zoom-btn" title="Zoom out"><i class="fas fa-minus"></i></button>
+                    <span id="zoom-level" class="zoom-level">140%</span>
+                    <button id="zoom-in-btn" class="zoom-btn" title="Zoom in"><i class="fas fa-plus"></i></button>
+                </div>
+                <select id="font-size-select" class="font-size-select" title="Font size">
+                    <option value="15">15px</option>
+                    <option value="16" selected>16px</option>
+                    <option value="18">18px</option>
+                    <option value="20">20px</option>
+                    <option value="24">24px</option>
+                </select>
                 <button id="chat-toggle-btn" class="chat-toggle-btn active" title="Toggle chat sidebar">
                     <i class="fas fa-comments"></i> Chat
                 </button>
@@ -1342,6 +1412,93 @@
             return div.innerHTML;
         }
 
+        // ========================================
+        // Zoom & Font size functionality
+        // ========================================
+        const BASE_WIDTH = 900;
+        const BASE_PAD_X = 56;
+        const BASE_PAD_Y = 48;
+        let zoomLevel = 140;
+
+        function applyZoom(level) {
+            zoomLevel = Math.max(60, Math.min(200, level));
+            const content = document.querySelector('.content');
+            if (content) {
+                const scale = zoomLevel / 100;
+                content.style.width = 'min(' + Math.round(BASE_WIDTH * scale) + 'px, 100%)';
+                content.style.padding = Math.round(BASE_PAD_Y * scale) + 'px ' + Math.round(BASE_PAD_X * scale) + 'px';
+            }
+            document.getElementById('zoom-level').textContent = zoomLevel + '%';
+            try { localStorage.setItem('resophy-analysis-zoom', zoomLevel); } catch(e) {}
+        }
+
+        function setupZoom() {
+            const saved = localStorage.getItem('resophy-analysis-zoom');
+            if (saved) {
+                zoomLevel = parseInt(saved, 10);
+                if (isNaN(zoomLevel)) zoomLevel = 140;
+            }
+
+            const scrollContainer = document.querySelector('.analysis-container');
+
+            document.getElementById('zoom-in-btn').addEventListener('click', function() {
+                const prevZoom = zoomLevel;
+                const scrollTop = scrollContainer.scrollTop;
+                const viewportHeight = scrollContainer.clientHeight;
+                const scrollRatio = scrollTop / (scrollContainer.scrollHeight - viewportHeight || 1);
+                applyZoom(zoomLevel + 10);
+                requestAnimationFrame(function() {
+                    const newMaxScroll = scrollContainer.scrollHeight - viewportHeight;
+                    scrollContainer.scrollTop = scrollRatio * newMaxScroll;
+                });
+            });
+            document.getElementById('zoom-out-btn').addEventListener('click', function() {
+                const scrollContainer2 = document.querySelector('.analysis-container');
+                const scrollTop = scrollContainer2.scrollTop;
+                const viewportHeight = scrollContainer2.clientHeight;
+                const scrollRatio = scrollTop / (scrollContainer2.scrollHeight - viewportHeight || 1);
+                applyZoom(zoomLevel - 10);
+                requestAnimationFrame(function() {
+                    const newMaxScroll = scrollContainer2.scrollHeight - viewportHeight;
+                    scrollContainer2.scrollTop = scrollRatio * newMaxScroll;
+                });
+            });
+
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+                    e.preventDefault();
+                    document.getElementById('zoom-in-btn').click();
+                } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+                    e.preventDefault();
+                    document.getElementById('zoom-out-btn').click();
+                } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+                    e.preventDefault();
+                    applyZoom(140);
+                }
+            });
+
+            applyZoom(zoomLevel);
+        }
+
+        // Font size control
+        function setupFontSize() {
+            var select = document.getElementById('font-size-select');
+            var viewer = document.getElementById('md');
+            var saved = localStorage.getItem('resophy-analysis-fontsize');
+            if (saved && select.querySelector('option[value="' + saved + '"]')) {
+                select.value = saved;
+                viewer.style.fontSize = saved + 'px';
+            }
+            select.addEventListener('change', function() {
+                var size = this.value;
+                viewer.style.fontSize = size + 'px';
+                try { localStorage.setItem('resophy-analysis-fontsize', size); } catch(e) {}
+                if (viewer.innerHTML) typesetMathJax(viewer);
+            });
+        }
+
+        setupZoom();
+        setupFontSize();
         setupChat();
         
         // Stop timing when page is closed or navigated away
