@@ -43,65 +43,74 @@ class BilingualDependencies:
 
 
 def split_markdown_into_segments(md_text: str) -> List[Dict[str, str]]:
-    """Split markdown into segments by headings and paragraphs.
+    """Split markdown into segments by natural paragraphs.
 
     Each segment is a dict with 'type' ('heading' or 'paragraph') and 'content'.
-    Heading segments include the heading line + all content until the next heading.
+    Headings are separate segments. Each natural paragraph (separated by blank lines)
+    is its own segment, so that the bilingual viewer can display one paragraph of
+    original text followed by one paragraph of translation.
     """
     lines = md_text.split("\n")
     segments = []
-    current_segment_lines = []
-    current_type = "paragraph"
+    current_lines = []
+    in_code_block = False
 
     for line in lines:
-        is_heading = line.startswith("#")
+        stripped = line.strip()
 
-        if is_heading and current_segment_lines:
-            # Flush current segment
-            content = "\n".join(current_segment_lines).strip()
-            if content:
-                segments.append({"type": current_type, "content": content})
-            current_segment_lines = [line]
-            current_type = "heading"
-        else:
-            if not current_segment_lines and is_heading:
-                current_type = "heading"
-            current_segment_lines.append(line)
-
-    # Flush last segment
-    if current_segment_lines:
-        content = "\n".join(current_segment_lines).strip()
-        if content:
-            segments.append({"type": current_type, "content": content})
-
-    # Merge small consecutive paragraphs into larger segments to reduce LLM calls
-    merged = []
-    buffer_lines = []
-    buffer_type = "paragraph"
-
-    for seg in segments:
-        if seg["type"] == "heading":
-            # Flush buffer
-            if buffer_lines:
-                merged.append({"type": buffer_type, "content": "\n\n".join(buffer_lines)})
-                buffer_lines = []
-            merged.append(seg)
-            buffer_type = "paragraph"
-        else:
-            # If segment is short (likely a continuation), buffer it
-            line_count = seg["content"].count("\n") + 1
-            if line_count <= 3 and buffer_lines:
-                buffer_lines.append(seg["content"])
+        # Handle code blocks
+        if stripped.startswith("```"):
+            if in_code_block:
+                current_lines.append(line)
+                content = "\n".join(current_lines).strip()
+                if content:
+                    segments.append({"type": "paragraph", "content": content})
+                current_lines = []
+                in_code_block = False
+                continue
             else:
-                if buffer_lines:
-                    merged.append({"type": buffer_type, "content": "\n\n".join(buffer_lines)})
-                    buffer_lines = []
-                buffer_lines = [seg["content"]]
+                # Flush current paragraph before code block
+                if current_lines:
+                    content = "\n".join(current_lines).strip()
+                    if content:
+                        segments.append({"type": "paragraph", "content": content})
+                    current_lines = []
+                in_code_block = True
+                current_lines.append(line)
+                continue
 
-    if buffer_lines:
-        merged.append({"type": buffer_type, "content": "\n\n".join(buffer_lines)})
+        if in_code_block:
+            current_lines.append(line)
+            continue
 
-    return merged
+        # Handle headings as separate segments
+        if stripped.startswith("#"):
+            if current_lines:
+                content = "\n".join(current_lines).strip()
+                if content:
+                    segments.append({"type": "paragraph", "content": content})
+                current_lines = []
+            segments.append({"type": "heading", "content": stripped})
+            continue
+
+        # Blank line = paragraph separator
+        if stripped == "":
+            if current_lines:
+                content = "\n".join(current_lines).strip()
+                if content:
+                    segments.append({"type": "paragraph", "content": content})
+                current_lines = []
+            continue
+
+        current_lines.append(line)
+
+    # Flush last paragraph
+    if current_lines:
+        content = "\n".join(current_lines).strip()
+        if content:
+            segments.append({"type": "paragraph", "content": content})
+
+    return segments
 
 
 def find_mineru_markdown(pdf_path: str) -> str | None:
@@ -278,6 +287,7 @@ def bilingual_translate_task(
         if entry:
             paper = entry.paper
             paper.mark_bilingual_version(bilingual_json_path)
+            paper.has_chinese_version = True
             path = paper.file_path
             if path and os.path.exists(path):
                 deps.save_paper_metadata(path, paper)
@@ -291,6 +301,7 @@ def bilingual_translate_task(
                     for paper in papers:
                         if paper.id == paper_id:
                             paper.mark_bilingual_version(bilingual_json_path)
+                            paper.has_chinese_version = True
                             p = paper.file_path
                             if p and os.path.exists(p):
                                 deps.save_paper_metadata(p, paper)

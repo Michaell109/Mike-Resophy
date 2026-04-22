@@ -1433,14 +1433,15 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         </div>
     `;
     
-    // AItranslation column
+    // AI translate column (bilingual translation)
     const tStatus = translationStatus[paper.id];
     let translateCol = '';
     if (tStatus && tStatus.status === 'translating') {
-        translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Translating...<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="Stop translation"><i class="fas fa-times"></i></button></span></div>`;
+        const prog = tStatus.queuePosition ? ` (${tStatus.queuePosition})` : '';
+        translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Translating${prog}<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="Stop translation"><i class="fas fa-times"></i></button></span></div>`;
     } else if (tStatus && tStatus.status === 'queued') {
         translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-clock"></i> in queue<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="Cancel queue"><i class="fas fa-times"></i></button></span></div>`;
-    } else if (paper.has_chinese_version) {
+    } else if (paper.has_bilingual_version || paper.has_chinese_version) {
         translateCol = `<div class="paper-col-action"><button class="paper-col-btn view chinese" onclick="openChineseVersion('${paper.id}', event)"><i class="fas fa-language"></i> Chinese version</button></div>`;
     } else {
         translateCol = `<div class="paper-col-action"><button class="paper-col-btn translate icon-only" onclick="requestTranslation('${paper.id}', event)" title="AI Translate"><i class="fas fa-language"></i></button></div>`;
@@ -1460,19 +1461,6 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paper.id}', event)" title="AI Interpretation"><i class="fas fa-brain"></i></button></div>`;
     }
 
-    // Bilingual column (always render wrapper for consistent index access)
-    const bStatus = bilingualStatus[paper.id];
-    let bilingualInner = '';
-    if (bStatus && bStatus.status === 'running') {
-        const prog = bStatus.total ? ` (${bStatus.current}/${bStatus.total})` : '';
-        bilingualInner = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Bilingual${prog}<button class="paper-action-stop" onclick="cancelBilingualTranslation('${paper.id}', event)" title="Cancel"><i class="fas fa-times"></i></button></span>`;
-    } else if (paper.has_bilingual_version) {
-        bilingualInner = `<button class="paper-col-btn view chinese" onclick="openBilingualVersion('${paper.id}', event)"><i class="fas fa-book-open"></i> Bilingual</button>`;
-    } else if (paper.has_analysis_result) {
-        bilingualInner = `<button class="paper-col-btn translate icon-only" onclick="requestBilingualTranslation('${paper.id}', event)" title="Bilingual Translate"><i class="fas fa-book-open"></i></button>`;
-    }
-    const bilingualCol = `<div class="paper-col-action bilingual-action-col">${bilingualInner}</div>`;
-    
     // Column to be read
     const isInReadingList = readingListPaperIds.has(paper.id);
     let readingCol = '';
@@ -1482,7 +1470,7 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="addToReadingList('${paper.id}', event)" title="Add to Readling List"><i class="fas fa-book-open"></i></button></div>`;
     }
     
-    return iconCol + titleCol + dateCol + translateCol + analyzeCol + bilingualCol + readingCol;
+    return iconCol + titleCol + dateCol + translateCol + analyzeCol + readingCol;
 }
 
 // Render paper list
@@ -1780,31 +1768,12 @@ function renderPaperInfo(paper) {
                 </div>
             </div>
             
-            <!-- Chinese version -->
-            ${paper.has_chinese_version ? `
+            <!-- Chinese version / Bilingual -->
+            ${(paper.has_chinese_version || paper.has_bilingual_version) ? `
             <div class="info-section compact">
                 <div class="info-content">
                     <button class="btn btn-primary btn-block" onclick="openChineseVersion('${paper.id}')">
                         <i class="fas fa-language"></i> Open Chinese version
-                    </button>
-                </div>
-            </div>
-            ` : ''}
-            <!-- Bilingual version -->
-            ${paper.has_bilingual_version ? `
-            <div class="info-section compact">
-                <div class="info-content">
-                    <button class="btn btn-primary btn-block" onclick="openBilingualVersion('${paper.id}')">
-                        <i class="fas fa-book-open"></i> Open Bilingual version
-                    </button>
-                </div>
-            </div>
-            ` : ''}
-            ${(!paper.has_bilingual_version && paper.has_analysis_result) ? `
-            <div class="info-section compact">
-                <div class="info-content">
-                    <button class="btn btn-secondary btn-block" onclick="requestBilingualTranslation('${paper.id}')">
-                        <i class="fas fa-book-open"></i> Bilingual Translate
                     </button>
                 </div>
             </div>
@@ -3691,10 +3660,10 @@ async function moveCategories(categoryIds, targetParentId) {
     }
 }
 
-// Open Chinese versionPDF
+// Open Chinese version / Bilingual viewer
 function openChineseVersion(paperId) {
     const paper = papers.find(p => p.id === paperId);
-    if (!paper || !paper.has_chinese_version) {
+    if (!paper || (!paper.has_chinese_version && !paper.has_bilingual_version)) {
         showMessage('Chinese version does not exist', 'error');
         return;
     }
@@ -7386,17 +7355,23 @@ async function requestTranslation(paperId, event) {
         showMessage('Paper not found', 'error');
         return;
     }
-    
+
     // Check user's AI output language setting
     const userSettings = await getUserSettings();
     const aiLanguage = (userSettings && userSettings.aiLanguage) ? userSettings.aiLanguage : 'zh';
-    
+
     // If AI output language is English, translation is not needed (papers are already in English)
     if (aiLanguage && aiLanguage.toLowerCase() === 'en') {
         showMessage('Current AI output language is English, and the paper is already in English. Translation is not needed.', 'warning');
         return;
     }
-    
+
+    // Bilingual translation requires AI analysis first
+    if (!paper.has_analysis_result) {
+        showMessage('Please run AI analysis first to parse the PDF into Markdown', 'error');
+        return;
+    }
+
     // Check if there is a Chinese version
     if (paper.has_chinese_version) {
         if (confirm('This paper already has a Chinese version. Do you want to re-translate it?')) {
@@ -7405,7 +7380,7 @@ async function requestTranslation(paperId, event) {
             return;
         }
     }
-    
+
     // Check settings（use newAgenticUnified configuration）
     const settings = await getAgenticSettings();
     if (!settings || !settings.llmModel || !settings.llmBaseUrl || !settings.llmApiKey) {
@@ -7413,13 +7388,13 @@ async function requestTranslation(paperId, event) {
         switchTab('setting');
         return;
     }
-    
+
     // add to queue
     if (translationStatus[paperId]) {
         // This paper is already in the translation queue and will not be added again.
         return;
     }
-    
+
     translationQueue.push(paperId);
     // Update queue position（Including the current one）
     const queuePosition = translationQueue.length;
@@ -7427,7 +7402,7 @@ async function requestTranslation(paperId, event) {
     saveQueuesToStorage(); // Save queue status
     renderPapersList(); // Update display now
     updateTaskIndicator();
-    
+
     // Start processing the queue
     processTranslationQueue();
 }
@@ -7449,17 +7424,13 @@ async function processTranslationQueue() {
         updateTranslationStatus(paperId, 'translating', 0);
         renderPapersList();
 
-        const settings = await getTranslationSettings();
-        const response = await fetch('/api/paper/translate', {
+        const response = await fetch('/api/paper/bilingual-translate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                paper_id: paperId,
-                openai_model: settings.llmModel,
-                openai_base_url: settings.llmBaseUrl,
-                openai_api_key: settings.llmApiKey
+                paper_id: paperId
             })
         });
 
@@ -7494,71 +7465,65 @@ async function processTranslationQueue() {
     }
 }
 
-// Start polling translation logs
+// Start polling bilingual translation logs
 function startLogPolling(taskId, paperId) {
-    // Stop previous polling（if there is）
+    // Stop previous polling
     if (translationLogInterval[taskId]) {
         clearInterval(translationLogInterval[taskId]);
     }
-    
-    // Every2Poll once per second
+
+    // Poll every 2 seconds
     translationLogInterval[taskId] = setInterval(async () => {
         try {
-            const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+            const response = await fetch(`/api/paper/bilingual-translate/${taskId}/logs`);
             const result = await response.json();
-            
+
             if (response.ok && result.success) {
                 const status = result.status;
-                
-                // Stop polling if task completes or fails
+
+                // Update progress
+                const progress = result.progress;
+                if (progress && progress.total > 0) {
+                    updateTranslationStatus(paperId, 'translating', progress.current, taskId);
+                }
+
                 if (status === 'completed' || status === 'failed' || status === 'cancelled') {
                     clearInterval(translationLogInterval[taskId]);
                     delete translationLogInterval[taskId];
-                    
-                    // update status（reservetaskId）
+
                     const currentTaskId = translationStatus[paperId]?.taskId;
                     if (status === 'completed') {
                         updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
                         const paper = papers.find(p => p.id === paperId);
                         if (paper && result.result && result.result.success) {
                             paper.has_chinese_version = true;
-                            paper.chinese_version_path = result.result.chinese_version_path;
+                            paper.has_bilingual_version = true;
                         }
-                        // When the translation is completed, the status column will be updated automatically.
                     } else {
                         updateTranslationStatus(paperId, 'error', 0, currentTaskId);
-                        // Don't show error message when canceling
-                        // exit code -15 yes SIGTERM, indicating that the user actively cancels and no error is displayed.
                         const errorMsg = result.result?.error || '';
-                        const isCancelled = status === 'cancelled' || errorMsg.includes('-15') || errorMsg.includes('-9');
+                        const isCancelled = status === 'cancelled';
                         if (status === 'failed' && !isCancelled) {
                             showMessage(errorMsg || 'Translation failed', 'error');
                         }
                     }
-                    
-                    // Continue processing the queue
+
                     activeTranslationCount = Math.max(0, activeTranslationCount - 1);
-                    // Refresh the list based on the current view mode
                     await refreshCurrentViewList();
                     processTranslationQueue();
                 }
             } else {
-                // If the task does not exist（May be deleted externally or the server restarted）, stop polling and clean up the status
                 if (response.status === 404) {
                     clearInterval(translationLogInterval[taskId]);
                     delete translationLogInterval[taskId];
-                    // Remove from queue
                     const queueIndex = translationQueue.indexOf(paperId);
                     if (queueIndex !== -1) {
                         translationQueue.splice(queueIndex, 1);
                     }
-                    // delete status
                     delete translationStatus[paperId];
-                    // reset flag
                     activeTranslationCount = Math.max(0, activeTranslationCount - 1);
                     saveQueuesToStorage();
                     updateTaskIndicator();
-                    // Refresh the list based on the current view mode
                     await refreshCurrentViewList();
                     processTranslationQueue();
                 }
@@ -7566,7 +7531,7 @@ function startLogPolling(taskId, paperId) {
         } catch (error) {
             console.error('Failed to obtain translation log:', error);
         }
-    }, 2000); // Every2Poll once per second
+    }, 2000);
 }
 
 // Stop log polling
@@ -7592,9 +7557,9 @@ async function showTranslationLogs(paperId, event) {
     
     // Get log
     try {
-        const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+        const response = await fetch(`/api/paper/bilingual-translate/${taskId}/logs`);
         const result = await response.json();
-        
+
         if (response.ok && result.success) {
             // Show log modal box
             showLogModal(taskId, result.logs, result.status, paperId);
@@ -7649,7 +7614,7 @@ function showLogModal(taskId, logs, status, paperId) {
     if (status === 'running' || status === 'queued') {
         const autoRefresh = setInterval(async () => {
             try {
-                const response = await fetch(`/api/paper/translate/${taskId}/logs`);
+                const response = await fetch(`/api/paper/bilingual-translate/${taskId}/logs`);
                 const result = await response.json();
                 if (response.ok && result.success) {
                     const statusEl = document.getElementById('log-status');
@@ -7660,18 +7625,18 @@ function showLogModal(taskId, logs, status, paperId) {
                     if (logEl) {
                         logEl.textContent = result.logs.join('\n');
                     }
-                    
+
                     // If completed, stop automatic refresh
                     if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
                         clearInterval(autoRefresh);
-                        // update status（reservetaskId）
+                        // update status
                         const currentTaskId = translationStatus[paperId]?.taskId;
                         if (result.status === 'completed') {
                             updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
                             const paper = papers.find(p => p.id === paperId);
-                            if (paper && result.result && result.result.success) {
+                            if (paper) {
                                 paper.has_chinese_version = true;
-                                paper.chinese_version_path = result.result.chinese_version_path;
+                                paper.has_bilingual_version = true;
                             }
                         } else {
                             updateTranslationStatus(paperId, 'error', 0, currentTaskId);
@@ -7706,7 +7671,7 @@ async function cancelTranslation(taskId, paperId) {
     }
     
     try {
-        const response = await fetch(`/api/paper/translate/${taskId}/cancel`, {
+        const response = await fetch(`/api/paper/bilingual-translate/${taskId}/cancel`, {
             method: 'POST'
         });
         const result = await response.json();
@@ -7884,10 +7849,10 @@ function getTranslationStatusText(paperId) {
     return '';
 }
 
-// Open Chinese versionPDF
+// Open Chinese version / Bilingual viewer
 function openChineseVersion(paperId) {
     const paper = papers.find(p => p.id === paperId);
-    if (!paper || !paper.has_chinese_version) {
+    if (!paper || (!paper.has_chinese_version && !paper.has_bilingual_version)) {
         showMessage('Chinese version does not exist', 'error');
         return;
     }
@@ -8762,15 +8727,15 @@ async function restoreActiveTasks() {
             analysisStatus[pid] = { status: 'queued', taskId: analysisStatus[pid]?.taskId || null };
         });
 
-        // Translation tasks（Merge active tasks from backend）
-        const tRes = await fetch('/api/paper/translate/active');
+        // Bilingual translation tasks (merge active tasks from backend)
+        const tRes = await fetch('/api/paper/bilingual-translate/active');
         const tJson = await tRes.json();
         if (tRes.ok && tJson.success && Array.isArray(tJson.tasks)) {
             let runningTranslationCount = 0;
             for (const t of tJson.tasks) {
                 const paperId = t.paper_id;
                 try {
-                    const logRes = await fetch(`/api/paper/translate/${t.task_id}/logs`);
+                    const logRes = await fetch(`/api/paper/bilingual-translate/${t.task_id}/logs`);
                     if (logRes.ok) {
                         const logData = await logRes.json();
                         if (logData.success && (logData.status === 'running' || logData.status === 'queued')) {
@@ -9093,13 +9058,13 @@ function updatePaperStatusDisplay(paperId) {
             translateColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Translating...<button class="paper-action-stop" onclick="cancelTranslation('${paperId}', event)" title="Stop translation"><i class="fas fa-times"></i></button></span>`;
         } else if (tStatus && tStatus.status === 'queued') {
             translateColHtml = `<span class="paper-action-status processing"><i class="fas fa-clock"></i> in queue<button class="paper-action-stop" onclick="cancelTranslation('${paperId}', event)" title="Cancel queue"><i class="fas fa-times"></i></button></span>`;
-        } else if (paper.has_chinese_version) {
+        } else if (paper.has_bilingual_version || paper.has_chinese_version) {
             translateColHtml = `<button class="paper-col-btn view chinese" onclick="openChineseVersion('${paperId}', event)"><i class="fas fa-language"></i> Chinese version</button>`;
         } else {
             translateColHtml = `<button class="paper-col-btn translate icon-only" onclick="requestTranslation('${paperId}', event)" title="AI Translate"><i class="fas fa-language"></i></button>`;
         }
         translateActionCol.innerHTML = translateColHtml;
-        
+
         // Update interpretation column
         const aStatus = analysisStatus[paperId];
         let analyzeColHtml = '';
@@ -9114,22 +9079,6 @@ function updatePaperStatusDisplay(paperId) {
             analyzeColHtml = `<button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paperId}', event)" title="AI Interpretation"><i class="fas fa-brain"></i></button>`;
         }
         analyzeActionCol.innerHTML = analyzeColHtml;
-
-        // Update bilingual column (index 2 = translate(0), analyze(1), bilingual(2), reading(3))
-        const bilingualActionCol = actionCols[2];
-        if (bilingualActionCol) {
-            const bStatus = bilingualStatus[paperId];
-            let bilingualColHtml = '';
-            if (bStatus && bStatus.status === 'running') {
-                const prog = bStatus.total ? ` (${bStatus.current}/${bStatus.total})` : '';
-                bilingualColHtml = `<span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Bilingual${prog}<button class="paper-action-stop" onclick="cancelBilingualTranslation('${paperId}', event)" title="Cancel"><i class="fas fa-times"></i></button></span>`;
-            } else if (paper.has_bilingual_version) {
-                bilingualColHtml = `<button class="paper-col-btn view chinese" onclick="openBilingualVersion('${paperId}', event)"><i class="fas fa-book-open"></i> Bilingual</button>`;
-            } else if (paper.has_analysis_result) {
-                bilingualColHtml = `<button class="paper-col-btn translate icon-only" onclick="requestBilingualTranslation('${paperId}', event)" title="Bilingual Translate"><i class="fas fa-book-open"></i></button>`;
-            }
-            bilingualActionCol.innerHTML = bilingualColHtml;
-        }
     }
     
     // Update simultaneously .paper-meta in state（for detail view）
@@ -9903,7 +9852,7 @@ function cancelTranslation(paperId, event) {
     
     // If translation is in progress, stop the task
     if (status.taskId && status.status === 'translating') {
-        fetch(`/api/paper/translate/${status.taskId}/cancel`, { method: 'POST' })
+        fetch(`/api/paper/bilingual-translate/${status.taskId}/cancel`, { method: 'POST' })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
