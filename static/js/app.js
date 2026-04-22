@@ -604,6 +604,8 @@ fileInput.addEventListener('change', handleFileSelect);
     if (batchDelete) batchDelete.addEventListener('click', onBatchDelete);
     const batchExportMd = document.getElementById('batch-export-md');
     if (batchExportMd) batchExportMd.addEventListener('click', onBatchExportMd);
+    const batchReadingList = document.getElementById('batch-reading-list');
+    if (batchReadingList) batchReadingList.addEventListener('click', onBatchReadingList);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
 
     // Select All / Invert Selection
@@ -5206,6 +5208,19 @@ function updateBatchUI() {
     if (toolbar) toolbar.style.display = isMultiSelectMode ? 'flex' : 'none';
     if (btn) btn.classList.toggle('active', isMultiSelectMode);
     if (count) count.textContent = `selected ${selectedPaperIds.size} item`;
+    // Update reading list button label based on selection state
+    const readingBtn = document.getElementById('batch-reading-list');
+    if (readingBtn) {
+        const selectedIds = Array.from(selectedPaperIds);
+        const allInList = selectedIds.length > 0 && selectedIds.every(id => readingListPaperIds.has(id));
+        if (allInList) {
+            readingBtn.innerHTML = '<i class="fas fa-book"></i> Cancel Read';
+            readingBtn.title = 'Remove from reading list';
+        } else {
+            readingBtn.innerHTML = '<i class="fas fa-book-open"></i> To Read';
+            readingBtn.title = 'Add to reading list';
+        }
+    }
 }
 
 function handleMultiSelectClick(e, paperId) {
@@ -5286,6 +5301,62 @@ async function onBatchExportMd() {
     const targetDir = prompt('Enter the target directory path to export MD files:', defaultValue);
     if (!targetDir || !targetDir.trim()) return;
     await exportCategoryMd(currentCategoryId, targetDir.trim(), Array.from(selectedPaperIds));
+}
+
+async function onBatchReadingList() {
+    if (selectedPaperIds.size === 0) { showMessage('Please select a paper first', 'warning'); return; }
+    const ids = Array.from(selectedPaperIds);
+    const allInList = ids.every(id => readingListPaperIds.has(id));
+
+    if (allInList) {
+        // All selected are in reading list → remove them
+        let removed = 0;
+        for (const id of ids) {
+            if (readingListPaperIds.has(id)) {
+                try {
+                    const response = await fetch(`/api/reading-list/${id}/remove`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ delete_files: false })
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success) { readingListPaperIds.delete(id); removed++; }
+                        else if (data.requires_confirmation) {
+                            // Paper in temp dir, skip — would need file deletion confirmation
+                            console.warn(`Paper ${id} requires file deletion confirmation, skipped`);
+                        }
+                    }
+                } catch (e) { console.error(e); }
+            }
+        }
+        if (removed > 0) {
+            await updateReadingListCount();
+            renderPapersList();
+            showMessage(`Removed ${removed} papers from reading list`, 'success');
+        } else {
+            showMessage('No papers could be removed (papers in temp directory need individual removal)', 'info');
+        }
+    } else {
+        // Some or none are in reading list → add all (skip already-added)
+        let added = 0;
+        for (const id of ids) {
+            if (!readingListPaperIds.has(id)) {
+                try {
+                    const response = await fetch(`/api/reading-list/${id}/add`, { method: 'POST' });
+                    if (response.ok) { readingListPaperIds.add(id); added++; }
+                } catch (e) { console.error(e); }
+            }
+        }
+        if (added > 0) {
+            await updateReadingListCount();
+            renderPapersList();
+            showMessage(`Added ${added} papers to reading list`, 'success');
+        } else {
+            showMessage('Selected papers are already in the reading list', 'info');
+        }
+    }
+    updateBatchUI();
 }
 
 async function getExportMdPathPrefix() {
