@@ -14267,15 +14267,31 @@ async function pollRelativePaperProgress(categoryId) {
         }
         barEl.style.width = pct + '%';
 
-        if (p.found > 0) {
-            detailEl.textContent = `Found ${p.found} candidates, downloaded ${p.total_downloaded} papers`;
+        // Build detail line
+        let detailParts = [];
+        if (p.matched_methods > 0) {
+            detailParts.push(`Methods: ${p.resolved_methods}/${p.matched_methods} resolved`);
         }
+        if (p.found > 0 && !(p.current_step && p.current_step.startsWith('Downloading'))) {
+            detailParts.push(`Found ${p.found} papers`);
+        }
+        if (p.total_downloaded > 0) {
+            detailParts.push(`Downloaded ${p.total_downloaded}`);
+        }
+        if (p.unresolved_methods && p.unresolved_methods.length > 0) {
+            detailParts.push(`${p.unresolved_methods.length} unresolved`);
+        }
+        detailEl.textContent = detailParts.join(' · ');
 
         if (p.status === 'done') {
             clearInterval(_relativePaperPollTimer);
             _relativePaperPollTimer = null;
 
-            const msg = `Search complete: found ${p.found} candidates, downloaded ${p.total_downloaded} papers`;
+            let doneParts = [`found ${p.found} papers`, `downloaded ${p.total_downloaded}`];
+            if (p.matched_methods > 0) {
+                doneParts.unshift(`${p.resolved_methods}/${p.matched_methods} methods resolved`);
+            }
+            const msg = `Search complete: ${doneParts.join(', ')}`;
             stepEl.textContent = msg;
             detailEl.textContent = '';
             barEl.style.width = '100%';
