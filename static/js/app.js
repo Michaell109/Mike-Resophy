@@ -14136,8 +14136,10 @@ async function checkAndShowOnboarding() {
 // Find Related Papers
 // ========================================
 
-let _relativePaperTaskId = null;
-let _relativePaperPollTimer = null;
+// Search queue: supports multiple papers searching one at a time
+let _searchQueue = []; // [{taskId, paperId, paperTitle, categoryId, sources, targetCount, progress, status}]
+let _searchPollTimer = null;
+let _searchDropdownOpen = false;
 
 function showRelativePaperModal() {
     const modal = document.getElementById('relative-paper-modal');
@@ -14163,27 +14165,135 @@ function closeRelativePaperModal() {
     modal.style.display = 'none';
 }
 
-function showRelativePaperFloating() {
-    const floating = document.getElementById('relative-paper-floating');
-    if (!floating) return;
-    // Reset floating widget
-    document.getElementById('rel-floating-step').textContent = 'Searching...';
-    document.getElementById('rel-floating-bar').style.width = '0%';
-    document.getElementById('rel-floating-bar').style.background = 'var(--accent-color,#7d4a9d)';
-    document.getElementById('rel-floating-detail').textContent = '';
-    document.getElementById('rel-floating-cancel').textContent = 'Cancel';
-    document.getElementById('rel-floating-cancel').style.display = '';
-    floating.style.display = 'block';
-}
+function updateSearchBadge() {
+    const wrap = document.getElementById('search-indicator-wrap');
+    const countEl = document.getElementById('ti-search-count');
+    const btn = document.getElementById('btn-show-searching');
+    if (!wrap || !countEl || !btn) return;
 
-function closeRelativePaperFloating() {
-    const floating = document.getElementById('relative-paper-floating');
-    if (floating) floating.style.display = 'none';
-    if (_relativePaperPollTimer) {
-        clearInterval(_relativePaperPollTimer);
-        _relativePaperPollTimer = null;
+    const activeCount = _searchQueue.filter(t => t.status === 'queued' || t.status === 'running').length;
+    wrap.style.display = activeCount > 0 ? '' : 'none';
+    countEl.textContent = activeCount;
+    if (activeCount > 0) {
+        btn.classList.add('has-tasks');
+        // Update tooltip with current running paper
+        const runningTask = _searchQueue.find(t => t.status === 'running');
+        if (runningTask) {
+            btn.title = `Searching: ${runningTask.paperTitle || runningTask.paperId}`;
+        }
+    } else {
+        btn.classList.remove('has-tasks');
+        // Hide dropdown if open
+        const dd = document.getElementById('search-progress-dropdown');
+        if (dd) dd.style.display = 'none';
+        _searchDropdownOpen = false;
     }
 }
+
+function renderSearchDropdown() {
+    const dd = document.getElementById('search-progress-dropdown');
+    if (!dd) return;
+
+    const parts = [];
+    const running = _searchQueue.filter(t => t.status === 'running');
+    const queued = _searchQueue.filter(t => t.status === 'queued');
+    const done = _searchQueue.filter(t => t.status === 'done');
+    const errors = _searchQueue.filter(t => t.status === 'error');
+
+    if (running.length) {
+        parts.push('<div class="sp-title">Running</div>');
+        for (const task of running) {
+            const p = task.progress || {};
+            let detailHtml = '';
+            // Show comparison methods info
+            if (p.matched_methods > 0) {
+                detailHtml += `<span>${p.resolved_methods || 0}/${p.matched_methods} methods resolved</span>`;
+            }
+            // Show found papers
+            if (p.found > 0) {
+                detailHtml += `<span>Found ${p.found} papers</span>`;
+            }
+            // Show download progress: current index / total
+            if (p.downloaded > 0 || p.total_downloaded > 0) {
+                const totalCandidates = p.found || 0;
+                if (p.current_step && p.current_step.includes('Downloading')) {
+                    detailHtml += `<span>Downloading ${p.downloaded + 1}/${totalCandidates}</span>`;
+                }
+                detailHtml += `<span>Downloaded ${p.total_downloaded}</span>`;
+            }
+            // Show current step
+            const stepText = p.current_step || 'Searching...';
+            // Progress bar estimation
+            let pct = 0;
+            if (p.status === 'running') {
+                if (p.current_step && p.current_step.includes('Downloading')) {
+                    const totalCandidates = Math.max(p.found, 1);
+                    pct = Math.min(95, 30 + (p.downloaded / totalCandidates) * 60 + (p.total_downloaded / totalCandidates) * 5);
+                } else if (p.matched_methods > 0) {
+                    pct = Math.min(30, (p.resolved_methods || 0) / p.matched_methods * 30);
+                } else {
+                    pct = 10;
+                }
+            }
+            parts.push(`
+                <div class="sp-task">
+                    <div class="sp-task-title"><i class="fas fa-search" style="color:#7d4a9d;margin-right:4px;"></i>${escapeHtml(task.paperTitle || task.paperId)}</div>
+                    <div class="sp-task-step">${escapeHtml(stepText)}</div>
+                    <div class="sp-task-detail">${detailHtml}</div>
+                    <div class="sp-progress-bar"><div class="sp-progress-fill" style="width:${pct}%"></div></div>
+                </div>
+            `);
+        }
+    }
+
+    if (queued.length) {
+        parts.push('<div class="sp-title">Queued</div>');
+        for (const task of queued) {
+            parts.push(`<div class="sp-queued"><i class="fas fa-clock"></i> ${escapeHtml(task.paperTitle || task.paperId)}</div>`);
+        }
+    }
+
+    if (done.length) {
+        parts.push('<div class="sp-title">Completed</div>');
+        for (const task of done) {
+            const p = task.progress || {};
+            const info = p.found ? `found ${p.found}, downloaded ${p.total_downloaded || 0}` : '';
+            parts.push(`<div class="sp-done"><i class="fas fa-check-circle"></i> ${escapeHtml(task.paperTitle || task.paperId)}${info ? ' — ' + info : ''}</div>`);
+        }
+    }
+
+    if (errors.length) {
+        parts.push('<div class="sp-title">Failed</div>');
+        for (const task of errors) {
+            const p = task.progress || {};
+            const errInfo = p.error ? `: ${p.error}` : '';
+            parts.push(`<div class="sp-error"><i class="fas fa-exclamation-circle"></i> ${escapeHtml(task.paperTitle || task.paperId)}${errInfo}</div>`);
+        }
+    }
+
+    dd.innerHTML = parts.length ? parts.join('') : '<div style="padding:8px;color:#888;font-size:12px;">No search tasks</div>';
+}
+
+function toggleSearchDropdown() {
+    const dd = document.getElementById('search-progress-dropdown');
+    if (!dd) return;
+    _searchDropdownOpen = !_searchDropdownOpen;
+    dd.style.display = _searchDropdownOpen ? '' : 'none';
+    if (_searchDropdownOpen) {
+        renderSearchDropdown();
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (!_searchDropdownOpen) return;
+    const wrap = document.getElementById('search-indicator-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+        _searchDropdownOpen = false;
+        const dd = document.getElementById('search-progress-dropdown');
+        if (dd) dd.style.display = 'none';
+    }
+});
 
 async function startRelativePaperSearch() {
     const startBtn = document.getElementById('rel-modal-start');
@@ -14201,15 +14311,54 @@ async function startRelativePaperSearch() {
     }
 
     const targetCount = parseInt(document.getElementById('rel-target-count').value) || 10;
+    const paperId = currentPaperId;
+
+    // Get paper title for display
+    let paperTitle = paperId;
+    const paperEl = document.querySelector(`.paper-item[data-paper-id="${paperId}"]`);
+    if (paperEl) {
+        const titleEl = paperEl.querySelector('.paper-title');
+        if (titleEl) paperTitle = titleEl.textContent.trim();
+    }
+
+    // Check if already queued/running for this paper
+    if (_searchQueue.some(t => t.paperId === paperId && (t.status === 'queued' || t.status === 'running'))) {
+        showMessage('This paper is already in the search queue', 'warning');
+        return;
+    }
 
     startBtn.disabled = true;
 
+    const isRunning = _searchQueue.some(t => t.status === 'running');
+
+    if (isRunning) {
+        // Queue this paper without calling backend yet — backend will be called when it becomes running
+        closeRelativePaperModal();
+        const task = {
+            taskId: null,  // Will be assigned when backend starts
+            paperId: paperId,
+            paperTitle: paperTitle,
+            categoryId: null,  // Will be assigned when backend starts
+            sources: sources,
+            targetCount: targetCount,
+            progress: {},
+            status: 'queued',
+        };
+        _searchQueue.push(task);
+        updateSearchBadge();
+        if (_searchDropdownOpen) renderSearchDropdown();
+        const queuePos = _searchQueue.filter(t => t.status === 'queued').length;
+        showMessage(`Queued search for: ${paperTitle} (#${queuePos} in queue)`, 'success');
+        return;
+    }
+
+    // No running task — start this one immediately
     try {
         const resp = await fetch('/api/relative-paper/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                paper_id: currentPaperId,
+                paper_id: paperId,
                 target_count: targetCount,
                 sources: sources,
             }),
@@ -14222,17 +14371,23 @@ async function startRelativePaperSearch() {
             return;
         }
 
-        _relativePaperTaskId = data.task_id;
-
-        // Close modal, show floating progress widget
         closeRelativePaperModal();
-        showRelativePaperFloating();
 
-        // Bind cancel button on floating widget
-        document.getElementById('rel-floating-cancel').onclick = () => cancelRelativePaperSearch();
-
-        // Start polling
-        _relativePaperPollTimer = setInterval(() => pollRelativePaperProgress(data.category_id), 1500);
+        const task = {
+            taskId: data.task_id,
+            paperId: paperId,
+            paperTitle: paperTitle,
+            categoryId: data.category_id,
+            sources: sources,
+            targetCount: targetCount,
+            progress: {},
+            status: 'running',
+        };
+        _searchQueue.push(task);
+        startSearchPolling();
+        updateSearchBadge();
+        if (_searchDropdownOpen) renderSearchDropdown();
+        showMessage(`Searching related papers for: ${paperTitle}`, 'success');
 
     } catch (err) {
         console.error('Start relative paper search failed:', err);
@@ -14241,115 +14396,158 @@ async function startRelativePaperSearch() {
     }
 }
 
-async function pollRelativePaperProgress(categoryId) {
-    if (!_relativePaperTaskId) return;
+function startSearchPolling() {
+    if (_searchPollTimer) clearInterval(_searchPollTimer);
+    _searchPollTimer = setInterval(pollSearchProgress, 1500);
+    // Immediately poll once
+    pollSearchProgress();
+}
+
+async function pollSearchProgress() {
+    const runningTask = _searchQueue.find(t => t.status === 'running');
+    if (!runningTask) {
+        // No running task — try to start next queued
+        await startNextQueuedSearch();
+        return;
+    }
 
     try {
-        const resp = await fetch(`/api/relative-paper/progress/${_relativePaperTaskId}`);
+        const resp = await fetch(`/api/relative-paper/progress/${runningTask.taskId}`);
         const data = await resp.json();
-        if (!data.success) return;
+        if (!data.success) {
+            // Task not found or error — mark as error and move on
+            runningTask.status = 'error';
+            showMessage(`Search failed: ${runningTask.paperTitle} — task not found`, 'error');
+            updateSearchBadge();
+            if (_searchDropdownOpen) renderSearchDropdown();
+            await startNextQueuedSearch();
+            return;
+        }
 
         const p = data.progress;
-        const stepEl = document.getElementById('rel-floating-step');
-        const barEl = document.getElementById('rel-floating-bar');
-        const detailEl = document.getElementById('rel-floating-detail');
+        runningTask.progress = p;
 
-        stepEl.textContent = p.current_step || 'Searching...';
-
-        // Estimate progress
-        let pct = 0;
-        if (p.status === 'running') {
-            pct = Math.min(90, p.found * 5 + p.downloaded * 10);
-        } else if (p.status === 'done') {
-            pct = 100;
-        } else if (p.status === 'error') {
-            pct = 100;
-        }
-        barEl.style.width = pct + '%';
-
-        // Build detail line
-        let detailParts = [];
-        if (p.matched_methods > 0) {
-            detailParts.push(`Methods: ${p.resolved_methods}/${p.matched_methods} resolved`);
-        }
-        if (p.found > 0 && !(p.current_step && p.current_step.startsWith('Downloading'))) {
-            detailParts.push(`Found ${p.found} papers`);
-        }
-        if (p.total_downloaded > 0) {
-            detailParts.push(`Downloaded ${p.total_downloaded}`);
-        }
-        if (p.unresolved_methods && p.unresolved_methods.length > 0) {
-            detailParts.push(`${p.unresolved_methods.length} unresolved`);
-        }
-        detailEl.textContent = detailParts.join(' · ');
+        // Update dropdown if open
+        if (_searchDropdownOpen) renderSearchDropdown();
 
         if (p.status === 'done') {
-            clearInterval(_relativePaperPollTimer);
-            _relativePaperPollTimer = null;
+            runningTask.status = 'done';
+            // Cleanup backend task
+            fetch(`/api/relative-paper/cleanup/${runningTask.taskId}`, { method: 'POST' }).catch(() => {});
 
             let doneParts = [`found ${p.found} papers`, `downloaded ${p.total_downloaded}`];
             if (p.matched_methods > 0) {
                 doneParts.unshift(`${p.resolved_methods}/${p.matched_methods} methods resolved`);
             }
-            const msg = `Search complete: ${doneParts.join(', ')}`;
-            stepEl.textContent = msg;
-            detailEl.textContent = '';
-            barEl.style.width = '100%';
-
-            const cancelBtn = document.getElementById('rel-floating-cancel');
-            cancelBtn.textContent = 'Close';
-            cancelBtn.onclick = () => {
-                fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
-                closeRelativePaperFloating();
-                loadCategories(true);
-                if (categoryId) {
-                    setTimeout(() => {
-                        const node = document.querySelector(`[data-category-id="${categoryId}"]`);
-                        if (node) node.click();
-                    }, 500);
-                }
-            };
-
-            const closeBtn = document.getElementById('rel-floating-close');
-            if (closeBtn) closeBtn.onclick = () => cancelBtn.click();
-
+            const msg = `Search complete: ${runningTask.paperTitle} — ${doneParts.join(', ')}`;
             showMessage(msg, 'success');
+
+            // Refresh categories
+            loadCategories(true);
+            if (runningTask.categoryId) {
+                setTimeout(() => {
+                    const node = document.querySelector(`[data-category-id="${runningTask.categoryId}"]`);
+                    if (node) node.click();
+                }, 500);
+            }
+
+            updateSearchBadge();
+            if (_searchDropdownOpen) renderSearchDropdown();
+
+            // Start next queued search
+            await startNextQueuedSearch();
+
         } else if (p.status === 'error') {
-            clearInterval(_relativePaperPollTimer);
-            _relativePaperPollTimer = null;
-            stepEl.textContent = `Error: ${p.error || 'Unknown error'}`;
-            detailEl.textContent = '';
-            barEl.style.width = '100%';
-            barEl.style.background = '#ef5350';
-
-            const cancelBtn = document.getElementById('rel-floating-cancel');
-            cancelBtn.textContent = 'Close';
-            cancelBtn.onclick = () => {
-                fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' }).catch(() => {});
-                closeRelativePaperFloating();
-            };
-
-            const closeBtn = document.getElementById('rel-floating-close');
-            if (closeBtn) closeBtn.onclick = () => cancelBtn.click();
+            runningTask.status = 'error';
+            fetch(`/api/relative-paper/cleanup/${runningTask.taskId}`, { method: 'POST' }).catch(() => {});
+            showMessage(`Search failed: ${runningTask.paperTitle} — ${p.error || 'Unknown error'}`, 'error');
+            updateSearchBadge();
+            if (_searchDropdownOpen) renderSearchDropdown();
+            await startNextQueuedSearch();
         }
     } catch (err) {
         console.error('Poll progress failed:', err);
     }
 }
 
-async function cancelRelativePaperSearch() {
-    if (!_relativePaperTaskId) return;
+async function startNextQueuedSearch() {
+    // Find next queued task
+    const nextTask = _searchQueue.find(t => t.status === 'queued');
+    if (!nextTask) {
+        // No more tasks — stop polling and clean up old done/error tasks
+        if (_searchPollTimer) {
+            clearInterval(_searchPollTimer);
+            _searchPollTimer = null;
+        }
+        // Remove completed tasks after a short delay
+        setTimeout(() => {
+            _searchQueue = _searchQueue.filter(t => t.status === 'queued' || t.status === 'running');
+            updateSearchBadge();
+        }, 3000);
+        updateSearchBadge();
+        return;
+    }
+
+    // Call backend API to start this queued search
     try {
-        await fetch(`/api/relative-paper/cancel/${_relativePaperTaskId}`, { method: 'POST' });
-        await fetch(`/api/relative-paper/cleanup/${_relativePaperTaskId}`, { method: 'POST' });
+        const resp = await fetch('/api/relative-paper/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                paper_id: nextTask.paperId,
+                target_count: nextTask.targetCount,
+                sources: nextTask.sources,
+            }),
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            nextTask.status = 'error';
+            nextTask.progress = { status: 'error', error: data.error || 'Failed to start search' };
+            showMessage(`Search failed: ${nextTask.paperTitle} — ${data.error || 'Unknown error'}`, 'error');
+            updateSearchBadge();
+            if (_searchDropdownOpen) renderSearchDropdown();
+            // Try next queued task
+            await startNextQueuedSearch();
+            return;
+        }
+
+        nextTask.taskId = data.task_id;
+        nextTask.categoryId = data.category_id;
+        nextTask.status = 'running';
+        nextTask.progress = {};
+        updateSearchBadge();
+        if (_searchDropdownOpen) renderSearchDropdown();
+
+        if (!_searchPollTimer) {
+            startSearchPolling();
+        }
+    } catch (err) {
+        console.error('Start queued search failed:', err);
+        nextTask.status = 'error';
+        nextTask.progress = { status: 'error', error: 'Network error' };
+        updateSearchBadge();
+        if (_searchDropdownOpen) renderSearchDropdown();
+        await startNextQueuedSearch();
+    }
+}
+
+async function cancelRelativePaperSearch() {
+    const runningTask = _searchQueue.find(t => t.status === 'running');
+    if (!runningTask) return;
+    try {
+        await fetch(`/api/relative-paper/cancel/${runningTask.taskId}`, { method: 'POST' });
+        await fetch(`/api/relative-paper/cleanup/${runningTask.taskId}`, { method: 'POST' });
     } catch (err) {
         console.error('Cancel search failed:', err);
     }
-    closeRelativePaperFloating();
+    runningTask.status = 'error';
     showMessage('Search cancelled', 'info');
+    updateSearchBadge();
+    await startNextQueuedSearch();
 }
 
-// Bind modal & floating events
+// Bind modal & search badge events
 document.addEventListener('DOMContentLoaded', function() {
     const closeBtn = document.getElementById('relative-paper-modal-close');
     const cancelBtn = document.getElementById('rel-modal-cancel');
@@ -14357,5 +14555,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (closeBtn) closeBtn.addEventListener('click', closeRelativePaperModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeRelativePaperModal);
     if (startBtn) startBtn.addEventListener('click', startRelativePaperSearch);
+
+    // Search badge click → toggle dropdown
+    const searchBtn = document.getElementById('btn-show-searching');
+    if (searchBtn) searchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSearchDropdown();
+    });
 });
 

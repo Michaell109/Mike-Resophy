@@ -38,6 +38,15 @@
                 <span class="navbar-brand-text" id="navbar-brand-text" style="display:none;"><i class="fas fa-book"></i> Resophy</span>
             </div>
             <div class="navbar-tabs" style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+                <div id="search-indicator-wrap" style="position:relative; display:none;">
+                    <button id="btn-show-searching" class="ti-item ti-search" title="Search progress">
+                        <i class="fas fa-search-plus"></i>
+                        <span class="ti-label">Searching</span>
+                        <span class="ti-count" id="ti-search-count">0</span>
+                    </button>
+                    <div id="search-progress-dropdown" class="search-progress-dropdown" style="display:none;">
+                    </div>
+                </div>
                 <button id="btn-show-translating" class="ti-item ti-translate" title="View papers being translated">
                     <i class="fas fa-language"></i>
                     <span class="ti-label">Translating</span>
@@ -1221,21 +1230,7 @@
         </div>
     </div>
 
-    <!-- Find Related Papers: floating progress widget (non-blocking) -->
-    <div id="relative-paper-floating" style="display:none; position:fixed; bottom:20px; right:20px; z-index:9999; background:var(--bg-primary,#fff); border-radius:10px; padding:14px 18px; min-width:280px; max-width:360px; box-shadow:0 4px 20px rgba(0,0,0,0.18); border:1px solid var(--border-color,#e0e0e0);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span style="font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px;"><i class="fas fa-search-plus"></i> Related Papers</span>
-            <button id="rel-floating-close" style="background:none; border:none; font-size:14px; cursor:pointer; color:var(--text-secondary,#888); padding:2px 4px;"><i class="fas fa-times"></i></button>
-        </div>
-        <p id="rel-floating-step" style="margin:0 0 6px 0; font-size:12px; color:var(--text-primary,#333);">Searching...</p>
-        <div style="background:var(--bg-secondary,#e0e0e0); border-radius:4px; height:6px; overflow:hidden; margin-bottom:6px;">
-            <div id="rel-floating-bar" style="background:var(--accent-color,#7d4a9d); height:100%; width:0%; transition:width 0.3s;"></div>
-        </div>
-        <p id="rel-floating-detail" style="margin:0; font-size:11px; color:var(--text-secondary,#888);"></p>
-        <div style="margin-top:8px; text-align:right;">
-            <button id="rel-floating-cancel" class="btn btn-secondary" style="font-size:12px; padding:4px 12px;">Cancel</button>
-        </div>
-    </div>
+    <!-- Find Related Papers: search progress now shown via navbar badge -->
 
     <!-- Institution edit modal -->
     <div id="institution-modal" class="institution-modal" style="display: none;">
