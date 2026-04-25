@@ -1731,6 +1731,120 @@ def _sanitize_filename(text: str) -> str:
     return cleaned[:150] if cleaned else "untitled"
 
 
+def _copy_source_paper_to_result_dir(
+    ref_paper_id: str,
+    ref_paper_data: Dict[str, Any],
+    target_dir: str,
+    save_paper_metadata_fn: Callable,
+    paper_store: Any,
+    category_id: str,
+    category_path: List[str],
+) -> Optional[str]:
+    """Copy the source (reference) paper into the search result folder.
+
+    Copies PDF, JSON metadata, Chinese translations, and AI analysis outputs.
+    Returns the new paper ID, or None on failure.
+    """
+    import shutil
+    import uuid as _uuid
+
+    from resophy.core.base_paper import Paper as _Paper
+
+    source_pdf = ref_paper_data.get("file_path", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        print(f"[RelativePaper] Source PDF not found, skipping copy: {source_pdf}")
+        return None
+
+    source_dir = os.path.dirname(source_pdf)
+    source_base = os.path.splitext(os.path.basename(source_pdf))[0]
+    source_filename = os.path.basename(source_pdf)
+
+    # Determine target filename (handle collisions)
+    target_pdf = os.path.join(target_dir, source_filename)
+    counter = 1
+    while os.path.exists(target_pdf):
+        name, ext = os.path.splitext(source_filename)
+        target_pdf = os.path.join(target_dir, f"{name}_{counter}{ext}")
+        counter += 1
+
+    final_base = os.path.splitext(os.path.basename(target_pdf))[0]
+    final_filename = os.path.basename(target_pdf)
+
+    # Copy PDF
+    shutil.copy2(source_pdf, target_pdf)
+
+    # Copy JSON metadata
+    source_json = os.path.splitext(source_pdf)[0] + ".json"
+    if os.path.exists(source_json):
+        target_json = os.path.splitext(target_pdf)[0] + ".json"
+        shutil.copy2(source_json, target_json)
+
+    # Copy Chinese translation files
+    for suffix in (".zh.dual.pdf", ".zh.mono.pdf", ".translate.log"):
+        src = os.path.join(source_dir, f"{source_base}{suffix}")
+        if os.path.exists(src):
+            dst = os.path.join(target_dir, f"{final_base}{suffix}")
+            shutil.copy2(src, dst)
+
+    # Copy AI analysis outputs directory
+    source_outputs = os.path.join(source_dir, "outputs")
+    if os.path.exists(source_outputs):
+        for item in os.listdir(source_outputs):
+            item_path = os.path.join(source_outputs, item)
+            if os.path.isdir(item_path) and source_base in item:
+                target_outputs = os.path.join(target_dir, "outputs")
+                os.makedirs(target_outputs, exist_ok=True)
+                new_item_name = item.replace(source_base, final_base) if source_base != final_base else item
+                dst_item = os.path.join(target_outputs, new_item_name)
+                item_counter = 1
+                while os.path.exists(dst_item):
+                    dst_item = os.path.join(target_outputs, f"{new_item_name}_{item_counter}")
+                    item_counter += 1
+                shutil.copytree(item_path, dst_item)
+
+    # Create a new Paper object for the copy
+    new_id = str(_uuid.uuid4())
+    paper = _Paper.from_dict(ref_paper_data)
+    paper.id = new_id
+    paper.filename = final_filename
+    paper.file_path = target_pdf
+    paper.upload_date = datetime.now().isoformat()
+    paper.upload_source = "relative_paper_search"
+    paper.extra["is_reference_paper"] = True
+    paper.extra["relative_paper_ref_id"] = ref_paper_id
+
+    # Reset operational state so the copy doesn't inherit in-progress tasks
+    paper.translation_status = "idle"
+    paper.translation_task_id = None
+    paper.analysis_status = "idle"
+    paper.analysis_task_id = None
+
+    # Update Chinese version and analysis result paths
+    dual_file = os.path.join(target_dir, f"{final_base}.zh.dual.pdf")
+    paper.mark_chinese_version(dual_file if os.path.exists(dual_file) else None)
+
+    analysis_result_path = None
+    target_outputs_dir = os.path.join(target_dir, "outputs")
+    if os.path.exists(target_outputs_dir):
+        for item in os.listdir(target_outputs_dir):
+            item_path = os.path.join(target_outputs_dir, item)
+            if os.path.isdir(item_path) and final_base in item:
+                vlm_dir = os.path.join(item_path, "vlm")
+                if os.path.exists(vlm_dir):
+                    result_file = os.path.join(vlm_dir, "result.md")
+                    if os.path.exists(result_file):
+                        analysis_result_path = result_file
+                        break
+    paper.mark_analysis_result(analysis_result_path)
+
+    # Save metadata and register in paper store
+    save_paper_metadata_fn(target_pdf, paper)
+    paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+
+    print(f"[RelativePaper] Copied reference paper to result folder: {final_filename}")
+    return new_id
+
+
 def search_related_papers(
     task_id: str,
     ref_paper_id: str,
@@ -1993,6 +2107,17 @@ def search_related_papers(
             return
 
         os.makedirs(target_dir, exist_ok=True)
+
+        # Copy the source (reference) paper into the result folder first
+        try:
+            _copy_source_paper_to_result_dir(
+                ref_paper_id, ref_paper_data, target_dir,
+                save_paper_metadata_fn, paper_store,
+                category_id, category_path,
+            )
+        except Exception as e:
+            print(f"[RelativePaper] Failed to copy reference paper to result folder: {e}")
+
         downloaded = 0
 
         for i, cp in enumerate(all_candidates):

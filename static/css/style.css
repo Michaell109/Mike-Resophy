@@ -1796,6 +1796,23 @@ body {
     position: relative;
 }
 
+.paper-item.reference-paper {
+    border-left: 3px solid #7c4dff;
+    background: #f3e8ff;
+}
+
+.reference-paper-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: #7c4dff;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 .paper-action-btn.edit {
     background: #007bff;
 }

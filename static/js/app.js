@@ -1420,9 +1420,12 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     
     // title bar（Includes reading time）
     const readTimeText = getTotalReadTimeText(paper);
+    const refBadge = paper.is_reference_paper
+        ? '<span class="reference-paper-badge">REF</span>'
+        : '';
     const titleCol = `
         <div class="paper-col-title" title="${paper.title || paper.filename}">
-            ${paper.title || paper.filename}${readTimeText}
+            ${paper.title || paper.filename}${refBadge}${readTimeText}
         </div>
     `;
     
@@ -1522,7 +1525,8 @@ function renderPapersList() {
         const isSelected = selectedPaperIds.has(paper.id);
         // If the currently selected paper is this, add selected kind
         const isCurrentSelected = currentPaperId === paper.id;
-        div.className = `paper-item${isSelected ? ' multi-selected' : ''}${isCurrentSelected ? ' selected' : ''}`;
+        const isRefPaper = paper.is_reference_paper === true;
+        div.className = `paper-item${isSelected ? ' multi-selected' : ''}${isCurrentSelected ? ' selected' : ''}${isRefPaper ? ' reference-paper' : ''}`;
         div.dataset.paperId = paper.id;
         div.innerHTML = generatePaperItemHTML(paper, true);
 
@@ -5403,6 +5407,11 @@ async function exportCategoryMd(categoryId, targetDir, paperIds = null) {
 // Paper sorting function
 function sortPapers(papers, sortBy) {
     return papers.sort((a, b) => {
+        // Reference paper always sorts to the top
+        const aRef = a.is_reference_paper === true ? 0 : 1;
+        const bRef = b.is_reference_paper === true ? 0 : 1;
+        if (aRef !== bRef) return aRef - bRef;
+
         switch (sortBy) {
             case 'upload_date_desc':
                 return new Date(b.upload_date) - new Date(a.upload_date);
