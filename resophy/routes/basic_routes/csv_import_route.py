@@ -22,6 +22,10 @@ from flask import Flask, jsonify, request
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
+from resophy.tools.basic_tools.paper_repository import (
+    _find_source_paper_for_inherit,
+    inherit_chinese_and_analysis,
+)
 
 # Task state storage
 csv_import_tasks: Dict[str, Dict[str, Any]] = {}
@@ -289,6 +293,15 @@ def _csv_import_task(
                 category_path=category_path,
             )
 
+            # Inherit Chinese version / AI interpretation from existing paper
+            if existing_paper.has_chinese_version or existing_paper.has_analysis_result:
+                target_base = os.path.splitext(pdf_filename)[0]
+                if inherit_chinese_and_analysis(existing_paper, category_folder, target_base, paper):
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
+                    save_paper_metadata(file_path, paper)
+
             # Add to reading list
             _add_to_reading_list(paper.id)
 
@@ -369,6 +382,18 @@ def _csv_import_task(
             category_id=category_id,
             category_path=category_path,
         )
+
+        # Inherit Chinese version / AI interpretation from existing paper
+        source = _find_source_paper_for_inherit(
+            paper_store, arxiv_id=arxiv_id, title=paper.title, exclude_paper_id=paper.id
+        )
+        if source:
+            target_base = os.path.splitext(pdf_filename)[0]
+            if inherit_chinese_and_analysis(source, category_folder, target_base, paper):
+                paper_store.upsert(
+                    paper, category_id=category_id, category_path=category_path
+                )
+                save_paper_metadata(file_path, paper)
 
         # Add to reading list
         _add_to_reading_list(paper.id)

@@ -13,6 +13,10 @@ from flask import Flask, jsonify, request
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
+from resophy.tools.basic_tools.paper_repository import (
+    _find_source_paper_for_inherit,
+    inherit_chinese_and_analysis,
+)
 from resophy.tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp, fetch_paper_by_arxiv_id_fast)
 
@@ -294,6 +298,19 @@ def register_update_from_url_routes(
             )
             save_paper_metadata(file_path, registered_paper)
             _add_to_reading_list(registered_paper.id)
+
+            # Inherit Chinese version / AI interpretation from existing paper
+            source = _find_source_paper_for_inherit(
+                paper_store, arxiv_id=arxiv_id, title=paper.title, exclude_paper_id=paper_id
+            )
+            if source:
+                target_base = os.path.splitext(filename)[0]
+                target_dir = os.path.dirname(file_path)
+                if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
+                    save_paper_metadata(file_path, paper)
 
             # 【Background acquisition BibTeX(priority DBLP, use after failure arXiv）】
             if metadata.get("title"):

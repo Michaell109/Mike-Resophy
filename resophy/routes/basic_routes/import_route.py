@@ -23,6 +23,10 @@ from werkzeug.utils import secure_filename
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
+from resophy.tools.basic_tools.paper_repository import (
+    _find_source_paper_for_inherit,
+    inherit_chinese_and_analysis,
+)
 from resophy.tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp,
     fetch_paper_by_arxiv_id_fast,
@@ -749,6 +753,18 @@ def register_import_routes(
                 # Save metadata
                 save_paper_metadata(file_path, registered_paper)
 
+                # Inherit Chinese version / AI interpretation from existing paper
+                source = _find_source_paper_for_inherit(
+                    paper_store, arxiv_id=arxiv_id, title=new_paper.title, exclude_paper_id=paper_id
+                )
+                if source:
+                    target_base = os.path.splitext(pdf_filename)[0]
+                    if inherit_chinese_and_analysis(source, category_folder, target_base, registered_paper):
+                        paper_store.upsert(
+                            registered_paper, category_id=category_id, category_path=full_category_path
+                        )
+                        save_paper_metadata(file_path, registered_paper)
+
                 # Note: Imported papers are not added to the to-read list
 
                 success_count += 1
@@ -901,22 +917,9 @@ def register_import_routes(
                             400,
                         )
 
-            # Check and filter imported papers (restore import function)
-            remaining_papers, already_imported_count = _filter_already_imported_papers(papers_data)
-            
-            if not remaining_papers:
-                return jsonify({
-                    "success": False,
-                    "error": "All papers have been imported",
-                    "already_imported": already_imported_count,
-                    "total": len(papers_data),
-                }), 400
-
-            # If there are imported papers, record the information
-            resume_message = ""
-            if already_imported_count > 0:
-                resume_message = f"detected {already_imported_count} papers have been imported and will be {already_imported_count + 1} Chapter starts and continues importing"
-                print(f"[Import] {resume_message}")
+            # Create import task (import all papers; duplicates will inherit Chinese version/AI interpretation)
+            remaining_papers = papers_data
+            already_imported_count = 0
 
             # Create import task
             task_id = str(uuid.uuid4())
@@ -1484,10 +1487,25 @@ def register_import_routes(
                             save_paper_metadata(pdf_path, new_paper)
                     else:
                         # Papers in the root directory
+                        category_id = "root"
+                        category_path = ["root"]
                         paper_store.upsert(
-                            new_paper, category_id="root", category_path=["root"]
+                            new_paper, category_id=category_id, category_path=category_path
                         )
                         save_paper_metadata(pdf_path, new_paper)
+
+                    # Inherit Chinese version / AI interpretation from existing paper
+                    source = _find_source_paper_for_inherit(
+                        paper_store, arxiv_id=new_paper.arxiv_id, title=title, exclude_paper_id=new_paper.id
+                    )
+                    if source:
+                        target_base = os.path.splitext(os.path.basename(pdf_path))[0]
+                        target_dir = os.path.dirname(pdf_path)
+                        if inherit_chinese_and_analysis(source, target_dir, target_base, new_paper):
+                            paper_store.upsert(
+                                new_paper, category_id=category_id, category_path=category_path
+                            )
+                            save_paper_metadata(pdf_path, new_paper)
 
                     success_count += 1
                     print(f"[Import] ✅ Imported successfully: {title[:50]}")

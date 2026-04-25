@@ -53,6 +53,267 @@ def _s2_get(url: str, **kwargs) -> requests.Response:
     return resp
 
 
+# ---- OpenAlex API helpers ----
+# OpenAlex has much more generous rate limits than Semantic Scholar
+# (10K list calls/day free, no aggressive 429s).
+# Used as primary source for citations/references/recommendations,
+# with S2 as fallback.
+
+_OPENALEX_BASE = "https://api.openalex.org"
+_OPENALEX_MAILTO = "resophy.app@gmail.com"  # Polite pool for faster responses
+
+
+def _extract_arxiv_id_from_openalex(work: Dict[str, Any]) -> Optional[str]:
+    """Extract arXiv ID from an OpenAlex work object.
+
+    Checks: DOI (10.48550/arXiv.XXXX), primary_location URL, all locations.
+    """
+    # 1. From DOI: 10.48550/arXiv.2303.04271 → 2303.04271
+    doi = (work.get("ids") or {}).get("doi", "") or ""
+    if "arXiv" in doi:
+        arxiv_id = doi.split("arXiv.")[-1]
+        if arxiv_id:
+            return arxiv_id
+
+    # 2. From primary_location landing_page_url
+    loc = work.get("primary_location") or {}
+    url = loc.get("landing_page_url", "") or ""
+    if "arxiv.org/abs/" in url:
+        return url.split("arxiv.org/abs/")[-1]
+
+    # 3. From any location
+    for l in work.get("locations") or []:
+        l_url = (l or {}).get("landing_page_url", "") or ""
+        l_pdf = (l or {}).get("pdf_url", "") or ""
+        for check_url in [l_url, l_pdf]:
+            if "arxiv.org/abs/" in check_url:
+                return check_url.split("arxiv.org/abs/")[-1]
+            if "arxiv.org/pdf/" in check_url:
+                return check_url.split("arxiv.org/pdf/")[-1]
+
+    return None
+
+
+def _extract_pdf_url_from_openalex(work: Dict[str, Any]) -> Optional[str]:
+    """Extract best PDF URL from an OpenAlex work object."""
+    # 1. From primary_location pdf_url (most reliable)
+    loc = work.get("primary_location") or {}
+    pdf = loc.get("pdf_url", "") or ""
+    if pdf:
+        return pdf
+
+    # 2. Construct from arXiv ID (arXiv PDFs are always available)
+    arxiv_id = _extract_arxiv_id_from_openalex(work)
+    if arxiv_id:
+        return f"https://arxiv.org/pdf/{arxiv_id}"
+
+    # 3. From open_access oa_url
+    oa = work.get("open_access") or {}
+    oa_url = oa.get("oa_url", "") or ""
+    if oa_url and (oa_url.endswith(".pdf") or "arxiv" in oa_url):
+        return oa_url
+
+    # 4. From any location
+    for l in work.get("locations") or []:
+        l_pdf = (l or {}).get("pdf_url", "") or ""
+        if l_pdf:
+            return l_pdf
+
+    return None
+
+
+def _openalex_work_to_candidate(work: Dict[str, Any], source: str) -> Optional[CandidatePaper]:
+    """Convert an OpenAlex work dict to a CandidatePaper."""
+    title = work.get("title", "") or ""
+    if not title:
+        return None
+
+    arxiv_id = _extract_arxiv_id_from_openalex(work)
+    pdf_url = _extract_pdf_url_from_openalex(work)
+
+    authors_list = work.get("authorships") or []
+    authors_str = ", ".join(
+        (a.get("author") or {}).get("display_name", "")
+        for a in authors_list[:5]
+        if (a.get("author") or {}).get("display_name")
+    )
+
+    # Extract abstract from inverted index
+    abstract = ""
+    abstract_idx = work.get("abstract_inverted_index")
+    if abstract_idx and isinstance(abstract_idx, dict):
+        words = [""] * max((pos + 1 for positions in abstract_idx.values() for pos in positions), default=0)
+        for word, positions in abstract_idx.items():
+            for pos in positions:
+                if pos < len(words):
+                    words[pos] = word
+        abstract = " ".join(words)
+
+    year = str(work.get("publication_year", "")) if work.get("publication_year") else ""
+
+    return CandidatePaper(
+        title=title,
+        abstract=abstract,
+        authors=authors_str,
+        arxiv_id=arxiv_id,
+        arxiv_url=f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None,
+        pdf_url=pdf_url,
+        source=source,
+        relevance_score=0,
+        year=year,
+    )
+
+
+def _get_openalex_work_id(
+    arxiv_id: Optional[str] = None, title: Optional[str] = None
+) -> Optional[str]:
+    """Look up OpenAlex work ID by arXiv ID or title. Returns OpenAlex ID like 'W12345'."""
+    try:
+        # 1. Try by arXiv DOI
+        if arxiv_id:
+            url = f"{_OPENALEX_BASE}/works/doi:10.48550/arXiv.{arxiv_id}?mailto={_OPENALEX_MAILTO}"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                oa_id = data.get("id", "")
+                # Extract W-prefixed ID from full URL
+                if "/" in oa_id:
+                    return oa_id.rsplit("/", 1)[-1]
+                return oa_id
+
+        # 2. Try by title search
+        if title:
+            query = title[:200]
+            url = (
+                f"{_OPENALEX_BASE}/works"
+                f"?search={requests.utils.quote(query)}"
+                f"&per_page=3&mailto={_OPENALEX_MAILTO}"
+            )
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", []):
+                    item_title = (item.get("title") or "").lower().strip()
+                    if item_title == title.lower().strip():
+                        oa_id = item.get("id", "")
+                        if "/" in oa_id:
+                            return oa_id.rsplit("/", 1)[-1]
+                        return oa_id
+                # Fallback: return first result
+                if data.get("results"):
+                    oa_id = data["results"][0].get("id", "")
+                    if "/" in oa_id:
+                        return oa_id.rsplit("/", 1)[-1]
+                    return oa_id
+    except Exception as e:
+        print(f"[RelativePaper] OpenAlex lookup failed: {e}")
+    return None
+
+
+def _fetch_citations_and_references_openalex(
+    oa_work_id: str,
+    max_per_direction: int = 100,
+) -> Tuple[List[CandidatePaper], List[CandidatePaper]]:
+    """Fetch citations and references from OpenAlex.
+
+    Uses the `cites` filter for citations and `referenced_works` field for references.
+    """
+    citations: List[CandidatePaper] = []
+    references: List[CandidatePaper] = []
+
+    # --- Fetch references (papers this work cites) ---
+    try:
+        # Get the work's referenced_works list
+        url = f"{_OPENALEX_BASE}/works/{oa_work_id}?mailto={_OPENALEX_MAILTO}"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            ref_ids = data.get("referenced_works", [])[:max_per_direction]
+            if ref_ids:
+                # Batch fetch details — OpenAlex supports pipe-separated IDs
+                # Max 50 per request, so chunk
+                for i in range(0, len(ref_ids), 50):
+                    chunk = ref_ids[i:i + 50]
+                    # Convert full URLs to short IDs for filter
+                    short_ids = "|".join(
+                        rid.rsplit("/", 1)[-1] if "/" in rid else rid
+                        for rid in chunk
+                    )
+                    batch_url = (
+                        f"{_OPENALEX_BASE}/works"
+                        f"?filter=openalex:{short_ids}"
+                        f"&per_page=50&mailto={_OPENALEX_MAILTO}"
+                    )
+                    batch_resp = requests.get(batch_url, timeout=20)
+                    if batch_resp.status_code == 200:
+                        batch_data = batch_resp.json()
+                        for work in batch_data.get("results", []):
+                            cp = _openalex_work_to_candidate(work, "reference")
+                            if cp:
+                                references.append(cp)
+    except Exception as e:
+        print(f"[RelativePaper] OpenAlex references fetch failed: {e}")
+
+    # --- Fetch citations (papers that cite this work) ---
+    try:
+        cit_url = (
+            f"{_OPENALEX_BASE}/works"
+            f"?filter=cites:{oa_work_id}"
+            f"&per_page={min(max_per_direction, 100)}&mailto={_OPENALEX_MAILTO}"
+            f"&sort=cited_by_count:desc"
+        )
+        cit_resp = requests.get(cit_url, timeout=20)
+        if cit_resp.status_code == 200:
+            cit_data = cit_resp.json()
+            for work in cit_data.get("results", []):
+                cp = _openalex_work_to_candidate(work, "citation")
+                if cp:
+                    citations.append(cp)
+    except Exception as e:
+        print(f"[RelativePaper] OpenAlex citations fetch failed: {e}")
+
+    return citations, references
+
+
+def _fetch_recommendations_openalex(oa_work_id: str) -> List[CandidatePaper]:
+    """Fetch recommended/related papers from OpenAlex using related_works."""
+    candidates: List[CandidatePaper] = []
+    try:
+        # Get the work's related_works list
+        url = f"{_OPENALEX_BASE}/works/{oa_work_id}?mailto={_OPENALEX_MAILTO}"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            return candidates
+
+        data = resp.json()
+        related_ids = data.get("related_works", [])[:50]
+        if not related_ids:
+            return candidates
+
+        # Batch fetch details
+        for i in range(0, len(related_ids), 50):
+            chunk = related_ids[i:i + 50]
+            short_ids = "|".join(
+                rid.rsplit("/", 1)[-1] if "/" in rid else rid
+                for rid in chunk
+            )
+            batch_url = (
+                f"{_OPENALEX_BASE}/works"
+                f"?filter=openalex:{short_ids}"
+                f"&per_page=50&mailto={_OPENALEX_MAILTO}"
+            )
+            batch_resp = requests.get(batch_url, timeout=20)
+            if batch_resp.status_code == 200:
+                batch_data = batch_resp.json()
+                for work in batch_data.get("results", []):
+                    cp = _openalex_work_to_candidate(work, "recommendation")
+                    if cp:
+                        candidates.append(cp)
+    except Exception as e:
+        print(f"[RelativePaper] OpenAlex recommendations fetch failed: {e}")
+    return candidates
+
+
 @dataclass
 class CandidatePaper:
     title: str
@@ -92,6 +353,7 @@ class SearchProgress:
     matched_methods: int = 0      # Number of baseline methods found in paper
     resolved_methods: int = 0     # Number of methods successfully resolved to papers
     unresolved_methods: List[str] = field(default_factory=list)  # Method names that couldn't be resolved
+    related_work_citations: int = 0  # Number of citations extracted from Related Work section
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -105,6 +367,7 @@ class SearchProgress:
             "matched_methods": self.matched_methods,
             "resolved_methods": self.resolved_methods,
             "unresolved_methods": self.unresolved_methods,
+            "related_work_citations": self.related_work_citations,
         }
 
 
@@ -284,10 +547,11 @@ def _check_relevance_with_llm(
     llm_api_key: str,
     llm_model: str,
     batch_size: int = 10,
+    min_score: int = 1,
 ) -> List[CandidatePaper]:
     """Use LLM to check relevance of candidate papers against the reference paper.
 
-    Returns only highly relevant papers (score=2).
+    Returns papers with relevance_score >= min_score (default 1 = partially relevant or better).
     """
     if not candidates:
         return []
@@ -342,7 +606,7 @@ Only output the JSON array, no explanation.
 
                 for idx, cp in enumerate(batch):
                     cp.relevance_score = score_map.get(idx, 0)
-                    if cp.relevance_score >= 2:
+                    if cp.relevance_score >= min_score:
                         results.append(cp)
             else:
                 # If parsing fails, keep all as unverified
@@ -627,6 +891,138 @@ def _extract_experiment_section(md_content: str) -> str:
         end = len(md_content)
 
     return md_content[start:end]
+
+
+def _extract_related_work_section(md_content: str) -> str:
+    """Extract the Related Work section from the paper markdown.
+
+    Handles formats like '# Related Work', '## 2 RELATED WORKS', etc.
+    Returns the full section including subsections, up to the next major
+    section (identified by known section names like Method, Approach, etc.).
+    """
+    rw_match = re.search(
+        r"^#{1,3}\s*(\d+\.?\s*)?(Related\s+Work[s]?|相关工作|文献综述)",
+        md_content,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not rw_match:
+        return ""
+
+    start = rw_match.end()
+
+    # Find the next major section after Related Work.
+    # PDF-to-markdown often flattens subsection headers to the same # level,
+    # so we can't rely on header level alone. Instead, look for known
+    # section names that typically follow Related Work.
+    next_section = re.search(
+        r"^#{1,3}\s*(\d+\.?\s*)?(Method|Approach|Preliminar|Model|Framework|Problem|Background|Notation|Dataset|Experiment|Evaluation|Validation|Setup|Implementation|Architecture|Design|方法|模型|实验|方法)",
+        md_content[start:],
+        re.MULTILINE | re.IGNORECASE,
+    )
+
+    if next_section:
+        end = start + next_section.start()
+    else:
+        end = len(md_content)
+
+    return md_content[start:end]
+
+
+def _extract_refs_from_related_work(
+    section: str,
+    ref_map: Dict[int, _RefEntry],
+) -> List[_RefEntry]:
+    """Extract unique reference entries cited in the Related Work section.
+
+    Handles two citation formats:
+    - [N] numbered citations (e.g., "VLA models [3, 5, 32]")
+    - (Author, Year) citations (e.g., "(Brohan et al., 2023a; Kim et al., 2024)")
+    """
+    seen_numbers: Set[int] = set()
+    entries: List[_RefEntry] = []
+
+    # Strategy 1: [N] numbered citations
+    bracket_nums = set(int(n) for n in re.findall(r"\[(\d+)\]", section))
+    for num in sorted(bracket_nums):
+        if num in ref_map and num not in seen_numbers:
+            entries.append(ref_map[num])
+            seen_numbers.add(num)
+
+    # Strategy 2: (Author, Year) citations — only if [N] not found (avoid duplicates)
+    if not bracket_nums:
+        for m in re.finditer(r"\(([^)]+?(?:19|20)\d{2}[a-z]?[^)]*?)\)", section):
+            group = m.group(1)
+            for part in group.split(";"):
+                part = part.strip()
+                ay_match = re.search(
+                    r"(.+?)\s*,?\s*((?:19|20)\d{2}[a-z]?)", part
+                )
+                if not ay_match:
+                    continue
+                author = ay_match.group(1).strip().rstrip(",")
+                year = ay_match.group(2).strip()
+                if not author or not year:
+                    continue
+
+                entry = _match_method_to_reference("", [], [(author, year)], ref_map)
+                if entry and entry.number not in seen_numbers:
+                    entries.append(entry)
+                    seen_numbers.add(entry.number)
+
+    return entries
+
+
+def _resolve_related_work_from_pdf(
+    ref_paper_data: Dict[str, Any],
+    stop_event: Optional[threading.Event] = None,
+) -> List[CandidatePaper]:
+    """Resolve papers cited in the Related Work section via arXiv search.
+
+    Parses the PDF-to-markdown file to find the Related Work section,
+    extracts all citations, maps them to reference entries, and resolves
+    each to a CandidatePaper via arXiv.
+    """
+    md_path = _find_pdf2md_path(ref_paper_data)
+    if not md_path:
+        print("[RelativePaper] No PDF-to-markdown file found for Related Work extraction")
+        return []
+
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
+    except Exception as e:
+        print(f"[RelativePaper] Failed to read markdown file: {e}")
+        return []
+
+    ref_map = _parse_references_section(md_content)
+    if not ref_map:
+        print("[RelativePaper] No references found in markdown")
+        return []
+
+    section = _extract_related_work_section(md_content)
+    if not section:
+        print("[RelativePaper] No Related Work section found in markdown")
+        return []
+
+    rw_entries = _extract_refs_from_related_work(section, ref_map)
+    if not rw_entries:
+        print("[RelativePaper] No citations found in Related Work section")
+        return []
+
+    print(f"[RelativePaper] Related Work: {len(rw_entries)} unique citations, resolving via arXiv...")
+
+    candidates: List[CandidatePaper] = []
+    for entry in rw_entries:
+        if stop_event and stop_event.is_set():
+            break
+        cp = _resolve_ref_entry_by_arxiv(entry)
+        if cp:
+            cp.source = "related_work"
+            cp.relevance_score = 2  # Related Work citations are inherently relevant
+            candidates.append(cp)
+
+    print(f"[RelativePaper] Related Work: resolved {len(candidates)}/{len(rw_entries)} papers via arXiv")
+    return candidates, len(rw_entries)
 
 
 def _extract_method_citations_from_text(text: str) -> List[Dict[str, Any]]:
@@ -1051,6 +1447,117 @@ def _resolve_paper_by_title(title: str) -> Optional[CandidatePaper]:
     if cp:
         return cp
     return _resolve_paper_by_title_s2_only(title)
+
+
+def _resolve_ref_entry_by_arxiv(entry: _RefEntry) -> Optional[CandidatePaper]:
+    """Resolve a parsed reference entry to a CandidatePaper via arXiv search.
+
+    Uses both title and author for matching, which is more reliable than
+    title-only search. This avoids external citation databases entirely.
+    """
+    search_title = _normalize_search_title(entry.title)
+    for attempt in range(2):  # Retry once on rate limit
+        try:
+            client = arxiv.Client(page_size=5, delay_seconds=3.0, num_retries=3)
+            # Search by title
+            search = arxiv.Search(
+                query=f'ti:"{search_title[:100]}"',
+                max_results=5,
+                sort_by=arxiv.SortCriterion.Relevance,
+            )
+            for result in client.results(search):
+                result_title = result.title.replace("\n", " ").strip()
+
+                # Title must match (fuzzy)
+                if not _titles_match(result_title.lower(), entry.title.lower().strip()):
+                    continue
+
+                # If we have author info from parsing, verify first author matches
+                if entry.authors:
+                    result_authors_lower = ", ".join(
+                        a.name for a in result.authors
+                    ).lower()
+                    # Extract first author surname from ref entry
+                    # Formats: "Kim et al.", "Kevin Black", "A. Vaswani"
+                    ref_first = entry.authors.split(",")[0].strip().lower()
+                    # Remove "et al." suffix
+                    ref_first = re.sub(r"\s+et\s+al\.?\s*$", "", ref_first).strip()
+                    # Get the surname (last word of first author)
+                    ref_surname = ref_first.split()[-1] if ref_first.split() else ""
+                    if ref_surname and len(ref_surname) > 1 and ref_surname not in result_authors_lower:
+                        continue
+
+                arxiv_id = result.entry_id.split("/abs/")[-1]
+                authors = ", ".join(a.name for a in result.authors)
+                return CandidatePaper(
+                    title=result_title,
+                    abstract=result.summary.replace("\n", " ").strip() if result.summary else "",
+                    authors=authors,
+                    arxiv_id=arxiv_id,
+                    arxiv_url=f"https://arxiv.org/abs/{arxiv_id}",
+                    pdf_url=result.pdf_url,
+                    source="reference",
+                    relevance_score=2,
+                    year=str(result.published.year) if result.published else "",
+                )
+            return None  # Not found on arXiv (not an error)
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str and attempt == 0:
+                print(f"[RelativePaper] arXiv rate limited, waiting 15s before retry...")
+                time.sleep(15)
+                continue
+            print(f"[RelativePaper] arXiv resolve failed for ref '{entry.title[:50]}': {e}")
+            return None
+    return None
+
+
+def _resolve_references_from_pdf(
+    ref_paper_data: Dict[str, Any],
+    max_refs: int = 50,
+    stop_event: Optional[threading.Event] = None,
+) -> Tuple[List[CandidatePaper], Dict[int, _RefEntry]]:
+    """Resolve all references from the paper's PDF-to-markdown via arXiv search.
+
+    Parses the References section, then searches arXiv for each title.
+    This works even for brand-new papers whose citations haven't been
+    indexed by OpenAlex/S2 yet.
+
+    Returns (resolved_candidates, ref_map).
+    """
+    md_path = _find_pdf2md_path(ref_paper_data)
+    if not md_path:
+        print("[RelativePaper] No PDF-to-markdown file found for reference resolution")
+        return [], {}
+
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
+    except Exception as e:
+        print(f"[RelativePaper] Failed to read markdown file: {e}")
+        return [], {}
+
+    ref_map = _parse_references_section(md_content)
+    if not ref_map:
+        print("[RelativePaper] No references found in markdown")
+        return [], {}
+
+    print(f"[RelativePaper] Parsed {len(ref_map)} reference entries, resolving via arXiv...")
+
+    candidates: List[CandidatePaper] = []
+
+    for num in sorted(ref_map.keys())[:max_refs]:
+        if stop_event and stop_event.is_set():
+            break
+
+        entry = ref_map[num]
+        cp = _resolve_ref_entry_by_arxiv(entry)
+        if cp:
+            candidates.append(cp)
+            print(f"[RelativePaper] Resolved ref [{num}]: '{entry.title[:50]}' → {cp.arxiv_id}")
+
+    print(f"[RelativePaper] Resolved {len(candidates)}/{min(len(ref_map), max_refs)} references via arXiv")
+    return candidates, ref_map
 
 
 def _titles_match(title1: str, title2: str) -> bool:
@@ -2010,29 +2517,59 @@ def search_related_papers(
 
         # ==================== Source B: Citations & References ====================
         s2_paper_id = None  # Initialize at this scope so Source A can reuse it
+        oa_work_id = None   # OpenAlex work ID, reusable by Source A
         if "citation" in sources and not stop_event.is_set():
             progress.current_step = "Fetching citations & references..."
             print(f"[RelativePaper] Source B: Fetching citations & references")
 
-            s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
-            if s2_paper_id:
-                citations, references = _fetch_citations_and_references(s2_paper_id)
-                combined = citations + references
-                unique = _add_unique(combined)
-                print(f"[RelativePaper] S2: {len(unique)} unique citation/reference papers")
+            # Priority 1: Parse References section from PDF and resolve via arXiv
+            # This works even for brand-new papers not yet indexed by OpenAlex/S2
+            ref_candidates: List[CandidatePaper] = []
+            try:
+                ref_candidates, _ = _resolve_references_from_pdf(ref_paper_data, stop_event=stop_event)
+                if ref_candidates:
+                    unique = _add_unique(ref_candidates)
+                    all_candidates.extend(unique)
+                    print(f"[RelativePaper] PDF references resolved: {len(unique)} papers via arXiv")
+            except Exception as e:
+                print(f"[RelativePaper] PDF reference resolution failed: {e}")
 
-                # Only keep papers with arxiv_id (we need to download PDF)
-                arxiv_candidates = [cp for cp in unique if cp.arxiv_id]
-                if arxiv_candidates:
+            # Priority 2: OpenAlex (for citations/by and papers not on arXiv)
+            if len(all_candidates) < target_count:
+                oa_work_id = _get_openalex_work_id(arxiv_id=ref_arxiv_id, title=ref_title)
+                if oa_work_id:
+                    oa_citations, oa_references = _fetch_citations_and_references_openalex(oa_work_id)
+                    oa_combined = oa_citations + oa_references
+                    oa_unique = _add_unique(oa_combined)
+                    print(f"[RelativePaper] OpenAlex: {len(oa_unique)} unique citation/reference papers")
+                else:
+                    print(f"[RelativePaper] OpenAlex lookup failed, trying S2 fallback")
+                    oa_unique = []
+
+                # Fallback: Semantic Scholar
+                if not oa_unique:
+                    s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
+                    if s2_paper_id:
+                        s2_citations, s2_references = _fetch_citations_and_references(s2_paper_id)
+                        s2_combined = s2_citations + s2_references
+                        oa_unique = _add_unique(s2_combined)
+                        print(f"[RelativePaper] S2 fallback: {len(oa_unique)} unique citation/reference papers")
+                    else:
+                        print(f"[RelativePaper] Could not find paper on Semantic Scholar either")
+                        oa_unique = []
+
+                # Keep papers with arXiv ID or PDF URL (not just arXiv-only)
+                downloadable = [cp for cp in oa_unique if cp.arxiv_id or cp.pdf_url]
+                if downloadable:
                     progress.current_step = "Checking relevance of citations..."
                     relevant = _check_relevance_with_llm(
-                        ref_abstract, arxiv_candidates,
+                        ref_abstract, downloadable,
                         llm_base_url, llm_api_key, llm_model,
+                        min_score=1,  # Keep partially relevant too
                     )
                     all_candidates.extend(relevant)
-                    print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
-            else:
-                print(f"[RelativePaper] Could not find paper on Semantic Scholar")
+                    print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
+                          f"(from {len(downloadable)} downloadable)")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
@@ -2042,25 +2579,35 @@ def search_related_papers(
             progress.current_step = "Fetching recommendations..."
             print(f"[RelativePaper] Source A: Fetching recommendations")
 
-            if not s2_paper_id:
-                s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
+            # Primary: OpenAlex related_works
+            if not oa_work_id:
+                oa_work_id = _get_openalex_work_id(arxiv_id=ref_arxiv_id, title=ref_title)
 
-            if s2_paper_id:
-                recs = _fetch_recommendations(s2_paper_id)
+            unique = []
+            if oa_work_id:
+                recs = _fetch_recommendations_openalex(oa_work_id)
                 unique = _add_unique(recs)
-                print(f"[RelativePaper] S2 recommendations: {len(unique)} unique papers")
+                print(f"[RelativePaper] OpenAlex recommendations: {len(unique)} unique papers")
 
-                arxiv_candidates = [cp for cp in unique if cp.arxiv_id]
-                if arxiv_candidates:
-                    progress.current_step = "Checking relevance of recommendations..."
-                    relevant = _check_relevance_with_llm(
-                        ref_abstract, arxiv_candidates,
-                        llm_base_url, llm_api_key, llm_model,
-                    )
-                    all_candidates.extend(relevant)
-                    print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
-            else:
-                print(f"[RelativePaper] Could not find paper on Semantic Scholar for recommendations")
+            # Fallback: Semantic Scholar
+            if not unique:
+                if not s2_paper_id:
+                    s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
+                if s2_paper_id:
+                    recs = _fetch_recommendations(s2_paper_id)
+                    unique = _add_unique(recs)
+                    print(f"[RelativePaper] S2 recommendations: {len(unique)} unique papers")
+
+            downloadable = [cp for cp in unique if cp.arxiv_id or cp.pdf_url]
+            if downloadable:
+                progress.current_step = "Checking relevance of recommendations..."
+                relevant = _check_relevance_with_llm(
+                    ref_abstract, downloadable,
+                    llm_base_url, llm_api_key, llm_model,
+                    min_score=1,
+                )
+                all_candidates.extend(relevant)
+                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
@@ -2079,6 +2626,7 @@ def search_related_papers(
                 relevant = _check_relevance_with_llm(
                     ref_abstract, unique,
                     llm_base_url, llm_api_key, llm_model,
+                    min_score=1,
                 )
                 all_candidates.extend(relevant)
                 print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
@@ -2086,10 +2634,25 @@ def search_related_papers(
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
 
+        # ==================== Source E: Related Work ====================
+        if "related_work" in sources and not stop_event.is_set():
+            progress.current_step = "Extracting Related Work citations..."
+            print(f"[RelativePaper] Source E: Extracting Related Work citations")
+
+            rw_candidates, rw_citation_count = _resolve_related_work_from_pdf(ref_paper_data, stop_event)
+            progress.related_work_citations = rw_citation_count
+            if rw_candidates:
+                unique = _add_unique(rw_candidates)
+                all_candidates.extend(unique)
+                print(f"[RelativePaper] Related Work: {len(unique)} papers resolved (from {rw_citation_count} citations)")
+
+            progress.found = len(all_candidates)
+            progress.candidates = [c.to_dict() for c in all_candidates]
+
         # ==================== Dedup & Truncate ====================
         # Already deduped via seen_titles/seen_arxiv_ids during collection
         # Sort by relevance score (desc), then by source priority
-        source_priority = {"baseline": 0, "citation": 1, "recommendation": 2, "keyword": 3}
+        source_priority = {"baseline": 0, "related_work": 1, "citation": 2, "recommendation": 3, "keyword": 4}
         all_candidates.sort(
             key=lambda c: (-c.relevance_score, source_priority.get(c.source, 99))
         )
@@ -2123,8 +2686,8 @@ def search_related_papers(
         for i, cp in enumerate(all_candidates):
             if stop_event.is_set():
                 break
-            if not cp.arxiv_id or not cp.pdf_url:
-                print(f"[RelativePaper] Skip (no arxiv_id): {cp.title[:50]}")
+            if not cp.pdf_url:
+                print(f"[RelativePaper] Skip (no pdf_url): {cp.title[:50]}")
                 continue
 
             # Delay between downloads to avoid arXiv rate limits
@@ -2173,6 +2736,20 @@ def search_related_papers(
 
                 # Register in paper store
                 paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+
+                # Inherit Chinese version / AI interpretation from existing paper
+                from resophy.tools.basic_tools.paper_repository import (
+                    _find_source_paper_for_inherit,
+                    inherit_chinese_and_analysis,
+                )
+                source = _find_source_paper_for_inherit(
+                    paper_store, arxiv_id=cp.arxiv_id, title=paper.title, exclude_paper_id=paper.id
+                )
+                if source:
+                    target_base = os.path.splitext(pdf_filename)[0]
+                    if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
+                        paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+                        save_paper_metadata_fn(target_path, paper)
 
                 downloaded += 1
                 print(f"[RelativePaper] Downloaded: {cp.title[:50]}")

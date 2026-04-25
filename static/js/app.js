@@ -14218,6 +14218,10 @@ function renderSearchDropdown() {
             if (p.matched_methods > 0) {
                 detailHtml += `<span>${p.resolved_methods || 0}/${p.matched_methods} methods resolved</span>`;
             }
+            // Show Related Work citations info
+            if (p.related_work_citations > 0) {
+                detailHtml += `<span>${p.related_work_citations} citations extracted</span>`;
+            }
             // Show found papers
             if (p.found > 0) {
                 detailHtml += `<span>Found ${p.found} papers</span>`;
@@ -14313,6 +14317,7 @@ async function startRelativePaperSearch() {
     if (document.getElementById('rel-source-citation').checked) sources.push('citation');
     if (document.getElementById('rel-source-recommendation').checked) sources.push('recommendation');
     if (document.getElementById('rel-source-keyword').checked) sources.push('keyword');
+    if (document.getElementById('rel-source-related-work').checked) sources.push('related_work');
 
     if (sources.length === 0) {
         showMessage('Please select at least one search source', 'warning');
@@ -14447,6 +14452,9 @@ async function pollSearchProgress() {
             let doneParts = [`found ${p.found} papers`, `downloaded ${p.total_downloaded}`];
             if (p.matched_methods > 0) {
                 doneParts.unshift(`${p.resolved_methods}/${p.matched_methods} methods resolved`);
+            }
+            if (p.related_work_citations > 0) {
+                doneParts.unshift(`${p.related_work_citations} citations extracted`);
             }
             const msg = `Search complete: ${runningTask.paperTitle} — ${doneParts.join(', ')}`;
             showMessage(msg, 'success');

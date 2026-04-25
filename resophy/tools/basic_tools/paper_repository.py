@@ -144,6 +144,96 @@ def scan_papers_in_directory(
     return papers
 
 
+def inherit_chinese_and_analysis(
+    source_paper: Paper,
+    target_dir: str,
+    target_base_name: str,
+    target_paper: Paper,
+) -> bool:
+    """Copy Chinese version and AI interpretation from source_paper to target location.
+
+    After copying, re-marks has_chinese_version / has_analysis_result on target_paper.
+
+    Returns True if anything was copied.
+    """
+    copied = False
+    source_base = os.path.splitext(os.path.basename(source_paper.file_path))[0] if source_paper.file_path else ""
+
+    # Chinese version: copy .zh.dual.pdf (and .zh.mono.pdf if present)
+    if source_paper.has_chinese_version and source_paper.chinese_version_path:
+        source_dir = os.path.dirname(source_paper.chinese_version_path)
+        for suffix in [".zh.dual.pdf", ".zh.mono.pdf"]:
+            src = os.path.join(source_dir, f"{source_base}{suffix}")
+            dst = os.path.join(target_dir, f"{target_base_name}{suffix}")
+            if os.path.exists(src) and src != dst:
+                try:
+                    shutil.copy2(src, dst)
+                    copied = True
+                except Exception as exc:
+                    print(f"[Inherit] Failed to copy {src}: {exc}")
+
+    # AI interpretation: copy outputs/<base_name>* directory
+    if source_paper.has_analysis_result and source_paper.analysis_result_path:
+        source_dir = os.path.dirname(source_paper.file_path)
+        source_outputs = os.path.join(source_dir, "outputs")
+        if os.path.exists(source_outputs):
+            target_outputs = os.path.join(target_dir, "outputs")
+            os.makedirs(target_outputs, exist_ok=True)
+            for item in os.listdir(source_outputs):
+                item_full = os.path.join(source_outputs, item)
+                if os.path.isdir(item_full) and source_base in item:
+                    new_item_name = item.replace(source_base, target_base_name)
+                    dst_item = os.path.join(target_outputs, new_item_name)
+                    if item_full != dst_item:
+                        try:
+                            shutil.copytree(item_full, dst_item, dirs_exist_ok=True)
+                            copied = True
+                        except Exception as exc:
+                            print(f"[Inherit] Failed to copy outputs/{item}: {exc}")
+
+    # Re-mark on target paper
+    dual_file = os.path.join(target_dir, f"{target_base_name}.zh.dual.pdf")
+    target_paper.mark_chinese_version(dual_file if os.path.exists(dual_file) else None)
+
+    target_outputs = os.path.join(target_dir, "outputs")
+    analysis_result_path = None
+    if os.path.exists(target_outputs):
+        for item in os.listdir(target_outputs):
+            item_path = os.path.join(target_outputs, item)
+            if os.path.isdir(item_path) and target_base_name in item:
+                vlm_dir = os.path.join(item_path, "vlm")
+                if os.path.exists(vlm_dir):
+                    result_file = os.path.join(vlm_dir, "result.md")
+                    if os.path.exists(result_file):
+                        analysis_result_path = result_file
+                        break
+    target_paper.mark_analysis_result(analysis_result_path)
+
+    if copied:
+        print(f"[Inherit] Copied Chinese version/AI interpretation to {target_base_name}")
+    return copied
+
+
+def _find_source_paper_for_inherit(
+    paper_store,
+    arxiv_id: Optional[str],
+    title: Optional[str],
+    exclude_paper_id: Optional[str] = None,
+) -> Optional[Paper]:
+    """Find an existing paper with Chinese version or AI interpretation to inherit from.
+
+    Searches by arxiv_id first, then by title. Skips the paper with exclude_paper_id.
+    Returns the first paper that has either has_chinese_version or has_analysis_result.
+    """
+    entry = paper_store.find_duplicate(arxiv_id=arxiv_id, title=title)
+    if entry and entry.paper.id != exclude_paper_id:
+        p = entry.paper
+        if (p.has_chinese_version and p.chinese_version_path and os.path.exists(p.chinese_version_path)) or \
+           (p.has_analysis_result and p.analysis_result_path and os.path.exists(p.analysis_result_path)):
+            return p
+    return None
+
+
 def refresh_paper_status(paper: Paper) -> None:
     """Check the file system and update the translation and interpretation status of the paper"""
     if not paper.file_path or not os.path.exists(paper.file_path):

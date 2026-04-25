@@ -151,7 +151,7 @@ def register_relative_paper_routes(
             task_id = f"relpaper_{int(time.time() * 1000)}"
 
             # Validate sources
-            valid_sources = ["baseline", "citation", "recommendation", "keyword"]
+            valid_sources = ["baseline", "citation", "recommendation", "keyword", "related_work"]
             sources = [s for s in sources if s in valid_sources]
             if not sources:
                 sources = valid_sources

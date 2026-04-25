@@ -13,6 +13,10 @@ from werkzeug.utils import secure_filename
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
+from resophy.tools.basic_tools.paper_repository import (
+    _find_source_paper_for_inherit,
+    inherit_chinese_and_analysis,
+)
 from resophy.tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp,
     process_uploaded_pdf_fast,
@@ -158,6 +162,20 @@ def register_upload_from_pdf_routes(
                 )
                 save_paper_metadata(new_file_path, paper)
                 print(f"[Backstage stage1] ✅ arXiv Information has been updated: {new_filename}")
+
+                # Inherit Chinese version / AI interpretation from existing paper
+                arxiv_id_for_inherit = paper_info.get("arxiv_id")
+                title_for_inherit = paper_info.get("title")
+                source = _find_source_paper_for_inherit(
+                    paper_store, arxiv_id=arxiv_id_for_inherit, title=title_for_inherit, exclude_paper_id=paper_id
+                )
+                if source:
+                    target_base = os.path.splitext(new_filename)[0]
+                    if inherit_chinese_and_analysis(source, category_folder, target_base, paper):
+                        paper_store.upsert(
+                            paper, category_id=category_id, category_path=category_path
+                        )
+                        save_paper_metadata(new_file_path, paper)
 
                 # 【stage2】Background acquisition BibTeX(priority DBLP, use after failure arXiv）
                 if paper_info.get("title") and paper_info.get("authors"):

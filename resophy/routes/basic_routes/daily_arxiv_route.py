@@ -23,6 +23,10 @@ from resophy.tools.basic_tools.daily_arxiv import (
     get_manager,
     get_today_arxiv_date,
 )
+from resophy.tools.basic_tools.paper_repository import (
+    _find_source_paper_for_inherit,
+    inherit_chinese_and_analysis,
+)
 from resophy.tools.basic_tools.upload_paper import fetch_bibtex_from_dblp
 
 
@@ -548,6 +552,18 @@ def register_daily_arxiv_routes(
                 category_id=category_id,
                 category_path=category_path,
             )
+
+            # Inherit Chinese version / AI interpretation from existing paper
+            source = _find_source_paper_for_inherit(
+                paper_store, arxiv_id=arxiv_id, title=paper.title, exclude_paper_id=paper.id
+            )
+            if source:
+                target_base = os.path.splitext(pdf_filename)[0]
+                if inherit_chinese_and_analysis(source, folder_path, target_base, paper):
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
+                    save_paper_metadata(target_path, paper)
 
             # If using temp Table of contents, add to to-read list
             if use_temp_dir:
