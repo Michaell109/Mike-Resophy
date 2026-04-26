@@ -130,6 +130,8 @@ def _clean_filename(text: Optional[str]) -> Optional[str]:
 
 def _download_pdf(pdf_urls, timeout: int = 60) -> Optional[bytes]:
     """Download PDF content from URL(s), trying each candidate in order"""
+    from resophy.tools.basic_tools.parallel_downloader import RateLimitError
+
     if isinstance(pdf_urls, str):
         pdf_urls = [pdf_urls]
 
@@ -137,6 +139,8 @@ def _download_pdf(pdf_urls, timeout: int = 60) -> Optional[bytes]:
         try:
             print(f"[CSV Import] Downloading PDF: {pdf_url}")
             resp = requests.get(pdf_url, timeout=timeout, stream=True)
+            if resp.status_code == 429:
+                raise RateLimitError(f"429 from {pdf_url}")
             resp.raise_for_status()
             content_type = resp.headers.get("Content-Type", "")
             if "pdf" not in content_type.lower() and "octet-stream" not in content_type.lower():
@@ -144,6 +148,8 @@ def _download_pdf(pdf_urls, timeout: int = 60) -> Optional[bytes]:
             content = resp.content
             print(f"[CSV Import] Downloaded {len(content)} bytes from {pdf_url}")
             return content
+        except RateLimitError:
+            raise
         except Exception as exc:
             print(f"[CSV Import] Download failed from {pdf_url}: {exc}")
             continue
@@ -196,6 +202,13 @@ def _csv_import_task(
     with csv_import_tasks_lock:
         csv_import_tasks[task_id]["status"] = "running"
         csv_import_tasks[task_id]["total"] = total
+
+    # Phase 1: Sequential pre-processing — resolve links, check duplicates, build download tasks
+    from resophy.tools.basic_tools.parallel_downloader import (
+        parallel_download, DownloadTask, RateLimitError, _extract_domain,
+    )
+
+    rows_to_download = []  # list of dicts with resolved info
 
     for idx, row in enumerate(csv_rows):
         # Check cancellation
@@ -309,7 +322,7 @@ def _csv_import_task(
             print(f"[CSV Import] Skipped duplicate ({idx + 1}/{total}): {title[:50]}...")
             continue
 
-        # Not a duplicate — resolve link to PDF URL and download
+        # Not a duplicate — resolve link to PDF URL
         resolved = _resolve_link(link)
         if not resolved:
             errors.append({"link": link, "title": title, "reason": "Cannot resolve PDF URL"})
@@ -320,89 +333,125 @@ def _csv_import_task(
         if not arxiv_id:
             arxiv_id = resolved.get("arxiv_id")
 
-        # Download PDF
-        pdf_content = _download_pdf(pdf_urls)
-        if not pdf_content:
-            errors.append({"link": link, "title": title, "reason": "PDF download failed"})
-            continue
+        # Determine domain for rate limiting
+        first_url = pdf_urls[0] if isinstance(pdf_urls, list) and pdf_urls else (pdf_urls if isinstance(pdf_urls, str) else "")
+        domain = _extract_domain(first_url) or "export.arxiv.org"
 
-        # Determine filename
-        clean_title = _clean_filename(title)
-        if clean_title:
-            pdf_filename = f"{clean_title}.pdf"
-        elif arxiv_id:
-            pdf_filename = f"{arxiv_id}.pdf"
-        else:
-            pdf_filename = f"paper_{uuid.uuid4().hex[:8]}.pdf"
+        rows_to_download.append({
+            "idx": idx, "row": row, "link": link, "title": title,
+            "arxiv_id": arxiv_id, "pdf_urls": pdf_urls, "domain": domain,
+        })
 
-        file_path = os.path.join(category_folder, pdf_filename)
+    # Phase 2: Parallel download
+    if rows_to_download:
+        download_tasks = [
+            DownloadTask(
+                task_id=f"csv_{r['idx']}_{r['arxiv_id'] or r['title'][:20]}",
+                fn=lambda urls=r["pdf_urls"]: _download_pdf(urls),
+                domain=r["domain"],
+            )
+            for r in rows_to_download
+        ]
 
-        # Handle filename collisions
-        counter = 1
-        original_filename = pdf_filename
-        while os.path.exists(file_path):
-            name, ext = os.path.splitext(original_filename)
-            pdf_filename = f"{name}_{counter}{ext}"
+        def _on_progress(completed, total_dl, tid):
+            with csv_import_tasks_lock:
+                if task_id in csv_import_tasks:
+                    csv_import_tasks[task_id]["progress"] = completed
+                    csv_import_tasks[task_id]["current_paper"] = f"Downloading {completed}/{total_dl}"
+
+        download_results = parallel_download(
+            tasks=download_tasks,
+            max_workers=3,
+            on_progress=_on_progress,
+        )
+
+        # Phase 3: Sequential post-processing
+        for r, result in zip(rows_to_download, download_results):
+            row = r["row"]
+            link = r["link"]
+            title = r["title"]
+            arxiv_id = r["arxiv_id"]
+
+            if not result.success or not result.result:
+                errors.append({"link": link, "title": title, "reason": f"PDF download failed: {result.error or 'unknown'}"})
+                continue
+
+            pdf_content = result.result
+
+            # Determine filename
+            clean_title = _clean_filename(title)
+            if clean_title:
+                pdf_filename = f"{clean_title}.pdf"
+            elif arxiv_id:
+                pdf_filename = f"{arxiv_id}.pdf"
+            else:
+                pdf_filename = f"paper_{uuid.uuid4().hex[:8]}.pdf"
+
             file_path = os.path.join(category_folder, pdf_filename)
-            counter += 1
 
-        # Save PDF file
-        try:
-            with open(file_path, "wb") as f:
-                f.write(pdf_content)
-        except Exception as exc:
-            errors.append({"link": link, "title": title, "reason": f"File save failed: {exc}"})
-            continue
+            # Handle filename collisions
+            counter = 1
+            original_filename = pdf_filename
+            while os.path.exists(file_path):
+                name, ext = os.path.splitext(original_filename)
+                pdf_filename = f"{name}_{counter}{ext}"
+                file_path = os.path.join(category_folder, pdf_filename)
+                counter += 1
 
-        # Create Paper object with CSV metadata
-        paper = Paper(
-            id=str(uuid.uuid4()),
-            filename=pdf_filename,
-            original_filename=pdf_filename,
-            file_path=file_path,
-            upload_date=datetime.now().isoformat(),
-            title=title or os.path.splitext(pdf_filename)[0],
-            authors=(row.get("Authors") or "").strip(),
-            abstract=(row.get("Abstract") or "").strip(),
-            year=(row.get("Year") or "").strip(),
-            keywords=(row.get("Keywords") or "").strip(),
-            affiliation=(row.get("Institutions") or "").strip(),
-            journal=(row.get("Venue") or "").strip(),
-            arxiv_id=arxiv_id,
-            arxiv_url=f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None,
-            upload_source="csv_import",
-        )
+            # Save PDF file
+            try:
+                with open(file_path, "wb") as f:
+                    f.write(pdf_content)
+            except Exception as exc:
+                errors.append({"link": link, "title": title, "reason": f"File save failed: {exc}"})
+                continue
 
-        # Save metadata
-        save_paper_metadata(file_path, paper)
+            # Create Paper object with CSV metadata
+            paper = Paper(
+                id=str(uuid.uuid4()),
+                filename=pdf_filename,
+                original_filename=pdf_filename,
+                file_path=file_path,
+                upload_date=datetime.now().isoformat(),
+                title=title or os.path.splitext(pdf_filename)[0],
+                authors=(row.get("Authors") or "").strip(),
+                abstract=(row.get("Abstract") or "").strip(),
+                year=(row.get("Year") or "").strip(),
+                keywords=(row.get("Keywords") or "").strip(),
+                affiliation=(row.get("Institutions") or "").strip(),
+                journal=(row.get("Venue") or "").strip(),
+                arxiv_id=arxiv_id,
+                arxiv_url=f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None,
+                upload_source="csv_import",
+            )
 
-        # Register to paper_store
-        paper_store.upsert(
-            paper,
-            category_id=category_id,
-            category_path=category_path,
-        )
+            # Save metadata
+            save_paper_metadata(file_path, paper)
 
-        # Inherit Chinese version / AI interpretation from existing paper
-        source = _find_source_paper_for_inherit(
-            paper_store, arxiv_id=arxiv_id, title=paper.title, exclude_paper_id=paper.id
-        )
-        if source:
-            target_base = os.path.splitext(pdf_filename)[0]
-            if inherit_chinese_and_analysis(source, category_folder, target_base, paper):
-                paper_store.upsert(
-                    paper, category_id=category_id, category_path=category_path
-                )
-                save_paper_metadata(file_path, paper)
+            # Register to paper_store
+            paper_store.upsert(
+                paper,
+                category_id=category_id,
+                category_path=category_path,
+            )
 
-        # Add to reading list
-        _add_to_reading_list(paper.id)
+            # Inherit Chinese version / AI interpretation from existing paper
+            source = _find_source_paper_for_inherit(
+                paper_store, arxiv_id=arxiv_id, title=paper.title, exclude_paper_id=paper.id
+            )
+            if source:
+                target_base = os.path.splitext(pdf_filename)[0]
+                if inherit_chinese_and_analysis(source, category_folder, target_base, paper):
+                    paper_store.upsert(
+                        paper, category_id=category_id, category_path=category_path
+                    )
+                    save_paper_metadata(file_path, paper)
 
-        imported_papers.append({"id": paper.id, "title": paper.title})
-        print(f"[CSV Import] Imported ({idx + 1}/{total}): {title[:50]}...")
+            # Add to reading list
+            _add_to_reading_list(paper.id)
 
-        # Rate limiting
-        time.sleep(0.1)
+            imported_papers.append({"id": paper.id, "title": paper.title})
+            print(f"[CSV Import] Imported: {title[:50]}...")
 
     # Finalize
     with csv_import_tasks_lock:

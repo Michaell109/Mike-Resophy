@@ -86,6 +86,8 @@ def _extract_arxiv_id_from_url(url: str) -> Optional[str]:
 
 def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
     """download arXiv PDF(Priority to use export.arxiv.org）"""
+    from resophy.tools.basic_tools.parallel_downloader import RateLimitError
+
     # Try first export.arxiv.org
     pdf_urls = [
         f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
@@ -96,11 +98,15 @@ def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
         try:
             print(f"[Import] Removing from arXiv download PDF: {pdf_url}")
             response = requests.get(pdf_url, timeout=60, stream=True)
+            if response.status_code == 429:
+                raise RateLimitError(f"429 from {pdf_url}")
             response.raise_for_status()
             pdf_content = response.content
             filename = f"{arxiv_id}.pdf"
             print(f"[Import] Successfully downloaded PDF, size: {len(pdf_content)} bytes")
             return pdf_content, filename
+        except RateLimitError:
+            raise
         except requests.exceptions.RequestException as exc:
             print(f"[Import] from {pdf_url} Download failed: {exc}")
             continue
@@ -532,6 +538,13 @@ def register_import_routes(
         else:
             print("[Import] No target directory specified, will press in the root directory Zotero Classification import")
 
+        # Phase 1: Sequential pre-processing — resolve arXiv, check duplicates, build download tasks
+        from resophy.tools.basic_tools.parallel_downloader import (
+            parallel_download, DownloadTask, RateLimitError,
+        )
+
+        papers_to_download = []  # list of dicts with all resolved info
+
         for idx, paper_data in enumerate(papers_data):
             # Check if canceled
             with import_tasks_lock:
@@ -553,7 +566,7 @@ def register_import_routes(
                     )
                     current_import_task_id = None
                     return
-            
+
             try:
                 # Update progress status
                 _update_task_progress(
@@ -684,116 +697,165 @@ def register_import_routes(
                     duplicate_count += 1
                     continue
 
-                # download PDF
-                pdf_result = _download_arxiv_pdf(arxiv_id)
-                if not pdf_result:
-                    print(f"[Import] download PDF fail: {arxiv_id}")
-                    failed_count += 1
-                    continue
-
-                pdf_content, pdf_filename = pdf_result
-
-                # Create category folder and save PDF(use full path)
-                category_folder = create_category_folder(folder_path_parts)
-
-                # Use the paper title as the file name
-                clean_title = _clean_filename(paper_info.get("title"))
-                if clean_title:
-                    pdf_filename = f"{clean_title}.pdf"
-
-                file_path = os.path.join(category_folder, pdf_filename)
-
-                # Handle file name conflicts
-                counter = 1
-                original_filename = pdf_filename
-                while os.path.exists(file_path):
-                    name, ext = os.path.splitext(original_filename)
-                    pdf_filename = f"{name}_{counter}{ext}"
-                    file_path = os.path.join(category_folder, pdf_filename)
-                    counter += 1
-
-                # keep PDF
-                with open(file_path, "wb") as f:
-                    f.write(pdf_content)
-                print(f"[Import] PDF saved: {file_path}")
-
-                # create Paper object
-                paper_id = str(uuid.uuid4())
-                # build arxiv_url
-                arxiv_url = None
-                if arxiv_id:
-                    arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
-
-                new_paper = Paper(
-                    id=paper_id,
-                    filename=pdf_filename,
-                    original_filename=pdf_filename,
-                    file_path=file_path,
-                    upload_date=datetime.now().isoformat(),
-                    title=paper_info.get("title", ""),
-                    authors=paper_info.get("authors", ""),
-                    arxiv_id=arxiv_id,
-                    arxiv_url=arxiv_url,
-                    arxiv_published_date=paper_info.get("published_date"),
-                    year=paper_info.get("year", ""),
-                    abstract=paper_info.get("abstract", ""),
-                    summary=paper_info.get("summary", ""),
-                    bibtex="",
-                    notes=paper_data.get("notes", ""),
-                    github=None,  # from Zotero When importing,GitHub is empty but the field exists
-                    homepage=None,  # from Zotero When importing,Homepage is empty but the field exists
-                    upload_source="zotero_import",
-                )
-
-                # Register to paper_store
-                registered_paper = paper_store.upsert(
-                    new_paper, category_id=category_id, category_path=full_category_path
-                )
-
-                # Save metadata
-                save_paper_metadata(file_path, registered_paper)
-
-                # Inherit Chinese version / AI interpretation from existing paper
-                source = _find_source_paper_for_inherit(
-                    paper_store, arxiv_id=arxiv_id, title=new_paper.title, exclude_paper_id=paper_id
-                )
-                if source:
-                    target_base = os.path.splitext(pdf_filename)[0]
-                    if inherit_chinese_and_analysis(source, category_folder, target_base, registered_paper):
-                        paper_store.upsert(
-                            registered_paper, category_id=category_id, category_path=full_category_path
-                        )
-                        save_paper_metadata(file_path, registered_paper)
-
-                # Note: Imported papers are not added to the to-read list
-
-                success_count += 1
-                if is_others:
-                    others_count += 1
-                print(f"[Import] ✅ Imported successfully: {paper_info.get('title', '')[:50]}")
-
-                # Background acquisition DBLP BibTeX(asynchronous)
-                if paper_info.get("title") and paper_info.get("authors"):
-                    threading.Thread(
-                        target=_fetch_dblp_bibtex_async,
-                        args=(
-                            paper_id,
-                            paper_info["title"],
-                            paper_info["authors"],
-                            arxiv_id,
-                            file_path,
-                            category_id,
-                            full_category_path,
-                        ),
-                        daemon=True,
-                    ).start()
+                papers_to_download.append({
+                    "idx": idx, "paper_data": paper_data,
+                    "arxiv_id": arxiv_id, "paper_info": paper_info,
+                    "category_id": category_id, "full_category_path": full_category_path,
+                    "folder_path_parts": folder_path_parts, "is_others": is_others,
+                })
 
             except Exception as e:
-                print(f"[Import] ❌ Failed to import paper: {e}")
+                print(f"[Import] ❌ Failed to process paper: {e}")
                 import traceback
-
                 traceback.print_exc()
                 failed_count += 1
+
+        # Phase 2: Parallel download
+        if papers_to_download:
+            download_tasks = [
+                DownloadTask(
+                    task_id=p["arxiv_id"],
+                    fn=lambda aid=p["arxiv_id"]: _download_arxiv_pdf(aid),
+                    domain="export.arxiv.org",
+                )
+                for p in papers_to_download
+            ]
+
+            # Check cancellation before starting downloads
+            with import_tasks_lock:
+                task = import_tasks.get(task_id)
+                if task and task.get("cancelled", False):
+                    current_import_task_id = None
+                    return
+
+            download_results = parallel_download(
+                tasks=download_tasks,
+                max_workers=3,
+            )
+
+            download_map = {r.task_id: r for r in download_results}
+
+            # Phase 3: Sequential post-processing
+            for p in papers_to_download:
+                idx = p["idx"]
+                paper_data = p["paper_data"]
+                arxiv_id = p["arxiv_id"]
+                paper_info = p["paper_info"]
+                category_id = p["category_id"]
+                full_category_path = p["full_category_path"]
+                folder_path_parts = p["folder_path_parts"]
+                is_others = p["is_others"]
+
+                try:
+                    result = download_map.get(arxiv_id)
+                    if not result or not result.success or not result.result:
+                        print(f"[Import] download PDF fail: {arxiv_id} - {result.error if result else 'not found'}")
+                        failed_count += 1
+                        continue
+
+                    pdf_content, pdf_filename = result.result
+
+                    # Create category folder and save PDF(use full path)
+                    category_folder = create_category_folder(folder_path_parts)
+
+                    # Use the paper title as the file name
+                    clean_title = _clean_filename(paper_info.get("title"))
+                    if clean_title:
+                        pdf_filename = f"{clean_title}.pdf"
+
+                    file_path = os.path.join(category_folder, pdf_filename)
+
+                    # Handle file name conflicts
+                    counter = 1
+                    original_filename = pdf_filename
+                    while os.path.exists(file_path):
+                        name, ext = os.path.splitext(original_filename)
+                        pdf_filename = f"{name}_{counter}{ext}"
+                        file_path = os.path.join(category_folder, pdf_filename)
+                        counter += 1
+
+                    # keep PDF
+                    with open(file_path, "wb") as f:
+                        f.write(pdf_content)
+                    print(f"[Import] PDF saved: {file_path}")
+
+                    # create Paper object
+                    paper_id = str(uuid.uuid4())
+                    # build arxiv_url
+                    arxiv_url = None
+                    if arxiv_id:
+                        arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
+
+                    new_paper = Paper(
+                        id=paper_id,
+                        filename=pdf_filename,
+                        original_filename=pdf_filename,
+                        file_path=file_path,
+                        upload_date=datetime.now().isoformat(),
+                        title=paper_info.get("title", ""),
+                        authors=paper_info.get("authors", ""),
+                        arxiv_id=arxiv_id,
+                        arxiv_url=arxiv_url,
+                        arxiv_published_date=paper_info.get("published_date"),
+                        year=paper_info.get("year", ""),
+                        abstract=paper_info.get("abstract", ""),
+                        summary=paper_info.get("summary", ""),
+                        bibtex="",
+                        notes=paper_data.get("notes", ""),
+                        github=None,  # from Zotero When importing,GitHub is empty but the field exists
+                        homepage=None,  # from Zotero When importing,Homepage is empty but the field exists
+                        upload_source="zotero_import",
+                    )
+
+                    # Register to paper_store
+                    registered_paper = paper_store.upsert(
+                        new_paper, category_id=category_id, category_path=full_category_path
+                    )
+
+                    # Save metadata
+                    save_paper_metadata(file_path, registered_paper)
+
+                    # Inherit Chinese version / AI interpretation from existing paper
+                    source = _find_source_paper_for_inherit(
+                        paper_store, arxiv_id=arxiv_id, title=new_paper.title, exclude_paper_id=paper_id
+                    )
+                    if source:
+                        target_base = os.path.splitext(pdf_filename)[0]
+                        if inherit_chinese_and_analysis(source, category_folder, target_base, registered_paper):
+                            paper_store.upsert(
+                                registered_paper, category_id=category_id, category_path=full_category_path
+                            )
+                            save_paper_metadata(file_path, registered_paper)
+
+                    # Note: Imported papers are not added to the to-read list
+
+                    success_count += 1
+                    if is_others:
+                        others_count += 1
+                    print(f"[Import] ✅ Imported successfully: {paper_info.get('title', '')[:50]}")
+
+                    # Background acquisition DBLP BibTeX(asynchronous)
+                    if paper_info.get("title") and paper_info.get("authors"):
+                        threading.Thread(
+                            target=_fetch_dblp_bibtex_async,
+                            args=(
+                                paper_id,
+                                paper_info["title"],
+                                paper_info["authors"],
+                                arxiv_id,
+                                file_path,
+                                category_id,
+                                full_category_path,
+                            ),
+                            daemon=True,
+                        ).start()
+
+                except Exception as e:
+                    print(f"[Import] ❌ Failed to import paper: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+                    failed_count += 1
 
         # Import completed
         _update_task_progress(

@@ -2223,6 +2223,8 @@ def _search_arxiv_by_keywords(
 
 def _download_pdf(url: str, target_path: str) -> bool:
     """Download a PDF from URL to target path."""
+    from resophy.tools.basic_tools.parallel_downloader import RateLimitError
+
     try:
         # Convert to export.arxiv.org to avoid rate limits
         download_url = url
@@ -2235,6 +2237,8 @@ def _download_pdf(url: str, target_path: str) -> bool:
             "Referer": "https://arxiv.org/",
         }
         resp = requests.get(download_url, headers=headers, timeout=(15, 120), stream=True, allow_redirects=True)
+        if resp.status_code == 429:
+            raise RateLimitError(f"429 from {download_url}")
         if resp.status_code == 200:
             with open(target_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
@@ -2245,6 +2249,8 @@ def _download_pdf(url: str, target_path: str) -> bool:
                 os.remove(target_path)
                 return False
             return True
+    except RateLimitError:
+        raise
     except Exception as e:
         print(f"[RelativePaper] Download failed for {url}: {e}")
         if os.path.exists(target_path):
@@ -2720,20 +2726,18 @@ def search_related_papers(
 
         downloaded = 0
 
+        # Phase 1: Build download tasks (sequential — determine filenames, handle collisions)
+        from resophy.tools.basic_tools.parallel_downloader import (
+            parallel_download, DownloadTask, RateLimitError, _extract_domain,
+        )
+
+        download_tasks = []
+        task_candidates = []  # parallel list of (cp, target_path, pdf_filename)
+
         for i, cp in enumerate(all_candidates):
-            if stop_event.is_set():
-                break
             if not cp.pdf_url:
                 print(f"[RelativePaper] Skip (no pdf_url): {cp.title[:50]}")
                 continue
-
-            # Delay between downloads to avoid arXiv rate limits
-            if i > 0:
-                time.sleep(3)
-
-            progress.current_step = f"Downloading {i+1}/{len(all_candidates)}: {cp.title[:40]}"
-            progress.downloaded = i
-            progress.total_downloaded = downloaded
 
             safe_title = _sanitize_filename(cp.title)
             pdf_filename = f"{safe_title}.pdf"
@@ -2746,7 +2750,37 @@ def search_related_papers(
                 target_path = os.path.join(target_dir, pdf_filename)
                 counter += 1
 
-            if _download_pdf(cp.pdf_url, target_path):
+            task_id = f"{cp.arxiv_id or i}_{cp.title[:30]}"
+            domain = _extract_domain(cp.pdf_url) or "export.arxiv.org"
+            download_tasks.append(DownloadTask(
+                task_id=task_id,
+                fn=lambda u=cp.pdf_url, t=target_path: _download_pdf(u, t),
+                domain=domain,
+            ))
+            task_candidates.append((cp, target_path, pdf_filename))
+
+        # Phase 2: Parallel download
+        if download_tasks:
+            progress.current_step = f"Downloading 0/{len(download_tasks)} papers..."
+
+            def _on_progress(completed, total, task_id):
+                progress.current_step = f"Downloading {completed}/{total} papers..."
+
+            download_results = parallel_download(
+                tasks=download_tasks,
+                max_workers=3,
+                stop_event=stop_event,
+                on_progress=_on_progress,
+            )
+
+            # Phase 3: Sequential post-processing
+            for result, (cp, target_path, pdf_filename) in zip(download_results, task_candidates):
+                if stop_event.is_set():
+                    break
+                if not result.success:
+                    print(f"[RelativePaper] Download failed: {cp.title[:50]}")
+                    continue
+
                 # Create paper metadata
                 from resophy.core.base_paper import Paper
 
@@ -2790,8 +2824,6 @@ def search_related_papers(
 
                 downloaded += 1
                 print(f"[RelativePaper] Downloaded: {cp.title[:50]}")
-            else:
-                print(f"[RelativePaper] Download failed: {cp.title[:50]}")
 
         progress.downloaded = len(all_candidates)
         progress.total_downloaded = downloaded

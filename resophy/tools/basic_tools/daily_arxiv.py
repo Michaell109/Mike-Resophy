@@ -948,6 +948,14 @@ Now the input abstract is:
             skipped_count = 0
 
             print(f"[DailyArxiv] Start processing {len(results)} papers...")
+
+            # Phase 1: Sequential pre-processing — resolve papers, check status, build download tasks
+            from resophy.tools.basic_tools.parallel_downloader import (
+                parallel_download, DownloadTask, RateLimitError,
+            )
+
+            papers_to_download = []  # list of (i, paper, paper_cat_dir, paper_announce_date, pdf_path)
+
             for i, result in enumerate(results):
                 try:
                     print(
@@ -1018,8 +1026,7 @@ Now the input abstract is:
                             traceback.print_exc()
                             # If the read fails, continue the download process
 
-                    # Update progress (update before starting the download so the frontend can see the current paper immediately)
-                    # Set up first PDF Path (even if the file doesn't exist yet so the frontend can display it)
+                    # Update progress
                     progress.update(i + 1, paper.title[:50], pdf_path=pdf_path)
 
                     # Mark as downloading
@@ -1027,90 +1034,9 @@ Now the input abstract is:
                         paper_announce_date, category, paper.arxiv_id
                     )
 
-                    # download PDF to the correct date directory (file size is updated periodically during download)
-                    pdf_path = self._download_pdf(paper, paper_cat_dir, progress)
-                    if pdf_path:
-                        paper.local_pdf_path = pdf_path
-                        paper.pdf_downloaded = True  # mark PDF Successfully downloaded
-                        # Mark download complete
-                        self._mark_download_completed(
-                            paper_announce_date, category, paper.arxiv_id
-                        )
-
-                        # Generate thumbnails (PDFFirst half of the first page)
-                        thumbnail_path = self._generate_thumbnail(
-                            pdf_path, paper_cat_dir
-                        )
-                        if thumbnail_path:
-                            paper.thumbnail_path = thumbnail_path
-
-                        # extraction mechanism,homepage and github(from PDF First page)
-                        if (
-                            llm_config.get("llmBaseUrl")
-                            and llm_config.get("llmApiKey")
-                            and llm_config.get("llmModel")
-                        ):
-                            extraction_result = self._extract_affiliations(
-                                pdf_path,
-                                llm_config["llmBaseUrl"],
-                                llm_config["llmApiKey"],
-                                llm_config["llmModel"],
-                                prompt=affiliation_prompt,
-                            )
-                            paper.affiliations = extraction_result.get(
-                                "affiliations", []
-                            )
-                            paper.countries = extraction_result.get("countries", [])
-                            paper.homepage = extraction_result.get("homepage")
-                            paper.github = extraction_result.get("github")
-                            paper.affiliations_extracted = True
-                    else:
-                        # PDF Download failed, removed from status (will download again next time)
-                        download_status = self._load_download_status(
-                            paper_announce_date, category
-                        )
-                        if paper.arxiv_id in download_status:
-                            del download_status[paper.arxiv_id]
-                            self._save_download_status(
-                                paper_announce_date, category, download_status
-                            )
-                        paper.pdf_downloaded = False
-                        print(
-                            f"[DailyArxiv] PDF Download failed, will try again at next check: {paper.arxiv_id}"
-                        )
-
-                    # Extract abstracts and keywords (from abstract）
-                    # NOTE: Even if PDF Download failed, you can also extract abstracts and keywords
-                    if (
-                        llm_config.get("llmBaseUrl")
-                        and llm_config.get("llmApiKey")
-                        and llm_config.get("llmModel")
-                        and paper.abstract
-                    ):
-                        summary_result = extract_summary_and_keywords_with_llm(
-                            paper.abstract,
-                            llm_config["llmBaseUrl"],
-                            llm_config["llmApiKey"],
-                            llm_config["llmModel"],
-                            prompt=summary_prompt,
-                        )
-                        paper.summary = summary_result.get("summary")
-                        paper.keywords = summary_result.get("keywords", [])
-                        paper.summary_extracted = True
-
-                    # Save paper metadata to the correct date directory
-                    # even though PDF If the download fails, the metadata is also saved so that you can try again next time.
-                    paper_dict = paper.to_dict()
-                    self._save_paper(paper_dict, paper_cat_dir)
-
-                    papers.append(paper_dict)
-                    progress.add_paper(paper_dict)
-                    print(
-                        f"[DailyArxiv] Complete processing {i+1}/{len(results)} papers: {paper.arxiv_id}"
-                    )
+                    papers_to_download.append((i, paper, paper_cat_dir, paper_announce_date, pdf_path))
 
                 except Exception as e:
-                    # Capture exceptions when processing a single paper to avoid affecting subsequent papers
                     print(
                         f"[DailyArxiv] processing section {i+1}/{len(results)} An error occurred while writing the paper: {e}"
                     )
@@ -1118,10 +1044,123 @@ Now the input abstract is:
                         f"[DailyArxiv] paper ID: {result.entry_id if hasattr(result, 'entry_id') else 'unknown'}"
                     )
                     import traceback
-
                     traceback.print_exc()
-                    # Move on to the next paper
                     continue
+
+            # Phase 2: Parallel download
+            if papers_to_download:
+                download_tasks = [
+                    DownloadTask(
+                        task_id=paper.arxiv_id,
+                        fn=lambda p=paper, d=cat_dir: self._download_pdf_only(p, d),
+                        domain="export.arxiv.org",
+                    )
+                    for i, paper, cat_dir, announce_date, pdf_path in papers_to_download
+                ]
+
+                def _on_download_progress(completed, total_dl, tid):
+                    progress.update(completed, f"Downloading {completed}/{total_dl}")
+
+                download_results = parallel_download(
+                    tasks=download_tasks,
+                    max_workers=3,
+                    on_progress=_on_download_progress,
+                )
+
+                download_map = {r.task_id: r for r in download_results}
+
+                # Phase 3: Sequential post-processing
+                for i, paper, paper_cat_dir, paper_announce_date, pdf_path in papers_to_download:
+                    try:
+                        result = download_map.get(paper.arxiv_id)
+                        downloaded_pdf_path = result.result if (result and result.success) else None
+
+                        if downloaded_pdf_path:
+                            paper.local_pdf_path = downloaded_pdf_path
+                            paper.pdf_downloaded = True
+                            # Mark download complete
+                            self._mark_download_completed(
+                                paper_announce_date, category, paper.arxiv_id
+                            )
+
+                            # Generate thumbnails (PDFFirst half of the first page)
+                            thumbnail_path = self._generate_thumbnail(
+                                downloaded_pdf_path, paper_cat_dir
+                            )
+                            if thumbnail_path:
+                                paper.thumbnail_path = thumbnail_path
+
+                            # extraction mechanism,homepage and github(from PDF First page)
+                            if (
+                                llm_config.get("llmBaseUrl")
+                                and llm_config.get("llmApiKey")
+                                and llm_config.get("llmModel")
+                            ):
+                                extraction_result = self._extract_affiliations(
+                                    downloaded_pdf_path,
+                                    llm_config["llmBaseUrl"],
+                                    llm_config["llmApiKey"],
+                                    llm_config["llmModel"],
+                                    prompt=affiliation_prompt,
+                                )
+                                paper.affiliations = extraction_result.get(
+                                    "affiliations", []
+                                )
+                                paper.countries = extraction_result.get("countries", [])
+                                paper.homepage = extraction_result.get("homepage")
+                                paper.github = extraction_result.get("github")
+                                paper.affiliations_extracted = True
+                        else:
+                            # PDF Download failed, removed from status (will download again next time)
+                            download_status = self._load_download_status(
+                                paper_announce_date, category
+                            )
+                            if paper.arxiv_id in download_status:
+                                del download_status[paper.arxiv_id]
+                                self._save_download_status(
+                                    paper_announce_date, category, download_status
+                                )
+                            paper.pdf_downloaded = False
+                            print(
+                                f"[DailyArxiv] PDF Download failed, will try again at next check: {paper.arxiv_id}"
+                            )
+
+                        # Extract abstracts and keywords (from abstract）
+                        # NOTE: Even if PDF Download failed, you can also extract abstracts and keywords
+                        if (
+                            llm_config.get("llmBaseUrl")
+                            and llm_config.get("llmApiKey")
+                            and llm_config.get("llmModel")
+                            and paper.abstract
+                        ):
+                            summary_result = extract_summary_and_keywords_with_llm(
+                                paper.abstract,
+                                llm_config["llmBaseUrl"],
+                                llm_config["llmApiKey"],
+                                llm_config["llmModel"],
+                                prompt=summary_prompt,
+                            )
+                            paper.summary = summary_result.get("summary")
+                            paper.keywords = summary_result.get("keywords", [])
+                            paper.summary_extracted = True
+
+                        # Save paper metadata to the correct date directory
+                        paper_dict = paper.to_dict()
+                        self._save_paper(paper_dict, paper_cat_dir)
+
+                        papers.append(paper_dict)
+                        progress.add_paper(paper_dict)
+                        print(
+                            f"[DailyArxiv] Complete processing papers: {paper.arxiv_id}"
+                        )
+
+                    except Exception as e:
+                        print(
+                            f"[DailyArxiv] Error during post-processing of paper: {e}"
+                        )
+                        import traceback
+                        traceback.print_exc()
+                        continue
 
             msg = f"Completed, added {len(papers)} papers"
             if skipped_count > 0:
@@ -1220,6 +1259,86 @@ Now the input abstract is:
         except Exception as e:
             print(f"[DailyArxiv] verify PDF Integrity error: {pdf_path}, mistake: {e}")
             return False
+
+    def _download_pdf_only(
+        self, paper: ArxivPaper, cat_dir: str
+    ) -> Optional[str]:
+        """Download PDF file only -- no progress tracking, no post-processing.
+
+        Thread-safe for use in parallel downloads.
+        Raises RateLimitError on 429 responses.
+        Returns pdf_path on success, None on failure.
+        """
+        from resophy.tools.basic_tools.parallel_downloader import RateLimitError
+
+        try:
+            safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
+            pdf_filename = f"{safe_id}.pdf"
+            pdf_path = os.path.join(cat_dir, pdf_filename)
+
+            # If the file already exists, delete it (because it has been marked downloading, indicating that the previous download was not completed)
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except:
+                    pass
+
+            # Convert URL to export.arxiv.org
+            pdf_url = paper.pdf_url
+            if "arxiv.org/pdf/" in pdf_url:
+                pdf_url = pdf_url.replace("arxiv.org/pdf/", "export.arxiv.org/pdf/")
+            elif "arxiv.org/abs/" in pdf_url:
+                pdf_url = pdf_url.replace("arxiv.org/abs/", "export.arxiv.org/pdf/")
+
+            import requests
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://arxiv.org/",
+                "Connection": "keep-alive",
+            }
+
+            response = requests.get(
+                pdf_url,
+                headers=headers,
+                timeout=30,
+                stream=True,
+                allow_redirects=True,
+            )
+
+            if response.status_code == 429:
+                raise RateLimitError(f"429 from {pdf_url}")
+
+            if response.status_code == 200:
+                with open(pdf_path, "wb") as out_file:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            out_file.write(chunk)
+
+                # Check if the file downloaded successfully
+                if os.path.exists(pdf_path):
+                    file_size = os.path.getsize(pdf_path)
+                    if file_size == 0 or file_size < 1024:
+                        try:
+                            os.remove(pdf_path)
+                        except:
+                            pass
+                        return None
+
+                print(f"[DailyArxiv] PDF Download successful: {paper.arxiv_id}")
+                return pdf_path
+            else:
+                print(f"[DailyArxiv] PDF download HTTP {response.status_code}: {paper.arxiv_id}")
+                return None
+
+        except RateLimitError:
+            raise
+        except Exception as e:
+            print(f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): {e}")
+            return None
 
     def _download_pdf(
         self, paper: ArxivPaper, cat_dir: str, progress: FetchProgress = None
