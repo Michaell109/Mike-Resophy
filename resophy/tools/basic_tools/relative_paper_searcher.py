@@ -53,6 +53,23 @@ def _s2_get(url: str, **kwargs) -> requests.Response:
     return resp
 
 
+def _s2_post(url: str, **kwargs) -> requests.Response:
+    """Rate-limited POST for Semantic Scholar API."""
+    global _s2_last_call
+    with _s2_lock:
+        elapsed = time.time() - _s2_last_call
+        if elapsed < _S2_MIN_INTERVAL:
+            time.sleep(_S2_MIN_INTERVAL - elapsed)
+        _s2_last_call = time.time()
+    resp = requests.post(url, **kwargs)
+    if resp.status_code == 429:
+        with _s2_lock:
+            time.sleep(3)
+            _s2_last_call = time.time()
+        resp = requests.post(url, **kwargs)
+    return resp
+
+
 # ---- OpenAlex API helpers ----
 # OpenAlex has much more generous rate limits than Semantic Scholar
 # (10K list calls/day free, no aggressive 429s).
@@ -455,14 +472,18 @@ def _fetch_citations_and_references(
 
 
 def _fetch_recommendations(s2_paper_id: str) -> List[CandidatePaper]:
-    """Fetch recommended papers from Semantic Scholar."""
+    """Fetch recommended papers from Semantic Scholar using POST-based API."""
     candidates: List[CandidatePaper] = []
     try:
         url = (
-            f"https://api.semanticscholar.org/recommendations/v1/papers/{s2_paper_id}"
+            "https://api.semanticscholar.org/recommendations/v1/papers/"
             f"?fields=title,abstract,authors,year,externalIds&limit=50"
         )
-        resp = _s2_get(url, timeout=20)
+        payload = {
+            "positivePaperIds": [s2_paper_id],
+            "negativePaperIds": [],
+        }
+        resp = _s2_post(url, json=payload, timeout=20)
         if resp.status_code != 200:
             print(f"[RelativePaper] S2 recommendations API returned {resp.status_code}")
             return candidates
@@ -2577,27 +2598,42 @@ def search_related_papers(
         # ==================== Source A: Recommendations ====================
         if "recommendation" in sources and not stop_event.is_set():
             progress.current_step = "Fetching recommendations..."
-            print(f"[RelativePaper] Source A: Fetching recommendations")
+            print(f"[RelativePaper] Source A: Fetching recommendations (OpenAlex + S2)")
 
-            # Primary: OpenAlex related_works
+            # Resolve both IDs upfront
             if not oa_work_id:
                 oa_work_id = _get_openalex_work_id(arxiv_id=ref_arxiv_id, title=ref_title)
+            if not s2_paper_id:
+                s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
 
             unique = []
-            if oa_work_id:
-                recs = _fetch_recommendations_openalex(oa_work_id)
-                unique = _add_unique(recs)
-                print(f"[RelativePaper] OpenAlex recommendations: {len(unique)} unique papers")
 
-            # Fallback: Semantic Scholar
-            if not unique:
-                if not s2_paper_id:
-                    s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
+            # OpenAlex related_works
+            try:
+                if oa_work_id:
+                    recs_oa = _fetch_recommendations_openalex(oa_work_id)
+                    unique_oa = _add_unique(recs_oa)
+                    unique.extend(unique_oa)
+                    print(f"[RelativePaper] OpenAlex recommendations: {len(unique_oa)} unique papers")
+            except Exception as e:
+                print(f"[RelativePaper] OpenAlex recommendations failed: {e}")
+
+            # Semantic Scholar recommendations (parallel source, not fallback)
+            try:
                 if s2_paper_id:
-                    recs = _fetch_recommendations(s2_paper_id)
-                    unique = _add_unique(recs)
-                    print(f"[RelativePaper] S2 recommendations: {len(unique)} unique papers")
+                    recs_s2 = _fetch_recommendations(s2_paper_id)
+                    unique_s2 = _add_unique(recs_s2)
+                    unique.extend(unique_s2)
+                    print(f"[RelativePaper] S2 recommendations: {len(unique_s2)} unique papers")
+                elif ref_arxiv_id:
+                    recs_s2 = _fetch_recommendations(f"ArXiv:{ref_arxiv_id}")
+                    unique_s2 = _add_unique(recs_s2)
+                    unique.extend(unique_s2)
+                    print(f"[RelativePaper] S2 recommendations (via ArXiv): {len(unique_s2)} unique papers")
+            except Exception as e:
+                print(f"[RelativePaper] S2 recommendations failed: {e}")
 
+            print(f"[RelativePaper] Total recommendations before filtering: {len(unique)}")
             downloadable = [cp for cp in unique if cp.arxiv_id or cp.pdf_url]
             if downloadable:
                 progress.current_step = "Checking relevance of recommendations..."
@@ -2607,7 +2643,8 @@ def search_related_papers(
                     min_score=1,
                 )
                 all_candidates.extend(relevant)
-                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
+                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
+                      f"(from {len(downloadable)} downloadable)")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
