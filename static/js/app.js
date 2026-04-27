@@ -14248,12 +14248,41 @@ function renderSearchDropdown() {
                     pct = 10;
                 }
             }
+
+            // Build per-paper status list (no skip buttons — cancel is for the whole ref paper task)
+            let paperListHtml = '';
+            if (p.candidates && p.candidates.length > 0) {
+                const paperStatus = p.paper_status || {};
+                paperListHtml = '<div class="sp-paper-list">';
+                for (const c of p.candidates) {
+                    const cKey = c.arxiv_id || c.title;
+                    const status = paperStatus[cKey] || 'pending';
+                    let statusIcon = '';
+                    let statusClass = '';
+                    if (status === 'done') { statusIcon = '<i class="fas fa-check" style="color:#43a047;font-size:10px;"></i>'; statusClass = 'sp-paper-done'; }
+                    else if (status === 'failed') { statusIcon = '<i class="fas fa-times" style="color:#e53935;font-size:10px;"></i>'; statusClass = 'sp-paper-failed'; }
+                    else if (status === 'skipped') { statusIcon = '<i class="fas fa-forward" style="color:#999;font-size:10px;"></i>'; statusClass = 'sp-paper-skipped'; }
+                    else if (status === 'downloading') { statusIcon = '<i class="fas fa-spinner fa-spin" style="color:#7d4a9d;font-size:10px;"></i>'; statusClass = 'sp-paper-downloading'; }
+                    else { statusIcon = '<i class="fas fa-clock" style="color:#bbb;font-size:10px;"></i>'; statusClass = 'sp-paper-pending'; }
+
+                    paperListHtml += `<div class="sp-paper-item ${statusClass}">
+                        ${statusIcon}
+                        <span class="sp-paper-title" title="${escapeHtml(c.title || '')}">${escapeHtml((c.title || '').substring(0, 50))}</span>
+                    </div>`;
+                }
+                paperListHtml += '</div>';
+            }
+
             parts.push(`
                 <div class="sp-task">
-                    <div class="sp-task-title"><i class="fas fa-search" style="color:#7d4a9d;margin-right:4px;"></i>${escapeHtml(task.paperTitle || task.paperId)}</div>
+                    <div class="sp-task-title">
+                        <i class="fas fa-search" style="color:#7d4a9d;margin-right:4px;"></i>${escapeHtml(task.paperTitle || task.paperId)}
+                        <span class="sp-task-cancel" data-task-id="${escapeHtml(task.taskId)}" title="Cancel this search"><i class="fas fa-times"></i></span>
+                    </div>
                     <div class="sp-task-step">${escapeHtml(stepText)}</div>
                     <div class="sp-task-detail">${detailHtml}</div>
                     <div class="sp-progress-bar"><div class="sp-progress-fill" style="width:${pct}%"></div></div>
+                    ${paperListHtml}
                 </div>
             `);
         }
@@ -14270,8 +14299,20 @@ function renderSearchDropdown() {
         parts.push('<div class="sp-title">Completed</div>');
         for (const task of done) {
             const p = task.progress || {};
-            const info = p.found ? `found ${p.found}, downloaded ${p.total_downloaded || 0}` : '';
-            parts.push(`<div class="sp-done"><i class="fas fa-check-circle"></i> ${escapeHtml(task.paperTitle || task.paperId)}${info ? ' — ' + info : ''}</div>`);
+            const log = p.download_log || [];
+            const doneCount = log.filter(e => e.status === 'done').length;
+            const failCount = log.filter(e => e.status === 'failed').length;
+            const skipCount = log.filter(e => e.status === 'skipped').length;
+            let info = p.found ? `found ${p.found}` : '';
+            let detailParts = [];
+            if (doneCount > 0) detailParts.push(`${doneCount} downloaded`);
+            if (failCount > 0) detailParts.push(`${failCount} failed`);
+            if (skipCount > 0) detailParts.push(`${skipCount} skipped`);
+            if (detailParts.length) info += (info ? ', ' : '') + detailParts.join(', ');
+
+            parts.push(`<div class="sp-done">
+                <div class="sp-done-header"><i class="fas fa-check-circle"></i> ${escapeHtml(task.paperTitle || task.paperId)}${info ? ' — ' + info : ''}</div>
+            </div>`);
         }
     }
 
@@ -14439,7 +14480,13 @@ async function pollSearchProgress() {
         }
 
         const p = data.progress;
+        const prevDownloaded = (runningTask.progress && runningTask.progress.total_downloaded) || 0;
         runningTask.progress = p;
+
+        // Real-time directory refresh: when new papers are downloaded, refresh categories
+        if (p.total_downloaded > prevDownloaded && runningTask.categoryId) {
+            loadCategories(true);
+        }
 
         // Update dropdown if open
         if (_searchDropdownOpen) renderSearchDropdown();
@@ -14449,7 +14496,12 @@ async function pollSearchProgress() {
             // Cleanup backend task
             fetch(`/api/relative-paper/cleanup/${runningTask.taskId}`, { method: 'POST' }).catch(() => {});
 
+            const log = p.download_log || [];
+            const failCount = log.filter(e => e.status === 'failed').length;
+            const skipCount = log.filter(e => e.status === 'skipped').length;
             let doneParts = [`found ${p.found} papers`, `downloaded ${p.total_downloaded}`];
+            if (failCount > 0) doneParts.push(`${failCount} failed`);
+            if (skipCount > 0) doneParts.push(`${skipCount} skipped`);
             if (p.matched_methods > 0) {
                 doneParts.unshift(`${p.resolved_methods}/${p.matched_methods} methods resolved`);
             }
@@ -14563,6 +14615,34 @@ async function cancelRelativePaperSearch() {
     updateSearchBadge();
     await startNextQueuedSearch();
 }
+
+// Delegate click handler for cancel-task button in search progress dropdown
+document.addEventListener('click', async function(e) {
+    const cancelBtn = e.target.closest('.sp-task-cancel');
+    if (!cancelBtn) return;
+    e.stopPropagation();
+    const taskId = cancelBtn.dataset.taskId;
+    if (!taskId) return;
+
+    cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:10px;"></i>';
+    try {
+        await fetch(`/api/relative-paper/cancel/${taskId}`, { method: 'POST' });
+        await fetch(`/api/relative-paper/cleanup/${taskId}`, { method: 'POST' });
+    } catch (err) {
+        console.error('Cancel search task failed:', err);
+    }
+    // Mark as cancelled and update UI
+    const task = _searchQueue.find(t => t.taskId === taskId);
+    if (task) {
+        task.status = 'error';
+        task.progress = task.progress || {};
+        task.progress.status = 'error';
+        task.progress.error = 'Cancelled by user';
+    }
+    updateSearchBadge();
+    if (_searchDropdownOpen) renderSearchDropdown();
+    await startNextQueuedSearch();
+});
 
 // Bind modal & search badge events
 document.addEventListener('DOMContentLoaded', function() {

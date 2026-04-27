@@ -98,7 +98,7 @@ def register_relative_paper_routes(
             data = request.json or {}
             paper_id = data.get("paper_id")
             target_count = data.get("target_count", 10)
-            sources = data.get("sources", ["baseline", "citation", "recommendation", "keyword"])
+            sources = data.get("sources", ["baseline", "related_work", "recommendation"])
 
             if not paper_id:
                 return jsonify({"success": False, "error": "paper_id is required"}), 400

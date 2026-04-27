@@ -371,6 +371,10 @@ class SearchProgress:
     resolved_methods: int = 0     # Number of methods successfully resolved to papers
     unresolved_methods: List[str] = field(default_factory=list)  # Method names that couldn't be resolved
     related_work_citations: int = 0  # Number of citations extracted from Related Work section
+    # Per-paper download status: arxiv_id -> "downloading" | "done" | "failed" | "skipped"
+    paper_status: Dict[str, str] = field(default_factory=dict)
+    # Download detail log: list of {title, arxiv_id, status, error}
+    download_log: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -385,6 +389,8 @@ class SearchProgress:
             "resolved_methods": self.resolved_methods,
             "unresolved_methods": self.unresolved_methods,
             "related_work_citations": self.related_work_citations,
+            "paper_status": self.paper_status,
+            "download_log": self.download_log,
         }
 
 
@@ -2454,10 +2460,10 @@ def search_related_papers(
                 unique.append(cp)
             return unique
 
-        # ==================== Source C: Baseline Methods ====================
+        # ==================== Source A: Baseline Methods ====================
         if "baseline" in sources and not stop_event.is_set():
             progress.current_step = "Extracting baseline methods..."
-            print(f"[RelativePaper] Source C: Extracting baseline methods for '{ref_title[:50]}'")
+            print(f"[RelativePaper] Source A: Extracting baseline methods for '{ref_title[:50]}'")
 
             # Primary: citation-based extraction from PDF-to-markdown
             citation_result = _extract_baselines_from_citations(ref_paper_data)
@@ -2542,12 +2548,81 @@ def search_related_papers(
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
 
-        # ==================== Source B: Citations & References ====================
-        s2_paper_id = None  # Initialize at this scope so Source A can reuse it
-        oa_work_id = None   # OpenAlex work ID, reusable by Source A
+        # ==================== Source B: Related Work ====================
+        s2_paper_id = None  # Initialize at this scope so later sources can reuse it
+        oa_work_id = None   # OpenAlex work ID, reusable by later sources
+        if "related_work" in sources and not stop_event.is_set():
+            progress.current_step = "Extracting Related Work citations..."
+            print(f"[RelativePaper] Source B: Extracting Related Work citations")
+
+            rw_candidates, rw_citation_count = _resolve_related_work_from_pdf(ref_paper_data, stop_event)
+            progress.related_work_citations = rw_citation_count
+            if rw_candidates:
+                unique = _add_unique(rw_candidates)
+                all_candidates.extend(unique)
+                print(f"[RelativePaper] Related Work: {len(unique)} papers resolved (from {rw_citation_count} citations)")
+
+            progress.found = len(all_candidates)
+            progress.candidates = [c.to_dict() for c in all_candidates]
+
+        # ==================== Source C: Recommendations ====================
+        if "recommendation" in sources and not stop_event.is_set():
+            progress.current_step = "Fetching recommendations..."
+            print(f"[RelativePaper] Source C: Fetching recommendations (OpenAlex + S2)")
+
+            # Resolve both IDs upfront
+            if not oa_work_id:
+                oa_work_id = _get_openalex_work_id(arxiv_id=ref_arxiv_id, title=ref_title)
+            if not s2_paper_id:
+                s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
+
+            unique = []
+
+            # OpenAlex related_works
+            try:
+                if oa_work_id:
+                    recs_oa = _fetch_recommendations_openalex(oa_work_id)
+                    unique_oa = _add_unique(recs_oa)
+                    unique.extend(unique_oa)
+                    print(f"[RelativePaper] OpenAlex recommendations: {len(unique_oa)} unique papers")
+            except Exception as e:
+                print(f"[RelativePaper] OpenAlex recommendations failed: {e}")
+
+            # Semantic Scholar recommendations (parallel source, not fallback)
+            try:
+                if s2_paper_id:
+                    recs_s2 = _fetch_recommendations(s2_paper_id)
+                    unique_s2 = _add_unique(recs_s2)
+                    unique.extend(unique_s2)
+                    print(f"[RelativePaper] S2 recommendations: {len(unique_s2)} unique papers")
+                elif ref_arxiv_id:
+                    recs_s2 = _fetch_recommendations(f"ArXiv:{ref_arxiv_id}")
+                    unique_s2 = _add_unique(recs_s2)
+                    unique.extend(unique_s2)
+                    print(f"[RelativePaper] S2 recommendations (via ArXiv): {len(unique_s2)} unique papers")
+            except Exception as e:
+                print(f"[RelativePaper] S2 recommendations failed: {e}")
+
+            print(f"[RelativePaper] Total recommendations before filtering: {len(unique)}")
+            downloadable = [cp for cp in unique if cp.arxiv_id or cp.pdf_url]
+            if downloadable:
+                progress.current_step = "Checking relevance of recommendations..."
+                relevant = _check_relevance_with_llm(
+                    ref_abstract, downloadable,
+                    llm_base_url, llm_api_key, llm_model,
+                    min_score=1,
+                )
+                all_candidates.extend(relevant)
+                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
+                      f"(from {len(downloadable)} downloadable)")
+
+            progress.found = len(all_candidates)
+            progress.candidates = [c.to_dict() for c in all_candidates]
+
+        # ==================== Source D: Citations & References ====================
         if "citation" in sources and not stop_event.is_set():
             progress.current_step = "Fetching citations & references..."
-            print(f"[RelativePaper] Source B: Fetching citations & references")
+            print(f"[RelativePaper] Source D: Fetching citations & references")
 
             # Priority 1: Parse References section from PDF and resolve via arXiv
             # This works even for brand-new papers not yet indexed by OpenAlex/S2
@@ -2601,64 +2676,10 @@ def search_related_papers(
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
 
-        # ==================== Source A: Recommendations ====================
-        if "recommendation" in sources and not stop_event.is_set():
-            progress.current_step = "Fetching recommendations..."
-            print(f"[RelativePaper] Source A: Fetching recommendations (OpenAlex + S2)")
-
-            # Resolve both IDs upfront
-            if not oa_work_id:
-                oa_work_id = _get_openalex_work_id(arxiv_id=ref_arxiv_id, title=ref_title)
-            if not s2_paper_id:
-                s2_paper_id = _get_semantic_scholar_paper_id(arxiv_id=ref_arxiv_id, title=ref_title)
-
-            unique = []
-
-            # OpenAlex related_works
-            try:
-                if oa_work_id:
-                    recs_oa = _fetch_recommendations_openalex(oa_work_id)
-                    unique_oa = _add_unique(recs_oa)
-                    unique.extend(unique_oa)
-                    print(f"[RelativePaper] OpenAlex recommendations: {len(unique_oa)} unique papers")
-            except Exception as e:
-                print(f"[RelativePaper] OpenAlex recommendations failed: {e}")
-
-            # Semantic Scholar recommendations (parallel source, not fallback)
-            try:
-                if s2_paper_id:
-                    recs_s2 = _fetch_recommendations(s2_paper_id)
-                    unique_s2 = _add_unique(recs_s2)
-                    unique.extend(unique_s2)
-                    print(f"[RelativePaper] S2 recommendations: {len(unique_s2)} unique papers")
-                elif ref_arxiv_id:
-                    recs_s2 = _fetch_recommendations(f"ArXiv:{ref_arxiv_id}")
-                    unique_s2 = _add_unique(recs_s2)
-                    unique.extend(unique_s2)
-                    print(f"[RelativePaper] S2 recommendations (via ArXiv): {len(unique_s2)} unique papers")
-            except Exception as e:
-                print(f"[RelativePaper] S2 recommendations failed: {e}")
-
-            print(f"[RelativePaper] Total recommendations before filtering: {len(unique)}")
-            downloadable = [cp for cp in unique if cp.arxiv_id or cp.pdf_url]
-            if downloadable:
-                progress.current_step = "Checking relevance of recommendations..."
-                relevant = _check_relevance_with_llm(
-                    ref_abstract, downloadable,
-                    llm_base_url, llm_api_key, llm_model,
-                    min_score=1,
-                )
-                all_candidates.extend(relevant)
-                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
-                      f"(from {len(downloadable)} downloadable)")
-
-            progress.found = len(all_candidates)
-            progress.candidates = [c.to_dict() for c in all_candidates]
-
-        # ==================== Source D: Arxiv Keyword Search ====================
+        # ==================== Source E: ArXiv Keyword Search ====================
         if "keyword" in sources and not stop_event.is_set():
             progress.current_step = "Searching arxiv by keywords..."
-            print(f"[RelativePaper] Source D: Keyword search on arxiv")
+            print(f"[RelativePaper] Source E: Keyword search on arxiv")
 
             kw_candidates = _search_arxiv_by_keywords(keyword_list, ref_title, max_results=30)
             unique = _add_unique(kw_candidates)
@@ -2677,25 +2698,10 @@ def search_related_papers(
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
 
-        # ==================== Source E: Related Work ====================
-        if "related_work" in sources and not stop_event.is_set():
-            progress.current_step = "Extracting Related Work citations..."
-            print(f"[RelativePaper] Source E: Extracting Related Work citations")
-
-            rw_candidates, rw_citation_count = _resolve_related_work_from_pdf(ref_paper_data, stop_event)
-            progress.related_work_citations = rw_citation_count
-            if rw_candidates:
-                unique = _add_unique(rw_candidates)
-                all_candidates.extend(unique)
-                print(f"[RelativePaper] Related Work: {len(unique)} papers resolved (from {rw_citation_count} citations)")
-
-            progress.found = len(all_candidates)
-            progress.candidates = [c.to_dict() for c in all_candidates]
-
         # ==================== Dedup & Truncate ====================
         # Already deduped via seen_titles/seen_arxiv_ids during collection
         # Sort by relevance score (desc), then by source priority
-        source_priority = {"baseline": 0, "related_work": 1, "citation": 2, "recommendation": 3, "keyword": 4}
+        source_priority = {"baseline": 0, "related_work": 1, "recommendation": 2, "citation": 3, "keyword": 4}
         all_candidates.sort(
             key=lambda c: (-c.relevance_score, source_priority.get(c.source, 99))
         )
@@ -2725,19 +2731,24 @@ def search_related_papers(
             print(f"[RelativePaper] Failed to copy reference paper to result folder: {e}")
 
         downloaded = 0
+        failed_count = 0
+        skipped_count = 0
 
-        # Phase 1: Build download tasks (sequential — determine filenames, handle collisions)
+        # Download papers one-by-one with parallel HTTP + immediate post-processing
+        # This enables: skip per paper, real-time directory updates, detailed log
         from resophy.tools.basic_tools.parallel_downloader import (
             parallel_download, DownloadTask, RateLimitError, _extract_domain,
         )
 
-        download_tasks = []
-        task_candidates = []  # parallel list of (cp, target_path, pdf_filename)
-
         for i, cp in enumerate(all_candidates):
+            if stop_event.is_set():
+                break
             if not cp.pdf_url:
-                print(f"[RelativePaper] Skip (no pdf_url): {cp.title[:50]}")
                 continue
+
+            cp_key = cp.arxiv_id or cp.title
+            progress.current_step = f"Downloading {i+1}/{len(all_candidates)}: {cp.title[:40]}"
+            progress.paper_status[cp_key] = "downloading"
 
             safe_title = _sanitize_filename(cp.title)
             pdf_filename = f"{safe_title}.pdf"
@@ -2750,80 +2761,76 @@ def search_related_papers(
                 target_path = os.path.join(target_dir, pdf_filename)
                 counter += 1
 
-            task_id = f"{cp.arxiv_id or i}_{cp.title[:30]}"
             domain = _extract_domain(cp.pdf_url) or "export.arxiv.org"
-            download_tasks.append(DownloadTask(
-                task_id=task_id,
-                fn=lambda u=cp.pdf_url, t=target_path: _download_pdf(u, t),
-                domain=domain,
-            ))
-            task_candidates.append((cp, target_path, pdf_filename))
 
-        # Phase 2: Parallel download
-        if download_tasks:
-            progress.current_step = f"Downloading 0/{len(download_tasks)} papers..."
-
-            def _on_progress(completed, total, task_id):
-                progress.current_step = f"Downloading {completed}/{total} papers..."
-
-            download_results = parallel_download(
-                tasks=download_tasks,
-                max_workers=3,
+            # Download single paper via parallel_downloader (respects rate limits + backoff)
+            download_result = parallel_download(
+                tasks=[DownloadTask(
+                    task_id=cp_key,
+                    fn=lambda u=cp.pdf_url, t=target_path: _download_pdf(u, t),
+                    domain=domain,
+                )],
+                max_workers=1,
                 stop_event=stop_event,
-                on_progress=_on_progress,
             )
 
-            # Phase 3: Sequential post-processing
-            for result, (cp, target_path, pdf_filename) in zip(download_results, task_candidates):
-                if stop_event.is_set():
-                    break
-                if not result.success:
-                    print(f"[RelativePaper] Download failed: {cp.title[:50]}")
-                    continue
+            result = download_result[0] if download_result else None
+            success = result and result.success
 
-                # Create paper metadata
-                from resophy.core.base_paper import Paper
+            if not success:
+                progress.paper_status[cp_key] = "failed"
+                error_msg = result.error if result else "unknown"
+                progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "failed", "error": error_msg})
+                failed_count += 1
+                print(f"[RelativePaper] Download failed: {cp.title[:50]}")
+                continue
 
-                paper = Paper(
-                    filename=pdf_filename,
-                    original_filename=pdf_filename,
-                    file_path=target_path,
-                    upload_date=datetime.now().isoformat(),
-                    title=cp.title,
-                    authors=cp.authors,
-                    abstract=cp.abstract,
-                    arxiv_id=cp.arxiv_id,
-                    arxiv_url=cp.arxiv_url,
-                    arxiv_published_date=cp.year or None,
-                    year=cp.year,
-                    upload_source="relative_paper_search",
-                )
-                # Mark the source in extra
-                paper.extra["relative_paper_source"] = cp.source
-                paper.extra["relative_paper_ref_id"] = ref_paper_id
+            # Immediate post-processing per paper (enables real-time directory updates)
+            from resophy.core.base_paper import Paper
 
-                # Save metadata
-                save_paper_metadata_fn(target_path, paper)
+            paper = Paper(
+                filename=pdf_filename,
+                original_filename=pdf_filename,
+                file_path=target_path,
+                upload_date=datetime.now().isoformat(),
+                title=cp.title,
+                authors=cp.authors,
+                abstract=cp.abstract,
+                arxiv_id=cp.arxiv_id,
+                arxiv_url=cp.arxiv_url,
+                arxiv_published_date=cp.year or None,
+                year=cp.year,
+                upload_source="relative_paper_search",
+            )
+            # Mark the source in extra
+            paper.extra["relative_paper_source"] = cp.source
+            paper.extra["relative_paper_ref_id"] = ref_paper_id
 
-                # Register in paper store
-                paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+            # Save metadata
+            save_paper_metadata_fn(target_path, paper)
 
-                # Inherit Chinese version / AI interpretation from existing paper
-                from resophy.tools.basic_tools.paper_repository import (
-                    _find_source_paper_for_inherit,
-                    inherit_chinese_and_analysis,
-                )
-                source = _find_source_paper_for_inherit(
-                    paper_store, arxiv_id=cp.arxiv_id, title=paper.title, exclude_paper_id=paper.id
-                )
-                if source:
-                    target_base = os.path.splitext(pdf_filename)[0]
-                    if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
-                        paper_store.upsert(paper, category_id=category_id, category_path=category_path)
-                        save_paper_metadata_fn(target_path, paper)
+            # Register in paper store
+            paper_store.upsert(paper, category_id=category_id, category_path=category_path)
 
-                downloaded += 1
-                print(f"[RelativePaper] Downloaded: {cp.title[:50]}")
+            # Inherit Chinese version / AI interpretation from existing paper
+            from resophy.tools.basic_tools.paper_repository import (
+                _find_source_paper_for_inherit,
+                inherit_chinese_and_analysis,
+            )
+            source = _find_source_paper_for_inherit(
+                paper_store, arxiv_id=cp.arxiv_id, title=paper.title, exclude_paper_id=paper.id
+            )
+            if source:
+                target_base = os.path.splitext(pdf_filename)[0]
+                if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
+                    paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+                    save_paper_metadata_fn(target_path, paper)
+
+            downloaded += 1
+            progress.paper_status[cp_key] = "done"
+            progress.total_downloaded = downloaded
+            progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "done"})
+            print(f"[RelativePaper] Downloaded: {cp.title[:50]}")
 
         progress.downloaded = len(all_candidates)
         progress.total_downloaded = downloaded
