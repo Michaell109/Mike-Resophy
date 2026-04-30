@@ -365,59 +365,73 @@ def register_settings_routes(
 
             # if LLM The configuration is complete and changes, or changes from unconfigured to configured, triggering Daily arXiv crawl
             if is_llm_configured and (llm_config_changed or not was_llm_configured):
+                # Check if auto fetch is enabled in daily arXiv settings
+                auto_fetch_enabled = True
                 try:
-                    import threading
-
-                    from resophy.tools.basic_tools.daily_arxiv import get_manager
-
-                    # get Daily arXiv Set file path (from agentic_settings_file infer)
                     papers_dir = os.path.dirname(agentic_settings_file)
-                    daily_arxiv_settings_file = os.path.join(
-                        papers_dir, "daily_arxiv_settings.json"
-                    )
-                    temp_papers_dir = os.path.join(papers_dir, ".daily_arxiv_temp")
-                    # get manager Instance (singleton mode, the same instance will be returned)
-                    manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+                    da_settings_file = os.path.join(papers_dir, "daily_arxiv_settings.json")
+                    with open(da_settings_file, "r", encoding="utf-8") as da_fp:
+                        da_settings = json.load(da_fp)
+                    auto_fetch_enabled = da_settings.get("autoFetch", True)
+                except:
+                    pass
 
-                    # Clear failed status
-                    if hasattr(manager, "_llm_api_failed"):
-                        manager._llm_api_failed = False
-                        manager._llm_api_error_message = ""
-                        print("[Settings] cleared Daily arXiv failure status")
+                if not auto_fetch_enabled:
+                    print("[Settings] Auto fetch is disabled in Daily arXiv settings, skipping scheduler start")
+                else:
+                    try:
+                        import threading
 
-                    # Start the scheduler if not already running
-                    if not manager._scheduler_running:
-                        if start_daily_arxiv_callback:
-                            start_daily_arxiv_callback()
+                        from resophy.tools.basic_tools.daily_arxiv import get_manager
+
+                        # get Daily arXiv Set file path (from agentic_settings_file infer)
+                        papers_dir = os.path.dirname(agentic_settings_file)
+                        daily_arxiv_settings_file = os.path.join(
+                            papers_dir, "daily_arxiv_settings.json"
+                        )
+                        temp_papers_dir = os.path.join(papers_dir, ".daily_arxiv_temp")
+                        # get manager Instance (singleton mode, the same instance will be returned)
+                        manager = get_manager(temp_papers_dir, daily_arxiv_settings_file)
+
+                        # Clear failed status
+                        if hasattr(manager, "_llm_api_failed"):
+                            manager._llm_api_failed = False
+                            manager._llm_api_error_message = ""
+                            print("[Settings] cleared Daily arXiv failure status")
+
+                        # Start the scheduler if not already running
+                        if not manager._scheduler_running:
+                            if start_daily_arxiv_callback:
+                                start_daily_arxiv_callback()
+                            else:
+                                manager.start_scheduler()
+                            print(
+                                "[Settings] LLM Configuration saved and started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
+                            )
                         else:
-                            manager.start_scheduler()
-                        print(
-                            "[Settings] LLM Configuration saved and started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"
-                        )
-                    else:
-                        # The scheduler is already running, trigger a crawl manually
-                        def trigger_fetch():
-                            try:
-                                manager._do_scheduled_fetch()
-                                print(
-                                    "[Settings] LLM Configuration has been saved and triggered once Daily arXiv crawl"
-                                )
-                            except Exception as e:
-                                print(
-                                    f"[Settings] trigger Daily arXiv Fetch failed: {e}"
-                                )
+                            # The scheduler is already running, trigger a crawl manually
+                            def trigger_fetch():
+                                try:
+                                    manager._do_scheduled_fetch()
+                                    print(
+                                        "[Settings] LLM Configuration has been saved and triggered once Daily arXiv crawl"
+                                    )
+                                except Exception as e:
+                                    print(
+                                        f"[Settings] trigger Daily arXiv Fetch failed: {e}"
+                                    )
 
-                        # Trigger the fetch in a background thread to avoid blocking the save response
-                        thread = threading.Thread(target=trigger_fetch, daemon=True)
-                        thread.start()
+                            # Trigger the fetch in a background thread to avoid blocking the save response
+                            thread = threading.Thread(target=trigger_fetch, daemon=True)
+                            thread.start()
+                            print(
+                                "[Settings] LLM Configuration has been saved and triggered in the background Daily arXiv crawl"
+                            )
+                    except Exception as e:
+                        # If an error occurs when triggering the crawl, it will not affect the saved results.
                         print(
-                            "[Settings] LLM Configuration has been saved and triggered in the background Daily arXiv crawl"
+                            f"[Settings] trigger Daily arXiv An error occurred while fetching (does not affect saving): {e}"
                         )
-                except Exception as e:
-                    # If an error occurs when triggering the crawl, it will not affect the saved results.
-                    print(
-                        f"[Settings] trigger Daily arXiv An error occurred while fetching (does not affect saving): {e}"
-                    )
 
             return jsonify({"success": True})
         except Exception as exc:
@@ -537,8 +551,19 @@ def register_settings_routes(
                                     "[Settings] LLM API Test successful, cleared Daily arXiv failure status"
                                 )
 
+                            # Check if auto fetch is enabled
+                            auto_fetch_enabled = True
+                            try:
+                                with open(daily_arxiv_settings_file, "r", encoding="utf-8") as da_fp:
+                                    da_settings = json.load(da_fp)
+                                auto_fetch_enabled = da_settings.get("autoFetch", True)
+                            except:
+                                pass
+
+                            if not auto_fetch_enabled:
+                                print("[Settings] Auto fetch is disabled in Daily arXiv settings, skipping scheduler start after LLM test")
                             # Start the scheduler if not already running
-                            if not manager._scheduler_running:
+                            elif not manager._scheduler_running:
                                 manager.start_scheduler()
                                 print(
                                     "[Settings] LLM API Test successful, started Daily arXiv Scheduler (the scheduler will automatically trigger a crawl)"

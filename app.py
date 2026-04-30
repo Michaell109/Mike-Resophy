@@ -112,6 +112,7 @@ DEFAULT_CHAT_SETTINGS = {
 # Default Daily arXiv settings
 DEFAULT_DAILY_ARXIV_SETTINGS = {
     "categories": ["cs.CV"],  # arXiv category list
+    "autoFetch": True,  # Auto fetch new papers on schedule
     "checkIntervalMinutes": 30,  # Check interval (minutes)
     "retentionDays": 2,  # Retention days for papers
     "maxKeywords": 2,  # Maximum number of keywords (1-3)
@@ -445,10 +446,21 @@ def register_routes():
                 "[DailyArxiv] LLM configuration is complete, scheduler has been started"
             )
 
-    # Only start scheduler if LLM configuration is complete
-    if is_llm_configured():
+    # Check if auto fetch is enabled
+    def is_auto_fetch_enabled() -> bool:
+        try:
+            with open(DAILY_ARXIV_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            return settings.get("autoFetch", True)
+        except:
+            return True  # Default to enabled
+
+    # Only start scheduler if LLM configuration is complete AND auto fetch is enabled
+    if is_llm_configured() and is_auto_fetch_enabled():
         daily_arxiv_manager.start_scheduler()
-        print("[DailyArxiv] LLM configuration is complete, scheduler has been started")
+        print("[DailyArxiv] LLM configuration is complete and auto fetch is enabled, scheduler has been started")
+    elif is_llm_configured() and not is_auto_fetch_enabled():
+        print("[DailyArxiv] Auto fetch is disabled, scheduler has not been started. Enable auto fetch in settings to start.")
     else:
         print(
             "[DailyArxiv] LLM configuration is incomplete, scheduler has not been started. Please configure LLM API in settings and start manually."

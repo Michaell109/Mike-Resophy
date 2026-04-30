@@ -10893,6 +10893,26 @@ async function loadDailyArxivSettings() {
                 checkIntervalEl.value = dailyArxivSettings.checkIntervalMinutes || 10;
                 checkIntervalEl.addEventListener('change', autoSaveDailyArxivSettings);
             }
+            const autoFetchEl = document.getElementById('daily-arxiv-auto-fetch');
+            const autoFetchLabelEl = document.getElementById('daily-arxiv-auto-fetch-label');
+            if (autoFetchEl) {
+                autoFetchEl.checked = dailyArxivSettings.autoFetch !== false;
+                if (autoFetchLabelEl) autoFetchLabelEl.textContent = autoFetchEl.checked ? 'Enabled' : 'Disabled';
+                autoFetchEl.addEventListener('change', async () => {
+                    if (autoFetchLabelEl) autoFetchLabelEl.textContent = autoFetchEl.checked ? 'Enabled' : 'Disabled';
+                    autoSaveDailyArxivSettings();
+                    // Start or stop scheduler based on toggle
+                    try {
+                        if (autoFetchEl.checked) {
+                            await fetch('/api/daily-arxiv/scheduler/start', { method: 'POST' });
+                        } else {
+                            await fetch('/api/daily-arxiv/scheduler/stop', { method: 'POST' });
+                        }
+                    } catch (e) {
+                        console.error('Failed to toggle scheduler:', e);
+                    }
+                });
+            }
             if (maxKeywordsEl) {
                 maxKeywordsEl.value = dailyArxivSettings.maxKeywords || 1;
                 maxKeywordsEl.addEventListener('change', autoSaveDailyArxivSettings);
@@ -10932,6 +10952,7 @@ async function saveDailyArxivSettings(silent = false) {
         const retentionDays = parseInt(document.getElementById('daily-arxiv-retention-days')?.value) || 7;
         const checkInterval = parseInt(document.getElementById('daily-arxiv-check-interval')?.value) || 10;
         const maxKeywords = parseInt(document.getElementById('daily-arxiv-max-keywords')?.value) || 1;
+        const autoFetch = document.getElementById('daily-arxiv-auto-fetch')?.checked !== false;
         
         // Limit the maximum number of keywords to 1-3 within range
         const clampedMaxKeywords = Math.max(1, Math.min(3, maxKeywords));
@@ -10950,6 +10971,7 @@ async function saveDailyArxivSettings(silent = false) {
         dailyArxivSettings.retentionDays = retentionDays;
         dailyArxivSettings.checkIntervalMinutes = checkInterval;
         dailyArxivSettings.maxKeywords = clampedMaxKeywords;
+        dailyArxivSettings.autoFetch = autoFetch;
         dailyArxivSettings.keywordList = keywordList;
         
         const res = await fetch('/api/settings/daily-arxiv', {

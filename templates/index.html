@@ -714,6 +714,16 @@
                             </div>
                             <input type="number" id="daily-arxiv-check-interval" min="5" max="60" value="10" class="setting-input" />
                         </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="daily-arxiv-auto-fetch">Auto fetch</label>
+                                <small>Automatically fetch new papers on schedule when LLM is configured</small>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="daily-arxiv-auto-fetch" checked>
+                                <span id="daily-arxiv-auto-fetch-label">Enabled</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <div class="setting-card">

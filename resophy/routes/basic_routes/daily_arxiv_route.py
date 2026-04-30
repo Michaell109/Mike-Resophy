@@ -873,3 +873,41 @@ def register_daily_arxiv_routes(
             )
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/daily-arxiv/scheduler/stop", methods=["POST"])
+    def api_stop_scheduler():
+        """Manually stop the scheduler"""
+        try:
+            if not manager._scheduler_running:
+                return jsonify(
+                    {
+                        "success": True,
+                        "message": "Scheduler is not running",
+                        "is_running": False,
+                    }
+                )
+
+            manager.stop_scheduler()
+            print("[DailyArxiv] Scheduler has been stopped manually")
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Scheduler stopped",
+                    "is_running": False,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/daily-arxiv/scheduler/status", methods=["GET"])
+    def api_scheduler_status():
+        """Get scheduler status"""
+        try:
+            return jsonify(
+                {
+                    "success": True,
+                    "is_running": manager._scheduler_running,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
