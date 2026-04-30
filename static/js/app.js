@@ -156,7 +156,7 @@ let readingListPaperIds = new Set(); // ids in reading list
 let translationQueue = []; // translation queue
 let activeTranslationCount = 0; // number of concurrently running translations
 const MAX_CONCURRENT_TRANSLATIONS = 3;
-let translationStatus = {}; // {paperId: 'translating' | 'queued' | 'completed' | 'error', queuePosition, taskId}
+let translationStatus = {}; // {paperId: 'translating' | 'queued' | 'completed' | 'error', progress: {current, total}, taskId}
 let translationLogInterval = {}; // polling intervals per task
 
 // AI analysis-related
@@ -1442,7 +1442,10 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     const tStatus = translationStatus[paper.id];
     let translateCol = '';
     if (tStatus && tStatus.status === 'translating') {
-        const prog = tStatus.queuePosition ? ` (${tStatus.queuePosition})` : '';
+        let prog = '';
+        if (tStatus.progress && tStatus.progress.total > 0) {
+            prog = ` (${tStatus.progress.current}/${tStatus.progress.total})`;
+        }
         translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-spinner fa-spin"></i> Translating${prog}<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="Stop translation"><i class="fas fa-times"></i></button></span></div>`;
     } else if (tStatus && tStatus.status === 'queued') {
         translateCol = `<div class="paper-col-action"><span class="paper-action-status processing"><i class="fas fa-clock"></i> in queue<button class="paper-action-stop" onclick="cancelTranslation('${paper.id}', event)" title="Cancel queue"><i class="fas fa-times"></i></button></span></div>`;
@@ -7477,8 +7480,7 @@ async function requestTranslation(paperId, event) {
 
     translationQueue.push(paperId);
     // Update queue position（Including the current one）
-    const queuePosition = translationQueue.length;
-    updateTranslationStatus(paperId, 'queued', queuePosition);
+    updateTranslationStatus(paperId, 'queued', null);
     saveQueuesToStorage(); // Save queue status
     renderPapersList(); // Update display now
     updateTaskIndicator();
@@ -7501,7 +7503,7 @@ async function processTranslationQueue() {
     saveQueuesToStorage();
 
     try {
-        updateTranslationStatus(paperId, 'translating', 0);
+        updateTranslationStatus(paperId, 'translating', null);
         renderPapersList();
 
         const response = await fetch('/api/paper/bilingual-translate', {
@@ -7521,13 +7523,13 @@ async function processTranslationQueue() {
 
             startLogPolling(taskId, paperId);
 
-            updateTranslationStatus(paperId, 'translating', 0, taskId);
+            updateTranslationStatus(paperId, 'translating', null, taskId);
             renderPapersList();
 
             // Try to start more tasks from the queue
             processTranslationQueue();
         } else {
-            updateTranslationStatus(paperId, 'error', 0);
+            updateTranslationStatus(paperId, 'error', null);
             saveQueuesToStorage();
             showMessage(result.error || 'Translation failed', 'error');
             activeTranslationCount = Math.max(0, activeTranslationCount - 1);
@@ -7536,7 +7538,7 @@ async function processTranslationQueue() {
         }
     } catch (error) {
         console.error('Translation failed:', error);
-        updateTranslationStatus(paperId, 'error', 0);
+        updateTranslationStatus(paperId, 'error', null);
         saveQueuesToStorage();
         showMessage('Translation failed, please try again later', 'error');
         activeTranslationCount = Math.max(0, activeTranslationCount - 1);
@@ -7564,7 +7566,7 @@ function startLogPolling(taskId, paperId) {
                 // Update progress
                 const progress = result.progress;
                 if (progress && progress.total > 0) {
-                    updateTranslationStatus(paperId, 'translating', progress.current, taskId);
+                    updateTranslationStatus(paperId, 'translating', progress, taskId);
                 }
 
                 if (status === 'completed' || status === 'failed' || status === 'cancelled') {
@@ -7573,14 +7575,14 @@ function startLogPolling(taskId, paperId) {
 
                     const currentTaskId = translationStatus[paperId]?.taskId;
                     if (status === 'completed') {
-                        updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
+                        updateTranslationStatus(paperId, 'completed', null, currentTaskId);
                         const paper = papers.find(p => p.id === paperId);
                         if (paper && result.result && result.result.success) {
                             paper.has_chinese_version = true;
                             paper.has_bilingual_version = true;
                         }
                     } else {
-                        updateTranslationStatus(paperId, 'error', 0, currentTaskId);
+                        updateTranslationStatus(paperId, 'error', null, currentTaskId);
                         const errorMsg = result.result?.error || '';
                         const isCancelled = status === 'cancelled';
                         if (status === 'failed' && !isCancelled) {
@@ -7712,14 +7714,14 @@ function showLogModal(taskId, logs, status, paperId) {
                         // update status
                         const currentTaskId = translationStatus[paperId]?.taskId;
                         if (result.status === 'completed') {
-                            updateTranslationStatus(paperId, 'completed', 0, currentTaskId);
+                            updateTranslationStatus(paperId, 'completed', null, currentTaskId);
                             const paper = papers.find(p => p.id === paperId);
                             if (paper) {
                                 paper.has_chinese_version = true;
                                 paper.has_bilingual_version = true;
                             }
                         } else {
-                            updateTranslationStatus(paperId, 'error', 0, currentTaskId);
+                            updateTranslationStatus(paperId, 'error', null, currentTaskId);
                         }
                         renderPapersList();
                     }
@@ -7759,7 +7761,7 @@ async function cancelTranslation(taskId, paperId) {
         if (response.ok && result.success) {
             // The translation has been canceled and the status column will be updated automatically.
             stopLogPolling(taskId);
-            updateTranslationStatus(paperId, 'error', 0, taskId);
+            updateTranslationStatus(paperId, 'error', null, taskId);
             activeTranslationCount = Math.max(0, activeTranslationCount - 1);
             // Refresh the list based on the current view mode
             await refreshCurrentViewList();
@@ -7823,7 +7825,7 @@ async function cancelTranslationFromQueue(paperId, event) {
     translationQueue.splice(index, 1);
     saveQueuesToStorage();
     delete translationStatus[paperId];
-    updateTranslationStatus(paperId, 'error', 0);
+    updateTranslationStatus(paperId, 'error', null);
     // Removed from queue, status column will update automatically
 }
 
@@ -7847,12 +7849,12 @@ function escapeHtml(text) {
 }
 
 // Update translation status
-function updateTranslationStatus(paperId, status, queuePosition, taskId) {
+function updateTranslationStatus(paperId, status, progress, taskId) {
     // Keep what you havetaskId
     const existingTaskId = translationStatus[paperId]?.taskId;
     translationStatus[paperId] = {
         status: status,
-        queuePosition: queuePosition,
+        progress: progress,
         taskId: taskId || existingTaskId  // Keep what you havetaskId, or use new
     };
     
