@@ -90,34 +90,6 @@
 
         .btn-close:hover { background: #666; }
 
-        .layout-toggle {
-            display: flex;
-            border: 1px solid #444;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-
-        .layout-toggle .toggle-btn {
-            background: transparent;
-            color: #aaa;
-            border: none;
-            padding: 8px 14px;
-            cursor: pointer;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            transition: all 0.2s;
-        }
-
-        .layout-toggle .toggle-btn.active {
-            background: #007bff;
-            color: white;
-        }
-
-        .layout-toggle .toggle-btn:not(:last-child) {
-            border-right: 1px solid #444;
-        }
 
         .container {
             max-width: 1200px;
@@ -156,51 +128,6 @@
             border-left: 3px solid #a54a4a;
         }
 
-        /* Horizontal layout */
-        .horizontal-layout {
-            display: flex;
-            gap: 24px;
-            height: calc(100vh - 60px);
-            padding: 24px;
-            max-width: none;
-        }
-
-        .horizontal-layout .column {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .horizontal-layout .column-header {
-            padding: 10px 16px;
-            font-size: 14px;
-            font-weight: 600;
-            color: #ccc;
-            background: #16213e;
-            border-radius: 8px 8px 0 0;
-            text-align: center;
-            flex-shrink: 0;
-        }
-
-        .horizontal-layout .column-content {
-            background: #1e1e2e;
-            border-radius: 0 0 8px 8px;
-            padding: 20px;
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .horizontal-layout .column.original .column-content {
-            border: 1px solid #4a6fa5;
-            border-top: none;
-        }
-
-        .horizontal-layout .column.translated .column-content {
-            border: 1px solid #a54a4a;
-            border-top: none;
-        }
 
         /* Markdown styles */
         .md-render h1 { font-size: 1.8em; margin: 0.5em 0 0.3em; color: #fff; font-weight: 700; }
@@ -260,14 +187,6 @@
             <h3 id="paper-title">{{ paper_title or 'Bilingual Reader' }}</h3>
         </div>
         <div class="header-right">
-            <div class="layout-toggle" id="layout-toggle">
-                <button class="toggle-btn active" data-layout="vertical" title="Vertical: alternating original and translation">
-                    <i class="fas fa-arrows-alt-v"></i> Vertical
-                </button>
-                <button class="toggle-btn" data-layout="horizontal" title="Horizontal: side-by-side columns">
-                    <i class="fas fa-columns"></i> Horizontal
-                </button>
-            </div>
         </div>
     </div>
 
@@ -279,7 +198,6 @@
 
     <script>
         const paperId = {{ paper_id|tojson }};
-        let currentLayout = 'vertical';
         let bilingualData = null;
 
         // Markdown rendering helpers (from analysis_viewer.html)
@@ -397,22 +315,10 @@
         }
 
         // Render bilingual content
-        function renderBilingual(data, layout) {
+        function renderBilingual(data) {
             var container = document.getElementById('bilingual-container');
             container.innerHTML = '';
             container.className = '';
-
-            if (layout === 'vertical') {
-                renderVertical(container, data);
-            } else {
-                renderHorizontal(container, data);
-            }
-
-            // Typeset all math
-            typesetMathJax(container);
-        }
-
-        function renderVertical(container, data) {
             container.classList.add('vertical-layout');
             for (var i = 0; i < data.length; i++) {
                 var seg = data[i];
@@ -435,48 +341,9 @@
                 segmentEl.appendChild(transBlock);
                 container.appendChild(segmentEl);
             }
-        }
 
-        function renderHorizontal(container, data) {
-            container.classList.add('horizontal-layout');
-
-            var origColumn = document.createElement('div');
-            origColumn.className = 'column original';
-            origColumn.innerHTML = '<div class="column-header"><i class="fas fa-font"></i> Original</div><div class="column-content" id="orig-content"></div>';
-
-            var transColumn = document.createElement('div');
-            transColumn.className = 'column translated';
-            transColumn.innerHTML = '<div class="column-header"><i class="fas fa-language"></i> 中文翻译</div><div class="column-content" id="trans-content"></div>';
-
-            container.appendChild(origColumn);
-            container.appendChild(transColumn);
-
-            var origHtml = '';
-            var transHtml = '';
-            for (var i = 0; i < data.length; i++) {
-                origHtml += '<div style="margin-bottom: 16px;" class="md-render">' + renderMarkdown(rewriteImages(data[i].original)) + '</div>';
-                transHtml += '<div style="margin-bottom: 16px;" class="md-render">' + renderMarkdown(rewriteImages(data[i].translated)) + '</div>';
-            }
-
-            document.getElementById('orig-content').innerHTML = origHtml;
-            document.getElementById('trans-content').innerHTML = transHtml;
-
-            // Sync scrolling
-            var origEl = document.getElementById('orig-content');
-            var transEl = document.getElementById('trans-content');
-            var syncing = false;
-            origEl.addEventListener('scroll', function() {
-                if (syncing) return;
-                syncing = true;
-                transEl.scrollTop = origEl.scrollTop / origEl.scrollHeight * transEl.scrollHeight;
-                syncing = false;
-            });
-            transEl.addEventListener('scroll', function() {
-                if (syncing) return;
-                syncing = true;
-                origEl.scrollTop = transEl.scrollTop / transEl.scrollHeight * origEl.scrollHeight;
-                syncing = false;
-            });
+            // Typeset all math
+            typesetMathJax(container);
         }
 
         // Load content
@@ -489,7 +356,7 @@
                 bilingualData = typeof json.content === 'string' ? JSON.parse(json.content) : json.content;
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content-wrapper').style.display = 'block';
-                renderBilingual(bilingualData, currentLayout);
+                renderBilingual(bilingualData);
             } catch (e) {
                 document.getElementById('loading').style.display = 'none';
                 var errorEl = document.getElementById('error');
@@ -502,21 +369,6 @@
             var div = document.createElement('div');
             div.appendChild(document.createTextNode(text));
             return div.innerHTML;
-        }
-
-        // Layout toggle
-        function setupLayoutToggle() {
-            var buttons = document.querySelectorAll('#layout-toggle .toggle-btn');
-            buttons.forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    buttons.forEach(function(b) { b.classList.remove('active'); });
-                    btn.classList.add('active');
-                    currentLayout = btn.getAttribute('data-layout');
-                    if (bilingualData) {
-                        renderBilingual(bilingualData, currentLayout);
-                    }
-                });
-            });
         }
 
         // Close button
@@ -609,7 +461,6 @@
         }
 
         setupClose();
-        setupLayoutToggle();
         loadContent();
         startReadingTimer();
 

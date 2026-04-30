@@ -463,40 +463,6 @@
             display: none !important;
         }
 
-        /* Layout toggle in header */
-        .layout-toggle {
-            display: none;
-            border: 1px solid #555;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .bilingual-active .layout-toggle {
-            display: flex;
-        }
-
-        .layout-toggle .toggle-btn {
-            background: transparent;
-            color: #aaa;
-            border: none;
-            padding: 6px 10px;
-            cursor: pointer;
-            font-size: 12px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            transition: all 0.2s;
-        }
-
-        .layout-toggle .toggle-btn.active {
-            background: #007bff;
-            color: white;
-        }
-
-        .layout-toggle .toggle-btn:not(:last-child) {
-            border-right: 1px solid #555;
-        }
-
         .font-size-select {
             display: none;
             background: #333;
@@ -539,51 +505,6 @@
             padding: 14px 18px;
             background: #2a2020;
             border-left: 3px solid #a54a4a;
-        }
-
-        /* Horizontal bilingual layout */
-        .horizontal-layout {
-            display: flex;
-            gap: 20px;
-            max-width: none;
-            padding: 24px 20px;
-        }
-
-        .horizontal-layout .column {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .horizontal-layout .column-header {
-            padding: 8px 14px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #ccc;
-            background: #252525;
-            border-radius: 6px 6px 0 0;
-            text-align: center;
-            flex-shrink: 0;
-        }
-
-        .horizontal-layout .column-content {
-            background: #2c2c2c;
-            border-radius: 0 0 6px 6px;
-            padding: 16px;
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .horizontal-layout .column.original .column-content {
-            border: 1px solid #4a6fa5;
-            border-top: none;
-        }
-
-        .horizontal-layout .column.translated .column-content {
-            border: 1px solid #a54a4a;
-            border-top: none;
         }
 
         /* Markdown styles for bilingual */
@@ -740,17 +661,6 @@
             color: #999;
         }
 
-        body.light-theme .layout-toggle {
-            border-color: #ccc;
-        }
-
-        body.light-theme .layout-toggle .toggle-btn {
-            color: #666;
-        }
-
-        body.light-theme .layout-toggle .toggle-btn:not(:last-child) {
-            border-right-color: #ccc;
-        }
 
         body.light-theme .font-size-select {
             background: #f0f0f0;
@@ -776,15 +686,6 @@
         body.light-theme .vertical-layout .translated-block {
             background: #f8f0f0;
             border-left-color: #a54a4a;
-        }
-
-        body.light-theme .horizontal-layout .column-header {
-            background: #e8e8e8;
-            color: #333;
-        }
-
-        body.light-theme .horizontal-layout .column-content {
-            background: #fff;
         }
 
         body.light-theme .md-render h1 { color: #111; }
@@ -816,14 +717,6 @@
                 <option value="20">字号 20</option>
                 <option value="24">字号 24</option>
             </select>
-            <div class="layout-toggle" id="layout-toggle">
-                <button class="toggle-btn active" data-layout="vertical" title="Vertical: alternating original and translation">
-                    <i class="fas fa-arrows-alt-v"></i> Vertical
-                </button>
-                <button class="toggle-btn" data-layout="horizontal" title="Horizontal: side-by-side columns">
-                    <i class="fas fa-columns"></i> Horizontal
-                </button>
-            </div>
             <button id="chat-toggle-btn" class="chat-toggle-btn" title="Toggle chat sidebar">
                 <i class="fas fa-comments"></i> Chat
             </button>
@@ -896,7 +789,6 @@
         let hasPaperContext = false;
         let isBilingualMode = false;
         let bilingualData = null;
-        let currentBilingualLayout = 'vertical';
 
         // Get paper information and set title
         async function loadPaperInfo() {
@@ -1049,77 +941,33 @@
         }
 
         // Render bilingual content in chosen layout
-        function renderBilingual(data, layout) {
+        function renderBilingual(data) {
             var container = document.getElementById('bilingual-container');
             container.innerHTML = '';
             container.className = '';
+            container.classList.add('vertical-layout');
+            for (var i = 0; i < data.length; i++) {
+                var seg = data[i];
+                var segmentEl = document.createElement('div');
+                segmentEl.className = 'segment';
 
-            if (layout === 'vertical') {
-                container.classList.add('vertical-layout');
-                for (var i = 0; i < data.length; i++) {
-                    var seg = data[i];
-                    var segmentEl = document.createElement('div');
-                    segmentEl.className = 'segment';
+                var origBlock = document.createElement('div');
+                origBlock.className = 'original-block';
+                origBlock.innerHTML = '<div class="md-render">' + renderBilingualMarkdown(rewriteImages(seg.original)) + '</div>';
 
-                    var origBlock = document.createElement('div');
-                    origBlock.className = 'original-block';
-                    origBlock.innerHTML = '<div class="md-render">' + renderBilingualMarkdown(rewriteImages(seg.original)) + '</div>';
+                var transBlock = document.createElement('div');
+                transBlock.className = 'translated-block';
+                transBlock.innerHTML = '<div class="md-render">' + renderBilingualMarkdown(rewriteImages(seg.translated)) + '</div>';
 
-                    var transBlock = document.createElement('div');
-                    transBlock.className = 'translated-block';
-                    transBlock.innerHTML = '<div class="md-render">' + renderBilingualMarkdown(rewriteImages(seg.translated)) + '</div>';
-
-                    segmentEl.appendChild(origBlock);
-                    segmentEl.appendChild(transBlock);
-                    container.appendChild(segmentEl);
-                }
-            } else {
-                container.classList.add('horizontal-layout');
-                container.style.maxWidth = 'none';
-
-                var origColumn = document.createElement('div');
-                origColumn.className = 'column original';
-                origColumn.innerHTML = '<div class="column-header"><i class="fas fa-font"></i> Original</div><div class="column-content" id="bilingual-orig-content"></div>';
-
-                var transColumn = document.createElement('div');
-                transColumn.className = 'column translated';
-                transColumn.innerHTML = '<div class="column-header"><i class="fas fa-language"></i> \u4e2d\u6587\u7ffb\u8bd1</div><div class="column-content" id="bilingual-trans-content"></div>';
-
-                container.appendChild(origColumn);
-                container.appendChild(transColumn);
-
-                var origHtml = '';
-                var transHtml = '';
-                for (var i = 0; i < data.length; i++) {
-                    origHtml += '<div style="margin-bottom: 14px;" class="md-render">' + renderBilingualMarkdown(rewriteImages(data[i].original)) + '</div>';
-                    transHtml += '<div style="margin-bottom: 14px;" class="md-render">' + renderBilingualMarkdown(rewriteImages(data[i].translated)) + '</div>';
-                }
-
-                document.getElementById('bilingual-orig-content').innerHTML = origHtml;
-                document.getElementById('bilingual-trans-content').innerHTML = transHtml;
-
-                // Sync scrolling
-                var origEl = document.getElementById('bilingual-orig-content');
-                var transEl = document.getElementById('bilingual-trans-content');
-                var syncing = false;
-                origEl.addEventListener('scroll', function() {
-                    if (syncing) return;
-                    syncing = true;
-                    transEl.scrollTop = origEl.scrollTop / origEl.scrollHeight * transEl.scrollHeight;
-                    syncing = false;
-                });
-                transEl.addEventListener('scroll', function() {
-                    if (syncing) return;
-                    syncing = true;
-                    origEl.scrollTop = transEl.scrollTop / transEl.scrollHeight * origEl.scrollHeight;
-                    syncing = false;
-                });
+                segmentEl.appendChild(origBlock);
+                segmentEl.appendChild(transBlock);
+                container.appendChild(segmentEl);
             }
 
             typesetMathJax(container);
         }
 
-        // Load bilingual data
+        // Load bilingual data        // Load bilingual data
         async function loadBilingualContent() {
             try {
                 var res = await fetch('/api/paper/' + PAPER_ID + '/bilingual/result');
@@ -1134,28 +982,13 @@
                 document.querySelector('.main-container').classList.add('bilingual-active');
                 document.getElementById('loading').style.display = 'none';
 
-                renderBilingual(bilingualData, currentBilingualLayout);
+                renderBilingual(bilingualData);
             } catch (e) {
                 console.error('Bilingual load failed:', e);
                 // Fall back to PDF mode
                 isBilingualMode = false;
                 initPDFViewer();
             }
-        }
-
-        // Layout toggle
-        function setupLayoutToggle() {
-            var buttons = document.querySelectorAll('#layout-toggle .toggle-btn');
-            buttons.forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    buttons.forEach(function(b) { b.classList.remove('active'); });
-                    btn.classList.add('active');
-                    currentBilingualLayout = btn.getAttribute('data-layout');
-                    if (bilingualData) {
-                        renderBilingual(bilingualData, currentBilingualLayout);
-                    }
-                });
-            });
         }
 
         // Font size control
@@ -1706,7 +1539,6 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupBackButton();
-            setupLayoutToggle();
             setupFontSize();
             loadPaperInfo();
 
