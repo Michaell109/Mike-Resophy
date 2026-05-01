@@ -26,6 +26,18 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import arxiv
 import requests
 
+# Lazy import for fetch_arxiv_affiliations
+_affiliation_fetcher = None
+
+
+def _get_affiliation_fetcher():
+    """Lazy import to avoid circular dependency."""
+    global _affiliation_fetcher
+    if _affiliation_fetcher is None:
+        from resophy.tools.basic_tools.upload_paper import fetch_arxiv_affiliations
+        _affiliation_fetcher = fetch_arxiv_affiliations
+    return _affiliation_fetcher
+
 
 # ---- Global Semantic Scholar rate limiter ----
 # S2 unauthenticated limit: ~1 req/s, ~100 req/5min
@@ -155,6 +167,14 @@ def _openalex_work_to_candidate(work: Dict[str, Any], source: str) -> Optional[C
         if (a.get("author") or {}).get("display_name")
     )
 
+    # Extract affiliations from authorships
+    affiliations: List[str] = []
+    for authorship in authors_list:
+        for inst in (authorship.get("institutions") or []):
+            name = inst.get("display_name", "")
+            if name and name not in affiliations:
+                affiliations.append(name)
+
     # Extract abstract from inverted index
     abstract = ""
     abstract_idx = work.get("abstract_inverted_index")
@@ -172,6 +192,7 @@ def _openalex_work_to_candidate(work: Dict[str, Any], source: str) -> Optional[C
         title=title,
         abstract=abstract,
         authors=authors_str,
+        affiliation="; ".join(affiliations),
         arxiv_id=arxiv_id,
         arxiv_url=f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None,
         pdf_url=pdf_url,
@@ -336,6 +357,7 @@ class CandidatePaper:
     title: str
     abstract: str = ""
     authors: str = ""
+    affiliation: str = ""  # Semicolon-joined affiliation string
     arxiv_id: Optional[str] = None
     arxiv_url: Optional[str] = None
     pdf_url: Optional[str] = None
@@ -348,6 +370,7 @@ class CandidatePaper:
             "title": self.title,
             "abstract": self.abstract,
             "authors": self.authors,
+            "affiliation": self.affiliation,
             "arxiv_id": self.arxiv_id,
             "arxiv_url": self.arxiv_url,
             "pdf_url": self.pdf_url,
@@ -2808,6 +2831,20 @@ def search_related_papers(
                 year=cp.year,
                 upload_source="relative_paper_search",
             )
+            # Set affiliation from candidate (empty string if not available)
+            if cp.affiliation:
+                paper.affiliation = cp.affiliation
+                paper.extra["affiliations"] = [a.strip() for a in cp.affiliation.split(";") if a.strip()]
+            # If no affiliation from source but has arxiv_id, try to fetch via OpenAlex
+            elif cp.arxiv_id:
+                try:
+                    fetch_affs = _get_affiliation_fetcher()
+                    affs = fetch_affs(cp.arxiv_id, title=cp.title)
+                    if affs:
+                        paper.affiliation = "; ".join(affs)
+                        paper.extra["affiliations"] = affs
+                except Exception:
+                    pass
             # Mark the source in extra
             paper.extra["relative_paper_source"] = cp.source
             paper.extra["relative_paper_ref_id"] = ref_paper_id

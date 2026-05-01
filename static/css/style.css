@@ -3208,6 +3208,52 @@ mark { background: #fff59d; }
     border: 1px solid #2196f3;
 }
 
+/* Affiliation list */
+.affiliation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.affiliation-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.affiliation-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: #5c6bc0;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.affiliation-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #333;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.affiliation-text.editable:hover {
+    background: #f8f9fa;
+}
+
+.affiliation-text.editable:focus {
+    outline: none;
+    background: #fff;
+    border: 1px solid #2196f3;
+}
+
 /* Remarks column placeholder Effect */
 .info-section.compact .info-value.editable.notes-editable:empty:before {
     content: attr(data-placeholder);

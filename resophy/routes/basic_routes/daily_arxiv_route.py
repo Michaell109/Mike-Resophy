@@ -531,6 +531,10 @@ def register_daily_arxiv_routes(
             # Create article metadata
             import uuid
 
+            # Build affiliation string from affiliations list
+            affiliations_list = paper_info.get("affiliations", [])
+            affiliation_str = "; ".join(affiliations_list) if affiliations_list else ""
+
             paper = Paper(
                 id=str(uuid.uuid4()),
                 filename=pdf_filename,
@@ -539,6 +543,7 @@ def register_daily_arxiv_routes(
                 upload_date=datetime.now().isoformat(),
                 title=paper_info.get("title", ""),
                 authors=paper_info.get("authors", ""),
+                affiliation=affiliation_str,
                 abstract=paper_info.get("abstract", ""),
                 arxiv_id=arxiv_id,
                 arxiv_url=f"https://arxiv.org/abs/{arxiv_id}",
@@ -547,6 +552,8 @@ def register_daily_arxiv_routes(
                 homepage=paper_info.get("homepage"),
                 upload_source="daily_arxiv",
             )
+            if affiliations_list:
+                paper.extra["affiliations"] = affiliations_list
 
             # Save metadata
             save_paper_metadata(target_path, paper)

@@ -14,6 +14,7 @@ from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.paper_repository import scan_papers_in_directory
 from resophy.tools.basic_tools.upload_paper import (
+    fetch_arxiv_affiliations,
     process_uploaded_pdf,
     search_arxiv_by_title_only,
 )
@@ -514,6 +515,9 @@ def register_paper_operation_routes(
                                 paper_obj.affiliation = best_match.get(
                                     "affiliation", ""
                                 )
+                                affs = best_match.get("affiliations", [])
+                                if affs and isinstance(affs, list):
+                                    paper_obj.extra["affiliations"] = affs
                                 paper_obj.abstract = best_match.get("abstract", "")
                                 paper_obj.year = best_match.get("year", "")
                                 paper_obj.bibtex = best_match.get("bibtex", "")
@@ -949,6 +953,44 @@ def register_paper_operation_routes(
 
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to start re-crawling: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/paper/<paper_id>/fetch-affiliations", methods=["POST"])
+    def api_fetch_paper_affiliations(paper_id: str):
+        """Fetch author affiliations for a paper (via OpenAlex if arxiv_id is available)."""
+        try:
+            result = find_paper(paper_id)
+            if not result:
+                return jsonify({"success": False, "error": "Paper not found"}), 404
+
+            paper, category_path, category_id = result
+
+            if not paper.arxiv_id:
+                return jsonify({"success": False, "error": "No arXiv ID available for this paper"}), 400
+
+            # Fetch affiliations via OpenAlex (pass title for better fallback matching)
+            affs = fetch_arxiv_affiliations(paper.arxiv_id, title=paper.title)
+
+            if not affs:
+                return jsonify({"success": False, "error": "No affiliations found for this paper"}), 404
+
+            # Update paper
+            paper.affiliation = "; ".join(affs)
+            paper.extra["affiliations"] = affs
+            paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+
+            if paper.file_path:
+                save_paper_metadata(paper.file_path, paper)
+
+            return jsonify({
+                "success": True,
+                "affiliations": affs,
+                "affiliation": paper.affiliation,
+                "message": f"Found {len(affs)} institutions",
+            })
+
+        except Exception as exc:
+            print(f"Fetch affiliations failed: {exc}")
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/api/category/<category_id>/dedup", methods=["POST"])

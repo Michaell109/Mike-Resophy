@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import arxiv
 import PyPDF2
+import requests
 
 from resophy.tools.basic_tools.arxiv_client import get_bibtex_enhanced
 from resophy.tools.basic_tools.pdf_extractor import (
@@ -116,6 +117,91 @@ def _extract_arxiv_id_from_filename(filename: str) -> Optional[str]:
 
 
 # ============================================================================
+# Affiliation helper: fetch author affiliations via OpenAlex API
+# ============================================================================
+
+_OPENALEX_MAILTO = "resophy.app@gmail.com"
+
+
+def _extract_affiliations_from_openalex_work(data: dict) -> List[str]:
+    """Extract unique institution names from an OpenAlex work response."""
+    affiliations: List[str] = []
+    authorships = data.get("authorships", [])
+    for authorship in authorships:
+        for inst in authorship.get("institutions") or []:
+            name = inst.get("display_name", "")
+            if name and name not in affiliations:
+                affiliations.append(name)
+    return affiliations
+
+
+def fetch_arxiv_affiliations(
+    arxiv_id: str, title: Optional[str] = None,
+) -> List[str]:
+    """
+    Fetch author affiliations for an arXiv paper using OpenAlex API.
+
+    OpenAlex is a free, open scholarly index with generous rate limits.
+    Falls back to title-based search if arXiv DOI query yields no data.
+
+    Args:
+        arxiv_id: Normalized arXiv ID (e.g., "2502.05383")
+        title: Optional paper title for fallback search (recommended).
+
+    Returns:
+        List of unique institution names, empty list if not available.
+    """
+    try:
+        # 1. Try by arXiv DOI
+        url = (
+            f"https://api.openalex.org/works/doi:10.48550/arXiv.{arxiv_id}"
+            f"?mailto={_OPENALEX_MAILTO}"
+        )
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            affiliations = _extract_affiliations_from_openalex_work(data)
+            if affiliations:
+                print(
+                    f"[Affiliations] Found {len(affiliations)} institutions for arXiv:{arxiv_id}"
+                )
+                return affiliations
+
+        # 2. Fallback: search by title (may find published version with better data)
+        if title:
+            query = title[:200]
+            search_url = (
+                f"https://api.openalex.org/works"
+                f"?search={requests.utils.quote(query)}"
+                f"&per_page=5&mailto={_OPENALEX_MAILTO}"
+            )
+            resp2 = requests.get(search_url, timeout=10)
+            if resp2.status_code == 200:
+                for item in resp2.json().get("results", []):
+                    affs = _extract_affiliations_from_openalex_work(item)
+                    if affs:
+                        print(
+                            f"[Affiliations] Found {len(affs)} institutions via title search "
+                            f"for arXiv:{arxiv_id}"
+                        )
+                        return affs
+
+        print(f"[Affiliations] No affiliations found for arXiv:{arxiv_id}")
+        return []
+    except Exception as exc:
+        print(f"[Affiliations] OpenAlex fetch failed for {arxiv_id}: {exc}")
+        return []
+
+
+def _add_affiliations_to_result(result: Dict[str, Any], arxiv_id: str) -> None:
+    """Helper: fetch and attach affiliation data to a paper info dict."""
+    title = result.get("title")
+    affiliations = fetch_arxiv_affiliations(arxiv_id, title=title)
+    result["affiliations"] = affiliations
+    result["affiliation"] = "; ".join(affiliations) if affiliations else ""
+
+
+# ============================================================================
 # Way1: pass arXiv ID Get paper information
 # ============================================================================
 
@@ -162,6 +248,9 @@ def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
             "primary_category": paper.primary_category,
             "categories": paper.categories,
         }
+
+        # Fetch affiliations via OpenAlex
+        _add_affiliations_to_result(result, arxiv_id)
 
         print(f"[arXiv Fast] ✅ Successfully obtained the paper: {result['title'][:50]}...")
         return result
@@ -367,6 +456,9 @@ def search_arxiv_by_title_and_author_fast(
             "categories": paper.categories,
         }
 
+        # Fetch affiliations via OpenAlex
+        _add_affiliations_to_result(result, arxiv_id)
+
         print(f"[Way2.3 Fast] ✅ Find matching papers: {result['title'][:50]}...")
         return result
 
@@ -423,6 +515,9 @@ def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
             "primary_category": paper.primary_category,
             "categories": paper.categories,
         }
+
+        # Fetch affiliations via OpenAlex
+        _add_affiliations_to_result(result, arxiv_id)
 
         print(f"[Way2.4 Fast] ✅ Find matching papers: {result['title'][:50]}...")
         return result

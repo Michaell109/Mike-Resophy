@@ -141,6 +141,9 @@ def register_upload_from_pdf_routes(
                     )
                 paper.arxiv_published_date = paper_info.get("published_date")
                 paper.affiliation = paper_info.get("affiliation", "")
+                affs = paper_info.get("affiliations", [])
+                if affs and isinstance(affs, list):
+                    paper.extra["affiliations"] = affs
                 paper.year = paper_info.get("year", "")
                 paper.abstract = paper_info.get("abstract", "")
                 paper.summary = paper_info.get("summary", "")

@@ -264,6 +264,7 @@ def register_update_from_url_routes(
                 or final_arxiv_url,  # priority use metadata in URL, otherwise use the built URL
                 "arxiv_published_date": metadata.get("published_date"),
                 "affiliation": metadata.get("affiliation", ""),
+                "affiliations": metadata.get("affiliations", []),
                 "year": metadata.get("year", ""),
                 "journal": "",
                 "abstract": metadata.get("abstract", ""),
