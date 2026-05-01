@@ -442,7 +442,12 @@ def register_daily_arxiv_routes(
                 safe_title = safe_title.replace(char, "")
             safe_title = safe_title[:100].strip()
 
-            pdf_filename = f"{safe_title}.pdf"
+            paper_year = paper_info.get("year", "")
+            if paper_year:
+                safe_year = str(paper_year).replace("/", "_").replace("\\", "_").strip()
+                pdf_filename = f"{safe_year}_{safe_title}.pdf"
+            else:
+                pdf_filename = f"{safe_title}.pdf"
             target_path = os.path.join(folder_path, pdf_filename)
 
             # Check if it already exists: if it already exists, reuse the existing one Paper, instead of reporting an error

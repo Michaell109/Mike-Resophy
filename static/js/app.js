@@ -1407,6 +1407,15 @@ async function showAnalyzingPapers() {
 }
 
 // generate thesis itemsHTML（table layout）
+function getPaperDisplayName(paper) {
+    const year = paper.year;
+    const title = paper.title || '';
+    if (year && title && !title.startsWith(year + '_')) {
+        return year + '_' + title;
+    }
+    return title || paper.filename || '';
+}
+
 function generatePaperItemHTML(paper, showCheckbox = false) {
     const isSelected = selectedPaperIds.has(paper.id);
     
@@ -1423,9 +1432,10 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     const refBadge = paper.is_reference_paper
         ? '<span class="reference-paper-badge">REF</span>'
         : '';
+    const displayName = getPaperDisplayName(paper);
     const titleCol = `
-        <div class="paper-col-title" title="${paper.title || paper.filename}">
-            ${paper.title || paper.filename}${refBadge}${readTimeText}
+        <div class="paper-col-title" title="${displayName}">
+            ${displayName}${refBadge}${readTimeText}
         </div>
     `;
     
@@ -1677,7 +1687,7 @@ function renderPaperInfo(paper) {
     paperInfo.innerHTML = `
         <div class="paper-info-container compact-mode">
             <!-- Basic information -->
-            ${createExpandableTextBlock('title', paper.title, 'title', false, false, true)}
+            ${createExpandableTextBlock('title', getPaperDisplayName(paper), 'title', false, false, true)}
             ${createExpandableTextBlock('author', paper.authors, 'authors', false, false, true)}
             ${paper.arxiv_id || paper.arxiv_url ? `
             <div class="info-section compact">
@@ -7226,7 +7236,7 @@ function renderRecentActivity() {
                             <i class="fas fa-file-pdf"></i>
                         </div>
                         <div class="recent-item-content">
-                            <div class="recent-item-title">${escapeHtml(paper.title || paper.filename)}</div>
+                            <div class="recent-item-title">${escapeHtml(getPaperDisplayName(paper))}</div>
                             <div class="recent-item-meta">${readTimeDisplay}</div>
                         </div>
                         <div class="recent-item-time">${timeAgo}</div>
@@ -12313,7 +12323,7 @@ function renderDailyArxivGrid() {
                     </div>
                 </div>
                 <div class="daily-arxiv-card-body">
-                    <div class="daily-arxiv-card-title" title="${escapeHtml(paper.title)}">${highlight(paper.title)}</div>
+                    <div class="daily-arxiv-card-title" title="${escapeHtml(paper.announced ? paper.announced.substring(0,4) + '_' + paper.title : paper.title)}">${highlight(paper.announced ? paper.announced.substring(0,4) + '_' + paper.title : paper.title)}</div>
                     <div class="daily-arxiv-card-authors" title="${escapeHtml(paper.authors)}">${highlight(authors)}</div>
                     ${paper.affiliations && paper.affiliations.length > 0 ? `
                         <div class="daily-arxiv-card-affiliations">
@@ -12925,7 +12935,7 @@ function showDailyArxivDetail(index) {
         <div class="daily-arxiv-detail-modal" onclick="if(event.target === this) closeDailyArxivDetail()">
             <div class="daily-arxiv-detail-content">
                 <div class="daily-arxiv-detail-header">
-                    <h3>${escapeHtml(paper.title)}</h3>
+                    <h3>${escapeHtml(paper.announced ? paper.announced.substring(0,4) + '_' + paper.title : paper.title)}</h3>
                     <button class="daily-arxiv-detail-close" onclick="closeDailyArxivDetail()">
                         <i class="fas fa-times"></i>
                     </button>

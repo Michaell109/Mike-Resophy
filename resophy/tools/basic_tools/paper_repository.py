@@ -2,12 +2,51 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import datetime
 from typing import Iterable, List, Optional
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import paper_store
+
+
+def _clean_filename(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    cleaned = text
+    cleaned = re.sub(r'[<>:"/\\|?*]', "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > 100:
+        cleaned = cleaned[:100] + "..."
+    return cleaned or None
+
+
+def generate_paper_filename(
+    *,
+    title: Optional[str] = None,
+    year: Optional[str] = None,
+    arxiv_id: Optional[str] = None,
+) -> str:
+    """Generate a paper filename in {year}_{title}.pdf format.
+
+    Fallback order: year+title -> title -> year+arxiv_id -> arxiv_id -> uuid.
+    """
+    import uuid as _uuid
+
+    clean_title = _clean_filename(title)
+    clean_year = _clean_filename(year) if year else None
+    safe_arxiv_id = arxiv_id.replace("/", "_").replace(":", "_") if arxiv_id else None
+
+    if clean_title and clean_year:
+        return f"{clean_year}_{clean_title}.pdf"
+    if clean_title:
+        return f"{clean_title}.pdf"
+    if safe_arxiv_id and clean_year:
+        return f"{clean_year}_{safe_arxiv_id}.pdf"
+    if safe_arxiv_id:
+        return f"{safe_arxiv_id}.pdf"
+    return f"paper_{_uuid.uuid4().hex[:8]}.pdf"
 
 
 def get_paper_json_path(pdf_path: str) -> str:
@@ -38,6 +77,106 @@ def load_paper_metadata(pdf_path: str) -> Optional[Paper]:
     except Exception as exc:
         print(f"Failed to load article metadata: {exc}")
     return None
+
+
+def _rename_paper_files(
+    old_pdf_path: str,
+    new_pdf_path: str,
+) -> bool:
+    """Rename a paper's PDF, JSON, Chinese version, translate log, and outputs dir.
+
+    Returns True if the PDF was successfully renamed.
+    """
+    pdf_dir = os.path.dirname(old_pdf_path)
+    old_base = os.path.splitext(os.path.basename(old_pdf_path))[0]
+    new_base = os.path.splitext(os.path.basename(new_pdf_path))[0]
+
+    try:
+        # Rename PDF
+        os.rename(old_pdf_path, new_pdf_path)
+    except Exception as exc:
+        print(f"[Rename] Failed to rename PDF: {exc}")
+        return False
+
+    # Rename JSON
+    old_json = os.path.join(pdf_dir, f"{old_base}.json")
+    new_json = os.path.join(pdf_dir, f"{new_base}.json")
+    if os.path.exists(old_json):
+        try:
+            os.rename(old_json, new_json)
+        except Exception as exc:
+            print(f"[Rename] Failed to rename JSON: {exc}")
+
+    # Rename Chinese versions and translate log
+    for suffix in [".zh.dual.pdf", ".zh.mono.pdf", ".translate.log"]:
+        old_assoc = os.path.join(pdf_dir, f"{old_base}{suffix}")
+        new_assoc = os.path.join(pdf_dir, f"{new_base}{suffix}")
+        if os.path.exists(old_assoc) and old_assoc != new_assoc:
+            try:
+                os.rename(old_assoc, new_assoc)
+            except Exception as exc:
+                print(f"[Rename] Failed to rename {suffix}: {exc}")
+
+    # Rename outputs directory
+    outputs_dir = os.path.join(pdf_dir, "outputs")
+    if os.path.exists(outputs_dir):
+        for item in os.listdir(outputs_dir):
+            item_path = os.path.join(outputs_dir, item)
+            if os.path.isdir(item_path) and old_base in item:
+                new_item_name = item.replace(old_base, new_base)
+                new_item_path = os.path.join(outputs_dir, new_item_name)
+                if item_path != new_item_path:
+                    try:
+                        os.rename(item_path, new_item_path)
+                    except Exception as exc:
+                        print(f"[Rename] Failed to rename outputs/{item}: {exc}")
+
+    return True
+
+
+def _try_rename_to_year_format(
+    paper: Paper,
+    pdf_path: str,
+    directory_path: str,
+) -> tuple:
+    """If paper has year but filename lacks year prefix, rename to {year}_{title}.pdf.
+
+    Returns (new_pdf_path, new_filename) — either the updated or original values.
+    """
+    if not paper.year or not paper.title:
+        return pdf_path, os.path.basename(pdf_path)
+
+    filename = os.path.basename(pdf_path)
+    base_name = os.path.splitext(filename)[0]
+
+    # Check if filename already starts with the year prefix
+    year_str = _clean_filename(paper.year)
+    if year_str and base_name.startswith(f"{year_str}_"):
+        return pdf_path, filename
+
+    # Generate new filename
+    new_filename = generate_paper_filename(
+        title=paper.title, year=paper.year, arxiv_id=paper.arxiv_id
+    )
+    new_pdf_path = os.path.join(directory_path, new_filename)
+
+    # Handle collision
+    counter = 1
+    original_new_filename = new_filename
+    while os.path.exists(new_pdf_path) and new_pdf_path != pdf_path:
+        name, ext = os.path.splitext(original_new_filename)
+        new_filename = f"{name}_{counter}{ext}"
+        new_pdf_path = os.path.join(directory_path, new_filename)
+        counter += 1
+
+    if new_pdf_path == pdf_path:
+        return pdf_path, filename
+
+    if _rename_paper_files(pdf_path, new_pdf_path):
+        print(f"[Rename] {filename} -> {new_filename}")
+        return new_pdf_path, new_filename
+
+    return pdf_path, filename
 
 
 def delete_paper_files(pdf_path: str) -> None:
@@ -101,6 +240,9 @@ def scan_papers_in_directory(
         paper = load_paper_metadata(pdf_path)
 
         if paper:
+            paper.sync_filesystem(pdf_path, filename)
+            # Auto-rename to year_title format if needed
+            pdf_path, filename = _try_rename_to_year_format(paper, pdf_path, directory_path)
             paper.sync_filesystem(pdf_path, filename)
         else:
             paper = Paper.create_default(

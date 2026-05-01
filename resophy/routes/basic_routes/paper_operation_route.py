@@ -842,11 +842,14 @@ def register_paper_operation_routes(
                             return cleaned[:200] if cleaned else None
 
                         clean_title = _clean_filename(metadata["title"])
-                        if (
-                            clean_title
-                            and clean_title != os.path.splitext(current_filename)[0]
-                        ):
-                            new_filename = f"{clean_title}.pdf"
+                        clean_year = _clean_filename(metadata.get("year", ""))
+                        if clean_title:
+                            if clean_year:
+                                new_base = f"{clean_year}_{clean_title}"
+                            else:
+                                new_base = clean_title
+                            if new_base != os.path.splitext(current_filename)[0]:
+                                new_filename = f"{new_base}.pdf"
                             new_file_path = os.path.join(category_folder, new_filename)
 
                             counter = 1
@@ -865,6 +868,8 @@ def register_paper_operation_routes(
                             # Rename file
                             if new_file_path != file_path:
                                 try:
+                                    old_base = os.path.splitext(current_filename)[0]
+                                    new_base = os.path.splitext(new_filename)[0]
                                     # move simultaneously JSON document
                                     old_json_path = get_paper_json_path(file_path)
                                     new_json_path = get_paper_json_path(new_file_path)
@@ -877,6 +882,16 @@ def register_paper_operation_routes(
                                     if os.path.exists(old_json_path):
                                         os.rename(old_json_path, new_json_path)
                                         print(f"[Re-crawl] JSON File has been renamed")
+
+                                    # Rename Chinese version files
+                                    for suffix in [".zh.dual.pdf", ".zh.mono.pdf", ".translate.log"]:
+                                        old_assoc = os.path.join(category_folder, f"{old_base}{suffix}")
+                                        new_assoc = os.path.join(category_folder, f"{new_base}{suffix}")
+                                        if os.path.exists(old_assoc) and old_assoc != new_assoc:
+                                            try:
+                                                os.rename(old_assoc, new_assoc)
+                                            except Exception:
+                                                pass
 
                                 except Exception as exc:  # noqa: BLE001
                                     print(f"[Re-crawl] Rename failed: {exc}")

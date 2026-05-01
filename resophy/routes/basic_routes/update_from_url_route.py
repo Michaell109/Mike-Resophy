@@ -15,6 +15,7 @@ from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.paper_repository import (
     _find_source_paper_for_inherit,
+    generate_paper_filename,
     inherit_chinese_and_analysis,
 )
 from resophy.tools.basic_tools.upload_paper import (
@@ -85,17 +86,6 @@ def _download_arxiv_pdf(arxiv_id: str) -> Optional[tuple[bytes, str]]:
 
     print(f"all URL All downloads failed")
     return None
-
-
-def _clean_filename(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    cleaned = text
-    cleaned = re.sub(r'[<>:"/\\|?*]', "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) > 100:
-        cleaned = cleaned[:100] + "..."
-    return cleaned or None
 
 
 def register_update_from_url_routes(
@@ -229,27 +219,30 @@ def register_update_from_url_routes(
                 print(f"successfully from arXiv API Get paper information: {metadata.get('title')}")
 
             new_filename = filename
-            if metadata.get("title"):
-                clean_title = _clean_filename(metadata["title"])
-                if clean_title:
-                    new_filename = f"{clean_title}.pdf"
+            paper_year = metadata.get("year", "")
+            paper_title = metadata.get("title")
+            paper_arxiv_id = arxiv_id
+            if paper_title or paper_arxiv_id:
+                new_filename = generate_paper_filename(
+                    title=paper_title, year=paper_year, arxiv_id=paper_arxiv_id
+                )
+                new_file_path = os.path.join(category_folder, new_filename)
+
+                counter = 1
+                original_new_filename = new_filename
+                while os.path.exists(new_file_path):
+                    name, ext = os.path.splitext(original_new_filename)
+                    new_filename = f"{name}_{counter}{ext}"
                     new_file_path = os.path.join(category_folder, new_filename)
+                    counter += 1
 
-                    counter = 1
-                    original_new_filename = new_filename
-                    while os.path.exists(new_file_path):
-                        name, ext = os.path.splitext(original_new_filename)
-                        new_filename = f"{name}_{counter}{ext}"
-                        new_file_path = os.path.join(category_folder, new_filename)
-                        counter += 1
-
-                    try:
-                        os.rename(file_path, new_file_path)
-                        file_path = new_file_path
-                        filename = new_filename
-                        print(f"File has been renamed to: {filename}")
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"Failed to rename file: {exc}")
+                try:
+                    os.rename(file_path, new_file_path)
+                    file_path = new_file_path
+                    filename = new_filename
+                    print(f"File has been renamed to: {filename}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Failed to rename file: {exc}")
 
             paper_id = str(uuid.uuid4())
             # Build arXiv URL(Priority is given to using user-provided URL, otherwise according to arxiv_id build)

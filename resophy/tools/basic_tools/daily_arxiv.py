@@ -171,6 +171,12 @@ class ArxivPaper:
     local_pdf_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
 
+    @property
+    def year(self) -> str:
+        """Extract publication year as string."""
+        dt = self.announced or self.published
+        return str(dt.year) if dt else ""
+
     # Institutional information
     affiliations: List[str] = field(default_factory=list)
     countries: List[str] = field(
@@ -303,6 +309,25 @@ class ArxivPaper:
             fetch_category=fetch_category,
             fetch_date=get_today_arxiv_date(),
         )
+
+
+def _arxiv_paper_basename(paper_or_id, year: str = "") -> str:
+    """Generate file basename for daily arxiv papers in {year}_{arxiv_id} format.
+
+    Args:
+        paper_or_id: An ArxivPaper instance or an arxiv_id string.
+        year: Year string (used only when paper_or_id is a string).
+    """
+    if isinstance(paper_or_id, ArxivPaper):
+        arxiv_id = paper_or_id.arxiv_id
+        year_str = paper_or_id.year
+    else:
+        arxiv_id = str(paper_or_id)
+        year_str = year
+    safe_id = arxiv_id.replace("/", "_").replace(":", "_")
+    if year_str:
+        return f"{year_str}_{safe_id}"
+    return safe_id
 
 
 class FetchProgress:
@@ -562,15 +587,17 @@ class DailyArxivManager:
             return
 
         incomplete_count = 0
+        # Extract year from date_str (e.g. "2025-04-30" -> "2025")
+        year_from_date = date_str[:4] if date_str and len(date_str) >= 4 else ""
         for arxiv_id, download_status in list(status.items()):
             if download_status == "downloading":
                 print(
                     f"[DailyArxiv] Incomplete download detected: {arxiv_id}, clean related files..."
                 )
-                safe_id = arxiv_id.replace("/", "_").replace(":", "_")
+                basename = _arxiv_paper_basename(arxiv_id, year=year_from_date)
 
                 # delete PDF document
-                pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
+                pdf_path = os.path.join(cat_dir, f"{basename}.pdf")
                 if os.path.exists(pdf_path):
                     try:
                         os.remove(pdf_path)
@@ -579,7 +606,7 @@ class DailyArxivManager:
                         print(f"[DailyArxiv] delete PDF fail: {e}")
 
                 # Delete thumbnail
-                thumbnail_path = os.path.join(cat_dir, f"{safe_id}_thumbnail.jpg")
+                thumbnail_path = os.path.join(cat_dir, f"{basename}_thumbnail.jpg")
                 if os.path.exists(thumbnail_path):
                     try:
                         os.remove(thumbnail_path)
@@ -587,7 +614,7 @@ class DailyArxivManager:
                         pass
 
                 # delete JSON metadata file
-                json_path = os.path.join(cat_dir, f"{safe_id}.json")
+                json_path = os.path.join(cat_dir, f"{basename}.json")
                 if os.path.exists(json_path):
                     try:
                         os.remove(json_path)
@@ -699,12 +726,13 @@ class DailyArxivManager:
                                     continue
                             else:
                                 # if JSON None PDF path, trying to infer from the filename
-                                safe_id = (
-                                    arxiv_id.replace("/", "_").replace(":", "_")
-                                    if arxiv_id
-                                    else filename[:-5]
-                                )
-                                pdf_path = os.path.join(cat_dir, f"{safe_id}.pdf")
+                                if arxiv_id:
+                                    announced_str = paper_data.get("announced", "")
+                                    inf_year = announced_str[:4] if announced_str and len(announced_str) >= 4 else ""
+                                    basename = _arxiv_paper_basename(arxiv_id, year=inf_year)
+                                else:
+                                    basename = filename[:-5]
+                                pdf_path = os.path.join(cat_dir, f"{basename}.pdf")
                                 if not os.path.exists(pdf_path):
                                     # No PDF File, skipped (possibly an incomplete download)
                                     continue
@@ -984,9 +1012,9 @@ Now the input abstract is:
                     paper_status = download_status.get(paper.arxiv_id)
 
                     # Check if the paper exists and has been downloaded
-                    safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
-                    json_path = os.path.join(paper_cat_dir, f"{safe_id}.json")
-                    pdf_path = os.path.join(paper_cat_dir, f"{safe_id}.pdf")
+                    basename = _arxiv_paper_basename(paper)
+                    json_path = os.path.join(paper_cat_dir, f"{basename}.json")
+                    pdf_path = os.path.join(paper_cat_dir, f"{basename}.pdf")
 
                     if (
                         not force
@@ -1272,8 +1300,8 @@ Now the input abstract is:
         from resophy.tools.basic_tools.parallel_downloader import RateLimitError
 
         try:
-            safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
-            pdf_filename = f"{safe_id}.pdf"
+            basename = _arxiv_paper_basename(paper)
+            pdf_filename = f"{basename}.pdf"
             pdf_path = os.path.join(cat_dir, pdf_filename)
 
             # If the file already exists, delete it (because it has been marked downloading, indicating that the previous download was not completed)
@@ -1353,8 +1381,8 @@ Now the input abstract is:
             progress: Progress tracking object (optional) used to update the file size during the download process
         """
         try:
-            safe_id = paper.arxiv_id.replace("/", "_").replace(":", "_")
-            pdf_filename = f"{safe_id}.pdf"
+            basename = _arxiv_paper_basename(paper)
+            pdf_filename = f"{basename}.pdf"
             pdf_path = os.path.join(cat_dir, pdf_filename)
 
             # If the file already exists, delete it (because it has been marked downloading, indicating that the previous download was not completed)
@@ -1559,8 +1587,10 @@ Now the input abstract is:
     def _save_paper(self, paper_dict: Dict, cat_dir: str):
         """Save article metadata"""
         arxiv_id = paper_dict.get("arxiv_id", "unknown")
-        safe_id = arxiv_id.replace("/", "_").replace(":", "_")
-        json_path = os.path.join(cat_dir, f"{safe_id}.json")
+        announced_str = paper_dict.get("announced", "")
+        year_str = announced_str[:4] if announced_str and len(announced_str) >= 4 else ""
+        basename = _arxiv_paper_basename(arxiv_id, year=year_str)
+        json_path = os.path.join(cat_dir, f"{basename}.json")
 
         try:
             with open(json_path, "w", encoding="utf-8") as f:

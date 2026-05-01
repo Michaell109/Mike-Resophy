@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 import uuid
 from datetime import datetime
@@ -15,6 +14,7 @@ from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.paper_repository import (
     _find_source_paper_for_inherit,
+    generate_paper_filename,
     inherit_chinese_and_analysis,
 )
 from resophy.tools.basic_tools.upload_paper import (
@@ -42,17 +42,6 @@ class CreateCategoryFolderFn(Protocol):
 
 class SavePaperMetadataFn(Protocol):
     def __call__(self, pdf_path: str, paper: Paper) -> None: ...
-
-
-def _clean_filename(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    cleaned = text
-    cleaned = re.sub(r'[<>:"/\\|?*]', "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) > 100:
-        cleaned = cleaned[:100] + "..."
-    return cleaned or None
 
 
 def register_upload_from_pdf_routes(
@@ -106,32 +95,35 @@ def register_upload_from_pdf_routes(
                 print("[Backstage] Unable to obtain paper information, keep original file name")
                 paper_info = {}
 
-            # Rename files based on title
+            # Rename files based on year_title
             current_filename = os.path.basename(file_path)
             new_filename = current_filename
             new_file_path = file_path
 
-            if paper_info.get("title"):
-                clean_title = _clean_filename(paper_info["title"])
-                if clean_title:
-                    new_filename = f"{clean_title}.pdf"
+            paper_year = paper_info.get("year", "")
+            paper_title = paper_info.get("title")
+            paper_arxiv_id = paper_info.get("arxiv_id")
+            if paper_title or paper_arxiv_id:
+                new_filename = generate_paper_filename(
+                    title=paper_title, year=paper_year, arxiv_id=paper_arxiv_id
+                )
+                new_file_path = os.path.join(category_folder, new_filename)
+
+                counter = 1
+                original_new_filename = new_filename
+                while os.path.exists(new_file_path):
+                    name, ext = os.path.splitext(original_new_filename)
+                    new_filename = f"{name}_{counter}{ext}"
                     new_file_path = os.path.join(category_folder, new_filename)
+                    counter += 1
 
-                    counter = 1
-                    original_new_filename = new_filename
-                    while os.path.exists(new_file_path):
-                        name, ext = os.path.splitext(original_new_filename)
-                        new_filename = f"{name}_{counter}{ext}"
-                        new_file_path = os.path.join(category_folder, new_filename)
-                        counter += 1
-
-                    try:
-                        os.rename(file_path, new_file_path)
-                        print(f"[Backstage] File has been renamed to: {new_filename}")
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"[Backstage] Failed to rename file: {exc}")
-                        new_file_path = file_path
-                        new_filename = current_filename
+                try:
+                    os.rename(file_path, new_file_path)
+                    print(f"[Backstage] File has been renamed to: {new_filename}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Backstage] Failed to rename file: {exc}")
+                    new_file_path = file_path
+                    new_filename = current_filename
 
             # 【stage1】Update now Paper object(arXiv information)
             paper = paper_store.get(paper_id)

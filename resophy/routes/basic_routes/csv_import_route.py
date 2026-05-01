@@ -24,6 +24,7 @@ from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.paper_repository import (
     _find_source_paper_for_inherit,
+    generate_paper_filename,
     inherit_chinese_and_analysis,
 )
 
@@ -115,17 +116,6 @@ def _resolve_link(link: str) -> Optional[Dict[str, Any]]:
     else:
         print(f"[CSV Import] Unsupported link type: {link}")
         return None
-
-
-def _clean_filename(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    cleaned = text
-    cleaned = re.sub(r'[<>:"/\\|?*]', "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) > 100:
-        cleaned = cleaned[:100] + "..."
-    return cleaned or None
 
 
 def _download_pdf(pdf_urls, timeout: int = 60) -> Optional[bytes]:
@@ -246,13 +236,10 @@ def _csv_import_task(
         if existing_entry and existing_entry.paper.file_path and os.path.exists(existing_entry.paper.file_path):
             existing_paper = existing_entry.paper
             # Determine target filename
-            clean_title = _clean_filename(title)
-            if clean_title:
-                pdf_filename = f"{clean_title}.pdf"
-            elif arxiv_id:
-                pdf_filename = f"{arxiv_id}.pdf"
-            else:
-                pdf_filename = f"paper_{uuid.uuid4().hex[:8]}.pdf"
+            csv_year = (row.get("Year") or "").strip()
+            pdf_filename = generate_paper_filename(
+                title=title, year=csv_year, arxiv_id=arxiv_id
+            )
 
             file_path = os.path.join(category_folder, pdf_filename)
 
@@ -379,13 +366,10 @@ def _csv_import_task(
             pdf_content = result.result
 
             # Determine filename
-            clean_title = _clean_filename(title)
-            if clean_title:
-                pdf_filename = f"{clean_title}.pdf"
-            elif arxiv_id:
-                pdf_filename = f"{arxiv_id}.pdf"
-            else:
-                pdf_filename = f"paper_{uuid.uuid4().hex[:8]}.pdf"
+            csv_year = (row.get("Year") or "").strip()
+            pdf_filename = generate_paper_filename(
+                title=title, year=csv_year, arxiv_id=arxiv_id
+            )
 
             file_path = os.path.join(category_folder, pdf_filename)
 

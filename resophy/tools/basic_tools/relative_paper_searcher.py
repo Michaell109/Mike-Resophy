@@ -2751,13 +2751,19 @@ def search_related_papers(
             progress.paper_status[cp_key] = "downloading"
 
             safe_title = _sanitize_filename(cp.title)
-            pdf_filename = f"{safe_title}.pdf"
+            safe_year = _sanitize_filename(cp.year) if cp.year else ""
+            if safe_year and safe_title:
+                pdf_filename = f"{safe_year}_{safe_title}.pdf"
+            else:
+                pdf_filename = f"{safe_title}.pdf"
             target_path = os.path.join(target_dir, pdf_filename)
 
             # Handle duplicate filenames
             counter = 1
+            base_pdf_filename = pdf_filename
             while os.path.exists(target_path):
-                pdf_filename = f"{safe_title}_{counter}.pdf"
+                name, ext = os.path.splitext(base_pdf_filename)
+                pdf_filename = f"{name}_{counter}{ext}"
                 target_path = os.path.join(target_dir, pdf_filename)
                 counter += 1
 

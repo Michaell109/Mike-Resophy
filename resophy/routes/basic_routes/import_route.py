@@ -422,11 +422,14 @@ def register_import_routes(
             return False
 
         # Check if there is a name with the same name PDF or JSON
+        # Match both {title}.pdf and {year}_{title}.pdf formats
         expected_pdf = f"{clean_title}.pdf"
-        expected_json = f"{clean_title}.json"
 
         for filename in os.listdir(folder_path):
             if filename.lower() == expected_pdf.lower():
+                return True
+            # Also match {year}_{title}.pdf format
+            if filename.lower().endswith(f"_{clean_title.lower()}.pdf"):
                 return True
             # Also check JSON title in file
             if filename.endswith(".json"):
@@ -758,9 +761,14 @@ def register_import_routes(
                     # Create category folder and save PDF(use full path)
                     category_folder = create_category_folder(folder_path_parts)
 
-                    # Use the paper title as the file name
-                    clean_title = _clean_filename(paper_info.get("title"))
-                    if clean_title:
+                    # Use year_title as the file name
+                    paper_year = paper_info.get("year", "")
+                    paper_title = paper_info.get("title")
+                    clean_title = _clean_filename(paper_title)
+                    clean_year = _clean_filename(paper_year) if paper_year else None
+                    if clean_title and clean_year:
+                        pdf_filename = f"{clean_year}_{clean_title}.pdf"
+                    elif clean_title:
                         pdf_filename = f"{clean_title}.pdf"
 
                     file_path = os.path.join(category_folder, pdf_filename)
