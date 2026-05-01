@@ -26,10 +26,15 @@ Rules:
 7. Output ONLY the translated text, no explanations or notes
 """
 
-# Max conversation tokens before reset (DeepSeek 64K context, leave headroom)
-MAX_CONVERSATION_TOKENS = 50000
+# Number of segments to translate in a single API call.
+# Automatically halves on parse failure (20 -> 10 -> 5 -> 2 -> 1).
+BATCH_SIZE = 20
+
+# Max conversation tokens before reset. Model supports ~1M context; leave generous
+# headroom for the response and per-message overhead.
+MAX_CONVERSATION_TOKENS = 800000
 # Number of recent turns to keep when resetting conversation
-RESET_KEEP_TURNS = 3
+RESET_KEEP_TURNS = 10
 
 
 @dataclass
@@ -197,89 +202,211 @@ def bilingual_translate_task(
 
         client = OpenAI(api_key=openai_api_key, base_url=openai_base_url)
 
-        # Translate segments using multi-turn conversation for cache hit
+        # Translate segments in batches with automatic size backoff.
+        # Tries BATCH_SIZE first; halves on parse failure.
         translated_segments = []
-        conversation_messages = []  # Accumulated [user, assistant, user, assistant, ...]
+        conversation_messages = []  # [system, user, assistant, user, assistant, ...]
         conversation_token_estimate = 0
 
         def estimate_tokens(text: str) -> int:
-            # Rough estimate: ~1.5 tokens per Chinese char, ~1 token per English word
             return int(len(text) * 0.7)
 
-        for i, segment in enumerate(segments):
-            # Check if task was cancelled
+        def parse_batch_translations(
+            text: str, expected_count: int
+        ) -> dict[int, str] | None:
+            """Parse batch LLM response into {index: translation} dict."""
+            text = text.strip()
+
+            # Try direct JSON parse first
+            try:
+                data = json.loads(text)
+                if isinstance(data, dict) and "translations" in data:
+                    result = {}
+                    for item in data["translations"]:
+                        if isinstance(item, dict) and "index" in item and "translated" in item:
+                            result[int(item["index"])] = item["translated"]
+                    if len(result) == expected_count:
+                        return result
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                pass
+
+            # Try extracting JSON from code block or inline
+            for pattern in [
+                r"```(?:json)?\s*\n?(.*?)\n?```",
+                r"\{[^{}]*\"translations\"[^{}]*\}",
+            ]:
+                for m in re.finditer(pattern, text, re.DOTALL):
+                    try:
+                        data = json.loads(m.group(0) if m.lastindex is None else m.group(1))
+                        if isinstance(data, dict) and "translations" in data:
+                            result = {
+                                int(item["index"]): item["translated"]
+                                for item in data["translations"]
+                            }
+                            if len(result) == expected_count:
+                                return result
+                    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                        continue
+
+            return None
+
+        class _Cancelled(Exception):
+            pass
+
+        def _check_cancelled() -> None:
             with deps.bilingual_tasks_lock:
                 if deps.bilingual_tasks[task_id].get("status") == "cancelled":
-                    log("Task cancelled")
-                    return
+                    raise _Cancelled()
 
-            with log_lock:
-                log_lines.append(f"Translating segment {i + 1}/{len(segments)}...")
-
-            # Check if conversation is approaching token limit — reset if needed
-            next_input_estimate = conversation_token_estimate + estimate_tokens(segment["content"])
-            if next_input_estimate > MAX_CONVERSATION_TOKENS and len(conversation_messages) > RESET_KEEP_TURNS * 2:
-                # Keep only the last RESET_KEEP_TURNS turns (pairs of user+assistant)
-                keep_msg_count = RESET_KEEP_TURNS * 2
-                kept = conversation_messages[-keep_msg_count:]
-                conversation_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + kept
-                conversation_token_estimate = sum(estimate_tokens(m["content"]) for m in conversation_messages)
-                log(f"Conversation approaching limit, reset to last {RESET_KEEP_TURNS} turns")
-
-            # Build messages for this call
-            if not conversation_messages:
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": segment["content"]},
-                ]
-            else:
-                messages = conversation_messages + [{"role": "user", "content": segment["content"]}]
-
-            try:
-                response = client.chat.completions.create(
-                    model=llm_model,
-                    messages=messages,
-                    temperature=0.3,
-                )
-                translated = response.choices[0].message.content.strip()
-            except Exception as e:
-                log(f"Translation failed for segment {i + 1}: {e}")
-                translated = f"[Translation failed: {e}]"
-
-            # Update conversation history
-            if not conversation_messages:
-                conversation_messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": segment["content"]},
-                    {"role": "assistant", "content": translated},
-                ]
-            else:
-                conversation_messages.append({"role": "user", "content": segment["content"]})
-                conversation_messages.append({"role": "assistant", "content": translated})
-            conversation_token_estimate += estimate_tokens(segment["content"]) + estimate_tokens(translated)
-
-            translated_segments.append(
-                {
-                    "original": segment["content"],
-                    "translated": translated,
-                    "type": segment["type"],
-                }
-            )
-
-            # Incremental save
+        def _save_and_report() -> None:
+            """Incremental save + progress update."""
             try:
                 with open(bilingual_json_path, "w", encoding="utf-8") as f:
                     json.dump(translated_segments, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 log(f"Failed to save intermediate result: {e}")
-
-            # Update progress
             with deps.bilingual_tasks_lock:
                 deps.bilingual_tasks[task_id]["progress"] = {
-                    "current": i + 1,
+                    "current": len(translated_segments),
                     "total": len(segments),
                 }
 
+        def _ensure_conversation_space(needed_tokens: int) -> None:
+            """Reset conversation history if approaching 1M token limit."""
+            nonlocal conversation_token_estimate
+            if (
+                conversation_token_estimate + needed_tokens > MAX_CONVERSATION_TOKENS
+                and len(conversation_messages) > RESET_KEEP_TURNS * 2 + 1
+            ):
+                keep_count = RESET_KEEP_TURNS * 2
+                kept = conversation_messages[-keep_count:]
+                conversation_messages.clear()
+                conversation_messages.append({"role": "system", "content": SYSTEM_PROMPT})
+                conversation_messages.extend(kept)
+                conversation_token_estimate = sum(
+                    estimate_tokens(m["content"]) for m in conversation_messages
+                )
+                log(
+                    f"Conversation reset to last {RESET_KEEP_TURNS} turns "
+                    f"(~{conversation_token_estimate} tokens)"
+                )
+
+        def _try_batch(group: list) -> bool:
+            """Translate a group of segments in one LLM call. Returns success."""
+            _check_cancelled()
+            _ensure_conversation_space(
+                estimate_tokens("\n".join(s["content"] for s in group))
+            )
+
+            batch_parts = [
+                f"---SEGMENT {j}---\n{s['content']}"
+                for j, s in enumerate(group)
+            ]
+            user_content = (
+                "Translate the following academic paper segments to Chinese.\n\n"
+                "IMPORTANT: Return ONLY valid JSON (no other text) in this exact format:\n"
+                '{"translations": [{"index": 0, "translated": "..."}, '
+                '{"index": 1, "translated": "..."}]}\n\n'
+                + "\n\n".join(batch_parts)
+            )
+
+            if not conversation_messages:
+                msgs = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ]
+            else:
+                msgs = conversation_messages + [
+                    {"role": "user", "content": user_content}
+                ]
+
+            try:
+                response = client.chat.completions.create(
+                    model=llm_model,
+                    messages=msgs,
+                    temperature=0.3,
+                )
+                resp_text = response.choices[0].message.content.strip()
+                translations = parse_batch_translations(resp_text, len(group))
+                if translations is None:
+                    return False
+
+                for j, seg in enumerate(group):
+                    translated_segments.append(
+                        {
+                            "original": seg["content"],
+                            "translated": translations.get(j, "[Translation failed]"),
+                            "type": seg["type"],
+                        }
+                    )
+
+                nonlocal conversation_token_estimate
+
+                if not conversation_messages:
+                    conversation_messages.extend(
+                        [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_content},
+                            {"role": "assistant", "content": resp_text},
+                        ]
+                    )
+                else:
+                    conversation_messages.append(
+                        {"role": "user", "content": user_content}
+                    )
+                    conversation_messages.append(
+                        {"role": "assistant", "content": resp_text}
+                    )
+                conversation_token_estimate += estimate_tokens(
+                    user_content
+                ) + estimate_tokens(resp_text)
+
+                _save_and_report()
+                return True
+            except Exception:
+                return False
+
+        def _translate_group(group: list, batch_size: int) -> None:
+            """Translate group with automatic size backoff on failure."""
+            _check_cancelled()
+            if not group:
+                return
+
+            if batch_size >= len(group):
+                if _try_batch(group):
+                    return
+
+                if batch_size == 1:
+                    # Single segment failed even individually
+                    seg = group[0]
+                    translated_segments.append(
+                        {
+                            "original": seg["content"],
+                            "translated": "[Translation failed]",
+                            "type": seg["type"],
+                        }
+                    )
+                    _save_and_report()
+                    return
+
+                # Split in half and retry with smaller batch size
+                mid = len(group) // 2
+                log(
+                    f"Batch of {len(group)} failed, splitting into "
+                    f"{len(group[:mid])} + {len(group[mid:])} "
+                    f"(next size: {max(1, batch_size // 2)})"
+                )
+                _translate_group(group[:mid], max(1, batch_size // 2))
+                _translate_group(group[mid:], max(1, batch_size // 2))
+            else:
+                for i in range(0, len(group), batch_size):
+                    _translate_group(group[i : i + batch_size], batch_size)
+
+        log(
+            f"Starting batch translation "
+            f"(initial size={BATCH_SIZE}, {len(segments)} segments)"
+        )
+        _translate_group(segments, BATCH_SIZE)
         log(f"Translation complete: {len(translated_segments)} segments")
 
         # Update paper metadata

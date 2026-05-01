@@ -19,6 +19,10 @@ from resophy.tools.agent_tools.bilingual_translate import (
 
 CategoryPath = List[str]
 
+# Backend-side concurrency safety net. The frontend queue limits to 3 concurrent tasks
+# (MAX_CONCURRENT_TRANSLATIONS), so this only catches runaway requests.
+BACKEND_MAX_CONCURRENT = 10
+
 
 def register_bilingual_routes(
     app: Flask,
@@ -99,6 +103,25 @@ def register_bilingual_routes(
                             ),
                             400,
                         )
+
+            # Backend concurrency limit: prevent too many simultaneous LLM calls
+            with bilingual_tasks_lock:
+                active = sum(
+                    1
+                    for t in bilingual_tasks.values()
+                    if t["status"] in ("queued", "running")
+                )
+                if active >= BACKEND_MAX_CONCURRENT:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": f"Translation system busy ({active}/{BACKEND_MAX_CONCURRENT} tasks running). "
+                                "Please wait for current tasks to complete.",
+                            }
+                        ),
+                        429,
+                    )
 
             # Find paper
             paper = _find_paper(paper_id)
