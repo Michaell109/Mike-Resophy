@@ -732,7 +732,9 @@ def _parse_references_section(md_content: str) -> Dict[int, _RefEntry]:
         re.MULTILINE | re.IGNORECASE,
     )
     if not ref_match:
-        return ref_map
+        # Fallback: MinerU output may not have a References heading.
+        # Look for [N] numbered reference entries directly.
+        return _parse_refs_fallback(md_content)
 
     # Find where the References section ends (next # header or end of file)
     ref_start = ref_match.end()
@@ -817,6 +819,32 @@ def _parse_references_section(md_content: str) -> Dict[int, _RefEntry]:
         if entry:
             ref_map[idx + 1] = entry
 
+    return ref_map
+
+
+def _parse_refs_fallback(md_content: str) -> Dict[int, _RefEntry]:
+    """Fallback when no References heading is found: look for [N] numbered reference entries."""
+    ref_map: Dict[int, _RefEntry] = {}
+
+    numbered_pattern = re.compile(
+        r"^\[(\d+)\]\s*(.+?)(?=\n\[\d+\]|\n\Z|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = list(numbered_pattern.finditer(md_content))
+
+    if not matches:
+        return ref_map
+
+    for m in matches:
+        num = int(m.group(1))
+        text = m.group(2).strip()
+        text = re.sub(r"\s+", " ", text)
+        entry = _parse_single_reference(text, num)
+        if entry:
+            ref_map[num] = entry
+
+    if ref_map:
+        print(f"[ParseRefs] Fallback: parsed {len(ref_map)} references without heading")
     return ref_map
 
 
@@ -978,6 +1006,35 @@ def _extract_related_work_section(md_content: str) -> str:
     return md_content[start:end]
 
 
+def _extract_all_ref_numbers(text: str) -> Set[int]:
+    """Extract all reference numbers from citation markers, handling ranges.
+
+    Handles:
+    - [41] → {41}
+    - [1–6] → {1,2,3,4,5,6}
+    - [13, 14, 38–40] → {13,14,38,39,40}
+    """
+    numbers: Set[int] = set()
+
+    for m in re.finditer(r"\[([\d\s,;–-]+)\]", text):
+        content = m.group(1)
+        for part in re.split(r'[,;]', content):
+            part = part.strip()
+            if not part:
+                continue
+            range_match = re.match(r'(\d+)\s*[–-]\s*(\d+)', part)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2))
+                numbers.update(range(start, end + 1))
+            else:
+                m2 = re.match(r'(\d+)', part)
+                if m2:
+                    numbers.add(int(m2.group(1)))
+
+    return numbers
+
+
 def _extract_refs_from_related_work(
     section: str,
     ref_map: Dict[int, _RefEntry],
@@ -991,8 +1048,8 @@ def _extract_refs_from_related_work(
     seen_numbers: Set[int] = set()
     entries: List[_RefEntry] = []
 
-    # Strategy 1: [N] numbered citations
-    bracket_nums = set(int(n) for n in re.findall(r"\[(\d+)\]", section))
+    # Strategy 1: [N] numbered citations (handles ranges like [1–6], [13, 14, 38–40])
+    bracket_nums = _extract_all_ref_numbers(section)
     for num in sorted(bracket_nums):
         if num in ref_map and num not in seen_numbers:
             entries.append(ref_map[num])
@@ -1061,11 +1118,14 @@ def _resolve_related_work_from_pdf(
 
     print(f"[RelativePaper] Related Work: {len(rw_entries)} unique citations, resolving via arXiv...")
 
+    # Use a shared arxiv.Client so delay_seconds is enforced between all API calls
+    arxiv_client = arxiv.Client(page_size=5, delay_seconds=3.5, num_retries=5)
+
     candidates: List[CandidatePaper] = []
     for entry in rw_entries:
         if stop_event and stop_event.is_set():
             break
-        cp = _resolve_ref_entry_by_arxiv(entry)
+        cp = _resolve_ref_entry_by_arxiv(entry, arxiv_client=arxiv_client)
         if cp:
             cp.source = "related_work"
             cp.relevance_score = 2  # Related Work citations are inherently relevant
@@ -1499,16 +1559,25 @@ def _resolve_paper_by_title(title: str) -> Optional[CandidatePaper]:
     return _resolve_paper_by_title_s2_only(title)
 
 
-def _resolve_ref_entry_by_arxiv(entry: _RefEntry) -> Optional[CandidatePaper]:
+def _resolve_ref_entry_by_arxiv(
+    entry: _RefEntry,
+    arxiv_client: Optional[arxiv.Client] = None,
+) -> Optional[CandidatePaper]:
     """Resolve a parsed reference entry to a CandidatePaper via arXiv search.
 
     Uses both title and author for matching, which is more reliable than
     title-only search. This avoids external citation databases entirely.
+
+    Args:
+        entry: The parsed reference entry.
+        arxiv_client: Optional shared arxiv.Client instance. When provided,
+            rate-limiting (delay_seconds) is enforced across all calls sharing
+            this client, preventing 429 responses.
     """
     search_title = _normalize_search_title(entry.title)
     for attempt in range(2):  # Retry once on rate limit
         try:
-            client = arxiv.Client(page_size=5, delay_seconds=3.0, num_retries=3)
+            client = arxiv_client or arxiv.Client(page_size=5, delay_seconds=3.0, num_retries=3)
             # Search by title
             search = arxiv.Search(
                 query=f'ti:"{search_title[:100]}"',
@@ -1594,6 +1663,9 @@ def _resolve_references_from_pdf(
 
     print(f"[RelativePaper] Parsed {len(ref_map)} reference entries, resolving via arXiv...")
 
+    # Use a shared arxiv.Client so delay_seconds is enforced between all API calls
+    arxiv_client = arxiv.Client(page_size=5, delay_seconds=3.5, num_retries=5)
+
     candidates: List[CandidatePaper] = []
 
     for num in sorted(ref_map.keys())[:max_refs]:
@@ -1601,7 +1673,7 @@ def _resolve_references_from_pdf(
             break
 
         entry = ref_map[num]
-        cp = _resolve_ref_entry_by_arxiv(entry)
+        cp = _resolve_ref_entry_by_arxiv(entry, arxiv_client=arxiv_client)
         if cp:
             candidates.append(cp)
             print(f"[RelativePaper] Resolved ref [{num}]: '{entry.title[:50]}' → {cp.arxiv_id}")
@@ -2261,12 +2333,7 @@ def _download_pdf(url: str, target_path: str) -> bool:
     """Download a PDF from URL to target path."""
     from resophy.tools.basic_tools.parallel_downloader import RateLimitError
 
-    try:
-        # Convert to export.arxiv.org to avoid rate limits
-        download_url = url
-        if "arxiv.org/pdf/" in download_url:
-            download_url = download_url.replace("arxiv.org/pdf/", "export.arxiv.org/pdf/")
-
+    def _try_download(download_url: str, label: str = "") -> bool:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/pdf,*/*",
@@ -2280,17 +2347,24 @@ def _download_pdf(url: str, target_path: str) -> bool:
                 for chunk in resp.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            # Verify file is valid PDF
             if os.path.getsize(target_path) < 1024:
                 os.remove(target_path)
+                print(f"[RelativePaper] Downloaded file too small (<1KB), removed: {download_url}")
                 return False
+            return True
+        prefix = f"[RelativePaper] {label}".strip()
+        print(f"{prefix} {download_url} returned status {resp.status_code}")
+        return False
+
+    # Try the original URL directly (usually arxiv.org/pdf/...).
+    # export.arxiv.org is intentionally avoided — it aggressively returns 429
+    # for nearly all requests, making downloads impossible.
+    try:
+        if _try_download(url):
             return True
     except RateLimitError:
         raise
-    except Exception as e:
-        print(f"[RelativePaper] Download failed for {url}: {e}")
-        if os.path.exists(target_path):
-            os.remove(target_path)
+
     return False
 
 
@@ -2797,7 +2871,7 @@ def search_related_papers(
                 target_path = os.path.join(target_dir, pdf_filename)
                 counter += 1
 
-            domain = _extract_domain(cp.pdf_url) or "export.arxiv.org"
+            domain = _extract_domain(cp.pdf_url) or "arxiv.org"
 
             # Download single paper via parallel_downloader (respects rate limits + backoff)
             download_result = parallel_download(
@@ -2811,7 +2885,7 @@ def search_related_papers(
             )
 
             result = download_result[0] if download_result else None
-            success = result and result.success
+            success = result is not None and result.success and bool(result.result)
 
             if not success:
                 progress.paper_status[cp_key] = "failed"

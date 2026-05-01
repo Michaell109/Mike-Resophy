@@ -2317,8 +2317,8 @@ body {
     font-size: 12px;
     padding: 2px 6px;
     border-radius: 3px;
-    margin-left: auto;
     flex-shrink: 0;
+    margin-right: 4px;
 }
 .search-progress-dropdown .sp-task-cancel:hover {
     color: #e53935;
@@ -2327,6 +2327,14 @@ body {
 .search-progress-dropdown .sp-task-title {
     display: flex;
     align-items: center;
+}
+/* Title text truncates with ellipsis when too long */
+.search-progress-dropdown .sp-task-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
 }
 
 .search-box input {

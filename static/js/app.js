@@ -14395,8 +14395,8 @@ function renderSearchDropdown() {
             parts.push(`
                 <div class="sp-task">
                     <div class="sp-task-title">
-                        <i class="fas fa-search" style="color:#7d4a9d;margin-right:4px;"></i>${escapeHtml(task.paperTitle || task.paperId)}
                         <span class="sp-task-cancel" data-task-id="${escapeHtml(task.taskId)}" title="Cancel this search"><i class="fas fa-times"></i></span>
+                        <i class="fas fa-search" style="color:#7d4a9d;margin-right:4px;"></i><span class="sp-task-title-text">${escapeHtml(task.paperTitle || task.paperId)}</span>
                     </div>
                     <div class="sp-task-step">${escapeHtml(stepText)}</div>
                     <div class="sp-task-detail">${detailHtml}</div>

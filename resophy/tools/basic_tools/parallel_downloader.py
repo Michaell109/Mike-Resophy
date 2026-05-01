@@ -56,8 +56,8 @@ class DownloadResult:
 
 
 DEFAULT_DOMAIN_LIMITS: Dict[str, DomainLimit] = {
-    "arxiv.org": DomainLimit(max_concurrent=3, min_interval=1.5),
-    "export.arxiv.org": DomainLimit(max_concurrent=3, min_interval=1.5),
+    "arxiv.org": DomainLimit(max_concurrent=2, min_interval=3.0),
+    "export.arxiv.org": DomainLimit(max_concurrent=2, min_interval=3.0),
     "api.openalex.org": DomainLimit(max_concurrent=5, min_interval=0.5),
     "api.semanticscholar.org": DomainLimit(max_concurrent=2, min_interval=1.1),
 }
