@@ -82,6 +82,56 @@ def _s2_post(url: str, **kwargs) -> requests.Response:
     return resp
 
 
+# ---- Persistent disk cache for API lookups ----
+# Caches arXiv and S2 title lookups so that repeated searches for the same
+# paper return identical results, improving stability across runs.
+_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".search_cache")
+_CACHE_MAX_AGE = 86400 * 7  # 7 days
+
+
+def _ensure_cache_dir() -> None:
+    """Create cache directory if it doesn't exist."""
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _cache_key(*parts: str) -> str:
+    """Generate a cache filename from parts."""
+    safe = "_".join(p.replace("/", "_").replace(" ", "_") for p in parts)
+    # Limit length to avoid filesystem issues
+    safe = safe[:200]
+    return safe
+
+
+def _cache_get(key: str) -> Optional[Any]:
+    """Retrieve cached data. Returns None if cache miss or expired."""
+    path = os.path.join(_CACHE_DIR, f"{key}.json")
+    try:
+        if not os.path.exists(path):
+            return None
+        age = time.time() - os.path.getmtime(path)
+        if age > _CACHE_MAX_AGE:
+            os.remove(path)
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _cache_set(key: str, data: Any) -> None:
+    """Store data in cache."""
+    _ensure_cache_dir()
+    path = os.path.join(_CACHE_DIR, f"{key}.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 # ---- OpenAlex API helpers ----
 # OpenAlex has much more generous rate limits than Semantic Scholar
 # (10K list calls/day free, no aggressive 429s).
@@ -367,7 +417,7 @@ class CandidatePaper:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "title": self.title,
+            "title": _strip_latex(self.title),
             "abstract": self.abstract,
             "authors": self.authors,
             "affiliation": self.affiliation,
@@ -574,7 +624,7 @@ The input is:
         response = client.chat.completions.create(
             model=llm_model,
             messages=[{"role": "user", "content": prompt + content}],
-            temperature=0.1,
+            temperature=0,
             max_tokens=500,
         )
         result_text = response.choices[0].message.content.strip()
@@ -641,7 +691,7 @@ Only output the JSON array, no explanation.
             response = client.chat.completions.create(
                 model=llm_model,
                 messages=[{"role": "user", "content": full_prompt}],
-                temperature=0.1,
+                temperature=0,
                 max_tokens=300,
             )
             result_text = response.choices[0].message.content.strip()
@@ -680,6 +730,7 @@ class _RefEntry:
     title: str  # Paper title
     authors: str  # Author string (e.g., "Kim et al.")
     year: str  # Publication year
+    arxiv_id: str = ""  # arXiv ID extracted from reference text, e.g. "2410.24164"
 
 
 def _find_pdf2md_path(ref_paper_data: Dict[str, Any]) -> Optional[str]:
@@ -704,13 +755,49 @@ def _find_pdf2md_path(ref_paper_data: Dict[str, Any]) -> Optional[str]:
         if os.path.exists(exact_md):
             return exact_md
 
-        # Search for any vlm directory
-        for item in os.listdir(outputs_dir):
+        # Try removing year prefix from base_name (e.g. "2026_DiT4DiT..." → "DiT4DiT...")
+        import re as _re
+        base_stripped = _re.sub(r"^\d{4}[-_]", "", base_name)
+        if base_stripped != base_name:
+            exact_md2 = os.path.join(outputs_dir, base_name, "vlm", f"{base_stripped}.md")
+            if os.path.exists(exact_md2):
+                return exact_md2
+
+        # Try to find a subdirectory whose name matches the PDF base_name
+        # (the directory name may contain or be contained by the PDF name)
+        for item in sorted(os.listdir(outputs_dir)):
+            item_path = os.path.join(outputs_dir, item)
+            if not os.path.isdir(item_path):
+                continue
+            vlm_dir = os.path.join(item_path, "vlm")
+            if not os.path.exists(vlm_dir):
+                continue
+            # Match: item is same as base, or one contains the other
+            if base_name == item or base_name in item or item in base_name:
+                for f in sorted(os.listdir(vlm_dir)):
+                    if f.endswith(".md") and f != "result.md":
+                        found = os.path.join(vlm_dir, f)
+                        # Verify the content looks like this paper
+                        try:
+                            with open(found, "r") as _fh:
+                                first_line = _fh.readline(300).lower()
+                            # Check if key parts of the base_name appear in the content
+                            base_lower = base_name.lower()
+                            # Extract the core title (strip year prefix like "2026_")
+                            core_parts = [p for p in base_lower.replace("_", " ").split()
+                                          if len(p) > 4 and not p.isdigit()]
+                            if core_parts and any(p in first_line for p in core_parts):
+                                return found
+                        except Exception:
+                            pass
+
+        # Last resort: search for any vlm directory
+        for item in sorted(os.listdir(outputs_dir)):
             item_path = os.path.join(outputs_dir, item)
             if os.path.isdir(item_path):
                 vlm_dir = os.path.join(item_path, "vlm")
                 if os.path.exists(vlm_dir):
-                    for f in os.listdir(vlm_dir):
+                    for f in sorted(os.listdir(vlm_dir)):
                         if f.endswith(".md") and f != "result.md":
                             return os.path.join(vlm_dir, f)
         return None
@@ -725,15 +812,26 @@ def _parse_references_section(md_content: str) -> Dict[int, _RefEntry]:
     """
     ref_map: Dict[int, _RefEntry] = {}
 
-    # Find References section (could be # References, ## References, # REFERENCES, etc.)
-    ref_match = re.search(
+    # Find References section — try multiple heading patterns
+    ref_match = None
+    heading_patterns = [
+        # Standard markdown heading: # References, ## REFERENCES, ### References, etc.
         r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(References|REFERENCES|Bibliography|参考文献)\s*$",
-        md_content,
-        re.MULTILINE | re.IGNORECASE,
-    )
+        # Bold heading: **References**, **REFERENCES**, etc. (common in MinerU output)
+        r"^\*{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(References|REFERENCES|Bibliography|参考文献)\s*\*{1,3}\s*$",
+        # Plain text heading: References or REFERENCES on its own line
+        r"^\*{0,3}(?:I+\.\s*|1\.?\s*)?(References|REFERENCES|Bibliography)\*{0,3}\s*$",
+        # Combined headings: References and Notes, References & Notes, etc.
+        r"^#{0,3}\s*References\s+(?:and|&)\s+Notes\s*$",
+    ]
+    for pattern in heading_patterns:
+        ref_match = re.search(pattern, md_content, re.MULTILINE | re.IGNORECASE)
+        if ref_match:
+            break
+
     if not ref_match:
-        # Fallback: MinerU output may not have a References heading.
-        # Look for [N] numbered reference entries directly.
+        # Fallback 1: Look for [N] numbered reference entries or (Author, Year) patterns
+        # in the last part of the document (typically, references are at the end).
         return _parse_refs_fallback(md_content)
 
     # Find where the References section ends (next # header or end of file)
@@ -819,32 +917,82 @@ def _parse_references_section(md_content: str) -> Dict[int, _RefEntry]:
         if entry:
             ref_map[idx + 1] = entry
 
+    if not ref_map:
+        print(f"[Refs] WARNING: Parsed 0 references from {len(entries)} candidate entries")
+        for i, e in enumerate(entries[:3]):
+            print(f"[Refs] Candidate {i}: '{e[:120]}'")
+        print(f"[Refs] Section len={len(ref_section)}, lines={len(ref_section.split(chr(10)))}")
+        print(f"[Refs] single_valid={single_valid}, dbl_valid={dbl_valid}")
+
     return ref_map
 
 
 def _parse_refs_fallback(md_content: str) -> Dict[int, _RefEntry]:
-    """Fallback when no References heading is found: look for [N] numbered reference entries."""
+    """Fallback when no References heading is found.
+
+    Strategies:
+    1. Look for [N] patterns in the last 60% of the document (references are at the end).
+    2. If no [N] patterns found, try to find lines with (Author, Year) patterns.
+    3. Try to find lines that look like reference entries (have year, authors, etc.).
+    """
     ref_map: Dict[int, _RefEntry] = {}
+
+    # Strategy 1: Focus on the last 60% of the document (references are at the end)
+    last_sixty_pct = int(len(md_content) * 0.4)
+    tail = md_content[last_sixty_pct:]
 
     numbered_pattern = re.compile(
         r"^\[(\d+)\]\s*(.+?)(?=\n\[\d+\]|\n\Z|\Z)",
         re.MULTILINE | re.DOTALL,
     )
+    matches = list(numbered_pattern.finditer(tail))
+
+    if matches:
+        for m in matches:
+            num = int(m.group(1))
+            text = m.group(2).strip()
+            text = re.sub(r"\s+", " ", text)
+            entry = _parse_single_reference(text, num)
+            if entry:
+                ref_map[num] = entry
+
+        if ref_map:
+            print(f"[ParseRefs] Fallback: parsed {len(ref_map)} references without heading")
+            return ref_map
+
+    # Strategy 2: Look for [N] patterns in entire document (broader search)
     matches = list(numbered_pattern.finditer(md_content))
+    if matches:
+        for m in matches:
+            num = int(m.group(1))
+            text = m.group(2).strip()
+            text = re.sub(r"\s+", " ", text)
+            entry = _parse_single_reference(text, num)
+            if entry:
+                ref_map[num] = entry
 
-    if not matches:
-        return ref_map
+        if ref_map:
+            print(f"[ParseRefs] Fallback (full doc): parsed {len(ref_map)} references")
+            return ref_map
 
-    for m in matches:
-        num = int(m.group(1))
-        text = m.group(2).strip()
-        text = re.sub(r"\s+", " ", text)
-        entry = _parse_single_reference(text, num)
-        if entry:
-            ref_map[num] = entry
+    # Strategy 3: Last resort — scan for lines that look like reference entries
+    # (have a year in parens, start with author names, etc.)
+    for line in md_content.split("\n"):
+        line = line.strip()
+        if not line or len(line) < 30:
+            continue
+        # Must contain a year
+        if not re.search(r"\b(?:19|20)\d{2}\b", line):
+            continue
+        # Look for "(Author et al., Year)" or "(Author and Author, Year)" patterns
+        if re.search(r"\([A-Z][a-z]+.*?(?:19|20)\d{2}\)", line):
+            entry = _parse_single_reference(line, len(ref_map) + 1)
+            if entry:
+                ref_map[entry.number] = entry
 
     if ref_map:
-        print(f"[ParseRefs] Fallback: parsed {len(ref_map)} references without heading")
+        print(f"[ParseRefs] Fallback (line scan): parsed {len(ref_map)} references without heading")
+
     return ref_map
 
 
@@ -931,14 +1079,36 @@ def _parse_single_reference(text: str, number: int) -> Optional[_RefEntry]:
                     # The title is usually the longest meaningful segment
                     title = max(segments, key=lambda s: len(s) if len(s) > 10 else 0).strip().rstrip(".,;:")
 
+    # If title is still empty or too short, try a greedy approach:
+    # take everything between the first sentence boundary and arXiv/In/Proceedings/etc.
+    if not title or len(title) < 5:
+        # Try: text starts with (Year). Title. or Year. Title.
+        for sep_pattern in [r"\.\s+(?=[A-Z][a-z])", r"\(\d{4}\)\.?\s+"]:
+            parts = re.split(sep_pattern, text, maxsplit=1)
+            if len(parts) > 1:
+                candidate = re.split(
+                    r"(?:arXiv|In\s|Proceedings|IEEE|preprint|http)",
+                    parts[-1], maxsplit=1, flags=re.IGNORECASE
+                )[0].strip().rstrip(".,;:")
+                if len(candidate) > 10 and re.search(r"[A-Za-z]{4,}", candidate):
+                    title = candidate
+                    break
+
     if not title or len(title) < 3:
         return None
+
+    # Extract arXiv ID from the reference text
+    arxiv_id = ""
+    arxiv_m = re.search(r"arXiv\s*[:\.]?\s*(\d{4}\.\d{4,5})(v\d+)?", text, re.IGNORECASE)
+    if arxiv_m:
+        arxiv_id = arxiv_m.group(1)
 
     return _RefEntry(
         number=number,
         title=title,
         authors=authors,
         year=year,
+        arxiv_id=arxiv_id,
     )
 
 
@@ -1484,6 +1654,15 @@ def _normalize_search_title(title: str) -> str:
 def _resolve_paper_by_title_arxiv_only(title: str) -> Optional[CandidatePaper]:
     """Resolve a paper title using arXiv only (no S2 calls, no rate limit issues)."""
     search_title = _normalize_search_title(title)
+
+    # Check cache first
+    cache_key_title = _cache_key("arxiv_ti", search_title[:100])
+    cached = _cache_get(cache_key_title)
+    if cached is not None:
+        if cached == "__NONE__":
+            return None
+        return CandidatePaper(**cached)
+
     try:
         client = arxiv.Client(page_size=3, delay_seconds=1.0, num_retries=2)
         search = arxiv.Search(
@@ -1507,7 +1686,10 @@ def _resolve_paper_by_title_arxiv_only(title: str) -> Optional[CandidatePaper]:
                     relevance_score=2,
                     year=str(result.published.year) if result.published else "",
                 )
+                _cache_set(cache_key_title, cp.to_dict())
                 return cp
+        # No match found — cache the miss so we don't retry
+        _cache_set(cache_key_title, "__NONE__")
     except Exception as e:
         print(f"[RelativePaper] arXiv title search failed for '{title[:50]}': {e}")
     return None
@@ -1516,6 +1698,15 @@ def _resolve_paper_by_title_arxiv_only(title: str) -> Optional[CandidatePaper]:
 def _resolve_paper_by_title_s2_only(title: str) -> Optional[CandidatePaper]:
     """Resolve a paper title using Semantic Scholar only (handles π, short names)."""
     search_title = _normalize_search_title(title)
+
+    # Check cache first
+    cache_key_s2 = _cache_key("s2_ti", search_title[:100])
+    cached = _cache_get(cache_key_s2)
+    if cached is not None:
+        if cached == "__NONE__":
+            return None
+        return CandidatePaper(**cached)
+
     try:
         query = search_title[:200]
         url = (
@@ -1535,7 +1726,7 @@ def _resolve_paper_by_title_s2_only(title: str) -> Optional[CandidatePaper]:
                     authors_list = item.get("authors", [])
                     authors_str = ", ".join(a.get("name", "") for a in authors_list if a.get("name"))
 
-                    return CandidatePaper(
+                    cp = CandidatePaper(
                         title=item.get("title", ""),
                         abstract=item.get("abstract", "") or "",
                         authors=authors_str,
@@ -1546,9 +1737,61 @@ def _resolve_paper_by_title_s2_only(title: str) -> Optional[CandidatePaper]:
                         relevance_score=2,
                         year=str(item.get("year", "")) if item.get("year") else "",
                     )
+                    _cache_set(cache_key_s2, cp.to_dict())
+                    return cp
+        # No match — cache the miss
+        _cache_set(cache_key_s2, "__NONE__")
     except Exception as e:
         print(f"[RelativePaper] Semantic Scholar title search failed for '{title[:50]}': {e}")
     return None
+
+
+def _resolve_paper_by_arxiv_id(arxiv_id: str) -> Optional[CandidatePaper]:
+    """Resolve a paper by its arXiv ID directly, skipping title search."""
+    if not arxiv_id:
+        return None
+
+    cache_key = _cache_key("arxiv_id", arxiv_id)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        if cached == "__NONE__":
+            return None
+        return CandidatePaper(**cached)
+
+    try:
+        client = arxiv.Client(page_size=1, delay_seconds=1.0, num_retries=2)
+        search = arxiv.Search(id_list=[arxiv_id])
+        for result in client.results(search):
+            authors = ", ".join(a.name for a in result.authors)
+            cp = CandidatePaper(
+                title=result.title.replace("\n", " ").strip(),
+                abstract=result.summary.replace("\n", " ").strip() if result.summary else "",
+                authors=authors,
+                arxiv_id=arxiv_id,
+                arxiv_url=f"https://arxiv.org/abs/{arxiv_id}",
+                pdf_url=result.pdf_url,
+                source="baseline",
+                relevance_score=2,
+                year=str(result.published.year) if result.published else "",
+            )
+            _cache_set(cache_key, cp.to_dict())
+            return cp
+        _cache_set(cache_key, "__NONE__")
+    except Exception as e:
+        print(f"[RelativePaper] arXiv ID lookup failed for '{arxiv_id}': {e}")
+    return None
+
+
+def _resolve_ref_entry(entry: _RefEntry) -> Optional[CandidatePaper]:
+    """Resolve a reference entry to a CandidatePaper, trying arXiv ID first, then title search."""
+    if entry.arxiv_id:
+        cp = _resolve_paper_by_arxiv_id(entry.arxiv_id)
+        if cp:
+            return cp
+    cp = _resolve_paper_by_title_arxiv_only(entry.title)
+    if cp:
+        return cp
+    return _resolve_paper_by_title_s2_only(entry.title)
 
 
 def _resolve_paper_by_title(title: str) -> Optional[CandidatePaper]:
@@ -1684,9 +1927,12 @@ def _resolve_references_from_pdf(
 
 def _titles_match(title1: str, title2: str) -> bool:
     """Check if two paper titles refer to the same paper (fuzzy match)."""
+    # Normalize LaTeX in both titles first
+    t1 = _normalize_for_matching(title1)
+    t2 = _normalize_for_matching(title2)
     # Normalize: lowercase, strip, collapse whitespace
-    t1 = re.sub(r"\s+", " ", title1.lower().strip())
-    t2 = re.sub(r"\s+", " ", title2.lower().strip())
+    t1 = re.sub(r"\s+", " ", t1.lower().strip())
+    t2 = re.sub(r"\s+", " ", t2.lower().strip())
 
     # Exact match
     if t1 == t2:
@@ -1800,9 +2046,7 @@ def _resolve_unresolved_methods_with_llm(
         # Resolve each candidate entry to a CandidatePaper (with abstract)
         resolved_papers: List[Tuple[_RefEntry, CandidatePaper]] = []
         for entry in entries:
-            cp = _resolve_paper_by_title_arxiv_only(entry.title)
-            if not cp:
-                cp = _resolve_paper_by_title_s2_only(entry.title)
+            cp = _resolve_ref_entry(entry)
             if cp:
                 # Skip if already seen
                 arxiv_base = re.sub(r"v\d+$", "", cp.arxiv_id) if cp.arxiv_id else ""
@@ -1851,7 +2095,7 @@ Output ONLY the JSON object, no explanation."""
             response = client.chat.completions.create(
                 model=llm_model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0,
                 max_tokens=100,
             )
             result_text = response.choices[0].message.content.strip()
@@ -1959,19 +2203,16 @@ def _extract_baselines_from_citations(
             unresolved_methods.append(method)
             print(f"[RelativePaper] Unmatched: '{method['name']}' (refs={method['ref_numbers']}, ay={method['ref_author_year']})")
 
-    # Step 6: Resolve matched titles to CandidatePapers
-    # Two-pass strategy: arXiv first (no rate limits), then S2 for remaining.
-    # This avoids wasting S2 quota on papers arXiv can already find.
+    # Step 6: Resolve matched entries to CandidatePapers
+    # Strategy: arXiv ID → arXiv title → S2 title (each tries the next only if prior fails)
     candidates: List[CandidatePaper] = []
     resolved_arxiv_ids: set = set()  # Track to avoid duplicates across methods
     def _arxiv_id_base(arxiv_id: str) -> str:
         """Strip version suffix for dedup: '2406.02523v1' → '2406.02523'"""
         return re.sub(r"v\d+$", "", arxiv_id) if arxiv_id else ""
 
-    # --- Pass 1: arXiv only (fast, no rate limits) ---
-    arxiv_unresolved: List[Tuple[str, _RefEntry]] = []  # (method_name, entry) that arXiv couldn't find
     for method_name, entry in matched_entries:
-        cp = _resolve_paper_by_title_arxiv_only(entry.title)
+        cp = _resolve_ref_entry(entry)
         if cp:
             dedup_key = _arxiv_id_base(cp.arxiv_id) or cp.title.lower().strip()
             if dedup_key in resolved_arxiv_ids:
@@ -1981,26 +2222,10 @@ def _extract_baselines_from_citations(
             resolved_arxiv_ids.add(dedup_key)
             candidates.append(cp)
             resolved_method_names.add(method_name)
-            print(f"[RelativePaper] arXiv resolved: '{method_name}' → {cp.title[:50]} (arxiv={cp.arxiv_id})")
+            source = "arXiv ID" if entry.arxiv_id else "arXiv title" if cp.arxiv_id else "S2 title"
+            print(f"[RelativePaper] Resolved ({source}): '{method_name}' → {cp.title[:50]} (arxiv={cp.arxiv_id})")
         else:
-            arxiv_unresolved.append((method_name, entry))
-            print(f"[RelativePaper] arXiv could not resolve: '{method_name}' → '{entry.title[:60]}'")
-
-    # --- Pass 2: S2 for remaining (handles π, short names, etc.) ---
-    for method_name, entry in arxiv_unresolved:
-        cp = _resolve_paper_by_title_s2_only(entry.title)
-        if cp:
-            dedup_key = _arxiv_id_base(cp.arxiv_id) or cp.title.lower().strip()
-            if dedup_key in resolved_arxiv_ids:
-                print(f"[RelativePaper] Skipping duplicate: '{method_name}' → {cp.title[:50]}")
-                resolved_method_names.add(method_name)
-                continue
-            resolved_arxiv_ids.add(dedup_key)
-            candidates.append(cp)
-            resolved_method_names.add(method_name)
-            print(f"[RelativePaper] S2 resolved: '{method_name}' → {cp.title[:50]} (arxiv={cp.arxiv_id})")
-        else:
-            print(f"[RelativePaper] Could not resolve: '{method_name}' → '{entry.title[:60]}'")
+            print(f"[RelativePaper] Could not resolve: '{method_name}' → [{entry.number}] {entry.title[:60]}")
 
     # Step 7: For unresolved methods with (Author, Year) citations,
     # try resolving via arXiv first, then Semantic Scholar as fallback.
@@ -2373,6 +2598,19 @@ def _sanitize_filename(text: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]', "", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned[:150] if cleaned else "untitled"
+
+
+def _strip_latex(text: str) -> str:
+    """Remove LaTeX math mode markers from a string for JSON-safe serialization."""
+    # Remove $$...$$ and $...$ math mode, keep inner content
+    text = re.sub(r'\$\$(.+?)\$\$', lambda m: m.group(1).strip(), text)
+    text = re.sub(r'\$(.+?)\$', lambda m: m.group(1).strip(), text)
+    # Remove remaining bare LaTeX commands like \pi, \alpha, \beta at word boundaries
+    # but keep plain text
+    text = re.sub(r'\\([a-zA-Z]+)', '', text)
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 def _copy_source_paper_to_result_dir(
@@ -2848,6 +3086,7 @@ def search_related_papers(
             if stop_event.is_set():
                 break
             if not cp.pdf_url:
+                skipped_count += 1
                 continue
 
             cp_key = cp.arxiv_id or cp.title
@@ -2873,88 +3112,97 @@ def search_related_papers(
 
             domain = _extract_domain(cp.pdf_url) or "arxiv.org"
 
-            # Download single paper via parallel_downloader (respects rate limits + backoff)
-            download_result = parallel_download(
-                tasks=[DownloadTask(
-                    task_id=cp_key,
-                    fn=lambda u=cp.pdf_url, t=target_path: _download_pdf(u, t),
-                    domain=domain,
-                )],
-                max_workers=1,
-                stop_event=stop_event,
-            )
+            try:
+                # Download single paper via parallel_downloader (respects rate limits + backoff)
+                download_result = parallel_download(
+                    tasks=[DownloadTask(
+                        task_id=cp_key,
+                        fn=lambda u=cp.pdf_url, t=target_path: _download_pdf(u, t),
+                        domain=domain,
+                    )],
+                    max_workers=1,
+                    stop_event=stop_event,
+                )
 
-            result = download_result[0] if download_result else None
-            success = result is not None and result.success and bool(result.result)
+                result = download_result[0] if download_result else None
+                success = result is not None and result.success and bool(result.result)
 
-            if not success:
+                if not success:
+                    progress.paper_status[cp_key] = "failed"
+                    error_msg = result.error if result else "unknown"
+                    progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "failed", "error": error_msg})
+                    failed_count += 1
+                    print(f"[RelativePaper] Download failed: {cp.title[:50]}")
+                    continue
+
+                # Immediate post-processing per paper (enables real-time directory updates)
+                from resophy.core.base_paper import Paper
+
+                paper = Paper(
+                    filename=pdf_filename,
+                    original_filename=pdf_filename,
+                    file_path=target_path,
+                    upload_date=datetime.now().isoformat(),
+                    title=cp.title,
+                    authors=cp.authors,
+                    abstract=cp.abstract,
+                    arxiv_id=cp.arxiv_id,
+                    arxiv_url=cp.arxiv_url,
+                    arxiv_published_date=cp.year or None,
+                    year=cp.year,
+                    upload_source="relative_paper_search",
+                )
+                # Set affiliation from candidate (empty string if not available)
+                if cp.affiliation:
+                    paper.affiliation = cp.affiliation
+                    paper.extra["affiliations"] = [a.strip() for a in cp.affiliation.split(";") if a.strip()]
+                # If no affiliation from source but has arxiv_id, try to fetch via OpenAlex
+                elif cp.arxiv_id:
+                    try:
+                        fetch_affs = _get_affiliation_fetcher()
+                        affs = fetch_affs(cp.arxiv_id, title=cp.title)
+                        if affs:
+                            paper.affiliation = "; ".join(affs)
+                            paper.extra["affiliations"] = affs
+                    except Exception:
+                        pass
+                # Mark the source in extra
+                paper.extra["relative_paper_source"] = cp.source
+                paper.extra["relative_paper_ref_id"] = ref_paper_id
+
+                # Save metadata
+                save_paper_metadata_fn(target_path, paper)
+
+                # Register in paper store
+                paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+
+                # Inherit Chinese version / AI interpretation from existing paper
+                from resophy.tools.basic_tools.paper_repository import (
+                    _find_source_paper_for_inherit,
+                    inherit_chinese_and_analysis,
+                )
+                source = _find_source_paper_for_inherit(
+                    paper_store, arxiv_id=cp.arxiv_id, title=paper.title, exclude_paper_id=paper.id
+                )
+                if source:
+                    target_base = os.path.splitext(pdf_filename)[0]
+                    if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
+                        paper_store.upsert(paper, category_id=category_id, category_path=category_path)
+                        save_paper_metadata_fn(target_path, paper)
+
+                downloaded += 1
+                progress.paper_status[cp_key] = "done"
+                progress.total_downloaded = downloaded
+                progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "done"})
+                print(f"[RelativePaper] Downloaded: {cp.title[:50]}")
+
+            except Exception as e:
+                print(f"[RelativePaper] Failed to process candidate '{cp.title[:50]}': {e}")
+                import traceback
+                traceback.print_exc()
                 progress.paper_status[cp_key] = "failed"
-                error_msg = result.error if result else "unknown"
-                progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "failed", "error": error_msg})
+                progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "failed", "error": str(e)})
                 failed_count += 1
-                print(f"[RelativePaper] Download failed: {cp.title[:50]}")
-                continue
-
-            # Immediate post-processing per paper (enables real-time directory updates)
-            from resophy.core.base_paper import Paper
-
-            paper = Paper(
-                filename=pdf_filename,
-                original_filename=pdf_filename,
-                file_path=target_path,
-                upload_date=datetime.now().isoformat(),
-                title=cp.title,
-                authors=cp.authors,
-                abstract=cp.abstract,
-                arxiv_id=cp.arxiv_id,
-                arxiv_url=cp.arxiv_url,
-                arxiv_published_date=cp.year or None,
-                year=cp.year,
-                upload_source="relative_paper_search",
-            )
-            # Set affiliation from candidate (empty string if not available)
-            if cp.affiliation:
-                paper.affiliation = cp.affiliation
-                paper.extra["affiliations"] = [a.strip() for a in cp.affiliation.split(";") if a.strip()]
-            # If no affiliation from source but has arxiv_id, try to fetch via OpenAlex
-            elif cp.arxiv_id:
-                try:
-                    fetch_affs = _get_affiliation_fetcher()
-                    affs = fetch_affs(cp.arxiv_id, title=cp.title)
-                    if affs:
-                        paper.affiliation = "; ".join(affs)
-                        paper.extra["affiliations"] = affs
-                except Exception:
-                    pass
-            # Mark the source in extra
-            paper.extra["relative_paper_source"] = cp.source
-            paper.extra["relative_paper_ref_id"] = ref_paper_id
-
-            # Save metadata
-            save_paper_metadata_fn(target_path, paper)
-
-            # Register in paper store
-            paper_store.upsert(paper, category_id=category_id, category_path=category_path)
-
-            # Inherit Chinese version / AI interpretation from existing paper
-            from resophy.tools.basic_tools.paper_repository import (
-                _find_source_paper_for_inherit,
-                inherit_chinese_and_analysis,
-            )
-            source = _find_source_paper_for_inherit(
-                paper_store, arxiv_id=cp.arxiv_id, title=paper.title, exclude_paper_id=paper.id
-            )
-            if source:
-                target_base = os.path.splitext(pdf_filename)[0]
-                if inherit_chinese_and_analysis(source, target_dir, target_base, paper):
-                    paper_store.upsert(paper, category_id=category_id, category_path=category_path)
-                    save_paper_metadata_fn(target_path, paper)
-
-            downloaded += 1
-            progress.paper_status[cp_key] = "done"
-            progress.total_downloaded = downloaded
-            progress.download_log.append({"title": cp.title, "arxiv_id": cp.arxiv_id, "status": "done"})
-            print(f"[RelativePaper] Downloaded: {cp.title[:50]}")
 
         progress.downloaded = len(all_candidates)
         progress.total_downloaded = downloaded

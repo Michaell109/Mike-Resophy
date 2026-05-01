@@ -132,13 +132,46 @@ def find_mineru_markdown(pdf_path: str) -> str | None:
     if os.path.exists(exact_md):
         return exact_md
 
-    # Search for any vlm directory
-    for item in os.listdir(outputs_dir):
+    # Try removing year prefix from base_name (e.g. "2026_DiT4DiT..." -> "DiT4DiT...")
+    import re as _re
+    base_stripped = _re.sub(r"^\d{4}[-_]", "", base_name)
+    if base_stripped != base_name:
+        exact_md2 = os.path.join(outputs_dir, base_name, "vlm", f"{base_stripped}.md")
+        if os.path.exists(exact_md2):
+            return exact_md2
+
+    # Search for a directory matching the PDF name (by substring match)
+    for item in sorted(os.listdir(outputs_dir)):
+        item_path = os.path.join(outputs_dir, item)
+        if not os.path.isdir(item_path):
+            continue
+        vlm_dir = os.path.join(item_path, "vlm")
+        if not os.path.exists(vlm_dir):
+            continue
+        if base_name == item or base_name in item or item in base_name:
+            for f in sorted(os.listdir(vlm_dir)):
+                if f.endswith(".md") and f != "result.md":
+                    found = os.path.join(vlm_dir, f)
+                    # Verify content matches this paper
+                    try:
+                        with open(found, "r") as _fh:
+                            first_line = _fh.readline(300).lower()
+                        base_lower = base_name.lower()
+                        core_words = [w for w in base_lower.replace("_", " ").split()
+                                      if len(w) > 4 and not w.isdigit()]
+                        if not core_words or not any(w in first_line for w in core_words):
+                            continue  # Content doesn't match — try next
+                    except Exception:
+                        pass
+                    return found
+
+    # Last resort: return the first .md from any vlm directory
+    for item in sorted(os.listdir(outputs_dir)):
         item_path = os.path.join(outputs_dir, item)
         if os.path.isdir(item_path):
             vlm_dir = os.path.join(item_path, "vlm")
             if os.path.exists(vlm_dir):
-                for f in os.listdir(vlm_dir):
+                for f in sorted(os.listdir(vlm_dir)):
                     if f.endswith(".md") and f != "result.md":
                         return os.path.join(vlm_dir, f)
 

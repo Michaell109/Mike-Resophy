@@ -97,7 +97,7 @@ def register_relative_paper_routes(
 
             data = request.json or {}
             paper_id = data.get("paper_id")
-            target_count = data.get("target_count", 10)
+            target_count = data.get("target_count", 50)
             sources = data.get("sources", ["baseline", "related_work", "recommendation"])
 
             if not paper_id:
