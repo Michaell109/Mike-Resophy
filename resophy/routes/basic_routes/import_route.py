@@ -29,8 +29,8 @@ from resophy.tools.basic_tools.paper_repository import (
 )
 from resophy.tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp,
-    fetch_paper_by_arxiv_id_fast,
-    search_arxiv_by_title_and_author_fast,
+    fetch_paper_by_arxiv_id,
+    search_arxiv_by_title_and_author,
 )
 
 
@@ -652,7 +652,7 @@ def register_import_routes(
                     arxiv_id = _extract_arxiv_id_from_url(url)
                     if arxiv_id:
                         print(f"[Import] from URL extract arXiv ID: {arxiv_id}")
-                        paper_info = fetch_paper_by_arxiv_id_fast(arxiv_id)
+                        paper_info = fetch_paper_by_arxiv_id(arxiv_id)
 
                 # 2. if not arXiv URL, use title+Author search
                 if not paper_info:
@@ -666,7 +666,7 @@ def register_import_routes(
                         # Extract the first author
                         first_author = authors.split(",")[0].strip() if authors else ""
                         if first_author:
-                            paper_info = search_arxiv_by_title_and_author_fast(
+                            paper_info = search_arxiv_by_title_and_author(
                                 title, first_author
                             )
 
@@ -1465,7 +1465,7 @@ def register_import_routes(
                             # No arXiv ID, try searching
                             if title and authors:
                                 print(f"[Import] try search arXiv: {title[:50]}...")
-                                paper_info = search_arxiv_by_title_and_author_fast(
+                                paper_info = search_arxiv_by_title_and_author(
                                     title, authors
                                 )
                                 if paper_info and paper_info.get("arxiv_id"):

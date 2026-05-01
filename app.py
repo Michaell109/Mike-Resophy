@@ -201,15 +201,7 @@ init_categories = None
 get_categories = None
 save_categories = None
 create_category_folder = None
-find_category_node = category_manager.find_category_node
-get_category_path = category_manager.get_category_path
-add_pdf_counts_to_categories = category_manager.add_pdf_counts_to_categories
-get_category_pdf_count = category_manager.get_category_pdf_count
-
 get_papers_in_category = None
-get_paper_json_path = paper_repository.get_paper_json_path
-load_paper_metadata = paper_repository.load_paper_metadata
-scan_papers_in_directory = paper_repository.scan_papers_in_directory
 
 
 def save_paper_metadata(pdf_path: str, paper_data) -> None:
@@ -248,7 +240,7 @@ def delete_paper_files(pdf_path: str) -> None:
     # First try to get the paper ID (if possible)
     paper_id = None
     try:
-        paper = load_paper_metadata(pdf_path)
+        paper = paper_repository.load_paper_metadata(pdf_path)
         if paper:
             paper_id = paper.id
     except Exception:
@@ -386,11 +378,11 @@ def register_routes():
         app,
         get_categories=get_categories,
         save_categories=save_categories,
-        find_category_node=find_category_node,
-        get_category_path=get_category_path,
+        find_category_node=category_manager.find_category_node,
+        get_category_path=category_manager.get_category_path,
         get_papers_in_category=get_papers_in_category,
-        add_pdf_counts_to_categories=add_pdf_counts_to_categories,
-        get_category_pdf_count=get_category_pdf_count,
+        add_pdf_counts_to_categories=category_manager.add_pdf_counts_to_categories,
+        get_category_pdf_count=category_manager.get_category_pdf_count,
         paper_store=paper_store,
         upload_folder=UPLOAD_FOLDER,
     )
@@ -398,7 +390,7 @@ def register_routes():
     register_search_routes(
         app,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         upload_folder=UPLOAD_FOLDER,
         search_index=search_index,
     )
@@ -472,7 +464,7 @@ def register_routes():
         default_daily_arxiv_settings=DEFAULT_DAILY_ARXIV_SETTINGS,
         temp_papers_dir=TEMP_PAPERS_DIR,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
@@ -500,12 +492,12 @@ def register_routes():
     register_paper_operation_routes(
         app,
         get_categories=get_categories,
-        get_category_path=get_category_path,
-        find_category_node=find_category_node,
+        get_category_path=category_manager.get_category_path,
+        find_category_node=category_manager.find_category_node,
         get_papers_in_category=get_papers_in_category,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
-        get_paper_json_path=get_paper_json_path,
+        get_paper_json_path=paper_repository.get_paper_json_path,
         delete_paper_files=delete_paper_files,
         extract_pdf_metadata=None,  # No longer needed, use new upload_paper module
         search_arxiv_by_title=None,  # No longer needed, use new upload_paper module
@@ -517,7 +509,7 @@ def register_routes():
     register_upload_from_pdf_routes(
         app,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
@@ -527,7 +519,7 @@ def register_routes():
     register_update_from_url_routes(
         app,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
@@ -540,7 +532,7 @@ def register_routes():
         analysis_tasks=analysis_tasks,
         analysis_tasks_lock=analysis_tasks_lock,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
@@ -551,7 +543,7 @@ def register_routes():
         translation_tasks=translation_tasks,
         translation_tasks_lock=translation_tasks_lock,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
@@ -561,7 +553,7 @@ def register_routes():
         app,
         get_categories=get_categories,
         save_categories=save_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
@@ -577,7 +569,7 @@ def register_routes():
     register_csv_import_routes(
         app,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         reading_list_file=READING_LIST_FILE,
@@ -594,7 +586,7 @@ def register_routes():
         app,
         get_categories=get_categories,
         save_categories=save_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         create_category_folder=create_category_folder,
         save_paper_metadata=save_paper_metadata,
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
@@ -607,7 +599,7 @@ def register_routes():
         bilingual_tasks=bilingual_tasks,
         bilingual_tasks_lock=bilingual_tasks_lock,
         get_categories=get_categories,
-        get_category_path=get_category_path,
+        get_category_path=category_manager.get_category_path,
         get_papers_in_category=get_papers_in_category,
         save_paper_metadata=save_paper_metadata,
         agentic_settings_file=AGENTIC_SETTINGS_FILE,
@@ -667,7 +659,6 @@ if __name__ == "__main__":
     # Rebuild search index (in background thread to avoid blocking startup)
     def rebuild_search_index():
         """Rebuild search index in background thread to avoid blocking startup"""
-        import threading
         import time
 
         def _rebuild():
@@ -679,11 +670,11 @@ if __name__ == "__main__":
 
                 def collect_papers(node, category_path):
                     """Recursively collect all papers"""
-                    node_path = get_category_path(categories, node.get("id"))
+                    node_path = category_manager.get_category_path(categories, node.get("id"))
                     if node_path and len(node_path) > 1:
                         directory_path = os.path.join(UPLOAD_FOLDER, *node_path[1:])
                         if os.path.exists(directory_path):
-                            papers = scan_papers_in_directory(
+                            papers = paper_repository.scan_papers_in_directory(
                                 directory_path,
                                 category_id=node.get("id"),
                                 category_path=node_path,

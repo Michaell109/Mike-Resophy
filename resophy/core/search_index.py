@@ -273,7 +273,7 @@ class SearchIndex:
                 # If there is a rebuild callback, call it（Asynchronous, non-blocking）
                 if self._rebuild_callback:
                     print("Trigger index rebuild（background execution）...")
-                    import threading
+
 
                     threading.Thread(target=self._rebuild_callback, daemon=True).start()
             except Exception as e:
@@ -764,8 +764,6 @@ class SearchIndex:
                         print(f"Database problem detected while searching（Maybe the index is out of sync）: {e}")
                         print("The database is being repaired and indexes are being rebuilt in the background, please try the search again later....")
                         # Trigger repair and rebuild asynchronously without blocking searches
-                        import threading
-
                         threading.Thread(
                             target=self._repair_database, daemon=True
                         ).start()

@@ -19,7 +19,7 @@ from resophy.tools.basic_tools.paper_repository import (
     inherit_chinese_and_analysis,
 )
 from resophy.tools.basic_tools.upload_paper import (
-    fetch_bibtex_from_dblp, fetch_paper_by_arxiv_id_fast)
+    fetch_bibtex_from_dblp, fetch_paper_by_arxiv_id)
 
 
 class GetCategoriesFn(Protocol):
@@ -210,7 +210,7 @@ def register_update_from_url_routes(
             print(f"PDF saved to: {file_path}")
 
             # 【Get it quickly】only from arXiv API Get information without waiting DBLP
-            metadata = fetch_paper_by_arxiv_id_fast(arxiv_id)
+            metadata = fetch_paper_by_arxiv_id(arxiv_id)
 
             if not metadata:
                 print(f"warn: Unable to access from arXiv API Get information")

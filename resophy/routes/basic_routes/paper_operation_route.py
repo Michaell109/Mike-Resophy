@@ -15,6 +15,7 @@ from resophy.core.paper_store import PaperStore
 from resophy.tools.basic_tools.paper_repository import scan_papers_in_directory
 from resophy.tools.basic_tools.upload_paper import (
     fetch_arxiv_affiliations,
+    fetch_bibtex_from_dblp,
     process_uploaded_pdf,
     search_arxiv_by_title_only,
 )
@@ -688,10 +689,6 @@ def register_paper_operation_routes(
     def api_record_read_time(paper_id: str):
         """Record paper reading time (cumulative increment)"""
         try:
-            import json as json_lib
-            import os
-            from datetime import datetime
-
             data = request.json or {}
             # Use incremental mode
             increment = data.get("increment", 0)
@@ -718,7 +715,7 @@ def register_paper_operation_routes(
             if os.path.exists(reading_history_file):
                 try:
                     with open(reading_history_file, "r", encoding="utf-8") as fp:
-                        history = json_lib.load(fp)
+                        history = json.load(fp)
                 except:
                     history = {}
 
@@ -751,7 +748,7 @@ def register_paper_operation_routes(
 
                 # Save updated history
                 with open(reading_history_file, "w", encoding="utf-8") as fp:
-                    json_lib.dump(history, fp, ensure_ascii=False, indent=2)
+                    json.dump(history, fp, ensure_ascii=False, indent=2)
             else:
                 # If the file does not exist, create a new file
                 today = datetime.now().strftime("%Y-%m-%d")
@@ -759,7 +756,7 @@ def register_paper_operation_routes(
                 history = {today: {"total": minutes, "papers": [paper_id]}}
                 os.makedirs(os.path.dirname(reading_history_file), exist_ok=True)
                 with open(reading_history_file, "w", encoding="utf-8") as fp:
-                    json_lib.dump(history, fp, ensure_ascii=False, indent=2)
+                    json.dump(history, fp, ensure_ascii=False, indent=2)
 
             return jsonify({"success": True, "read_time": paper.read_time})
 
@@ -825,6 +822,16 @@ def register_paper_operation_routes(
                     if not paper_info:
                         print("[Re-crawl] Unable to obtain paper information")
                         return
+
+                    # Fetch DBLP BibTeX
+                    if paper_info.get("title") and paper_info.get("authors") and paper_info.get("arxiv_id"):
+                        bibtex = fetch_bibtex_from_dblp(
+                            title=paper_info["title"],
+                            authors=paper_info["authors"],
+                            arxiv_id=paper_info["arxiv_id"],
+                        )
+                        if bibtex:
+                            paper_info["bibtex"] = bibtex
 
                     print(f"[Re-crawl] found match: {paper_info.get('title')[:50]}...")
 

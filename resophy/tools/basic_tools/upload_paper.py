@@ -206,7 +206,7 @@ def _add_affiliations_to_result(result: Dict[str, Any], arxiv_id: str) -> None:
 # ============================================================================
 
 
-def fetch_paper_by_arxiv_id_fast(arxiv_id: str) -> Optional[Dict[str, Any]]:
+def fetch_paper_by_arxiv_id(arxiv_id: str) -> Optional[Dict[str, Any]]:
     """
     Quick version: Pass only arXiv API Get paper information (without waiting DBLP）
 
@@ -288,46 +288,6 @@ def fetch_bibtex_from_dblp(title: str, authors: str, arxiv_id: str) -> Optional[
         return None
 
 
-def fetch_paper_by_arxiv_id(arxiv_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Way1: pass arXiv ID Get complete paper information (including DBLP BibTeX）
-
-    process:
-    1. standardization arXiv ID
-    2. call arXiv API Get basic information (title, authors, abstract, yearwait)
-    3. use title + authors from DBLP get better BibTeX(overwrite if found)
-
-    Args:
-        arxiv_id: arXiv ID(like "2502.05383" or "arXiv:2502.05383"）
-
-    Returns:
-        Paper information dictionary, including the following fields:
-        - title: Paper title
-        - authors: Author string (comma separated)
-        - abstract: summary
-        - year: year of publication
-        - arxiv_id: arXiv ID
-        - bibtex: BibTeX Quote (priority DBLP, use after failure arXiv）
-        - published_date: release date
-        - pdf_url: PDF Download link
-        - primary_category: Main categories
-        If failed return None
-    """
-    # Get it quickly first arXiv information
-    result = fetch_paper_by_arxiv_id_fast(arxiv_id)
-    if not result:
-        return None
-
-    # then get DBLP BibTeX
-    bibtex = fetch_bibtex_from_dblp(
-        title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
-    )
-    if bibtex:
-        result["bibtex"] = bibtex
-
-    return result
-
-
 # ============================================================================
 # Way2: PDF Upload processing (multi-level downgrade strategy)
 # ============================================================================
@@ -402,7 +362,7 @@ def extract_pdf_arxiv_metadata(pdf_path: str) -> Dict[str, Optional[str]]:
         return result
 
 
-def search_arxiv_by_title_and_author_fast(
+def search_arxiv_by_title_and_author(
     title: str, author: str
 ) -> Optional[Dict[str, Any]]:
     """
@@ -470,7 +430,7 @@ def search_arxiv_by_title_and_author_fast(
         return None
 
 
-def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
+def search_arxiv_by_title_only(title: str) -> Optional[Dict[str, Any]]:
     """
     Quick version: search using title only arXiv Thesis (no waiting DBLP）
 
@@ -530,62 +490,7 @@ def search_arxiv_by_title_only_fast(title: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def search_arxiv_by_title_and_author(
-    title: str, author: str
-) -> Optional[Dict[str, Any]]:
-    """
-    Search using title and author arXiv Papers (including DBLP BibTeX）
-
-    use arXiv Query syntax: ti:"title" AND au:"author"
-
-    Args:
-        title: Paper title
-        author: Author name (can be the first author)
-
-    Returns:
-        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
-    """
-    # Get it quickly first arXiv information
-    result = search_arxiv_by_title_and_author_fast(title, author)
-    if not result:
-        return None
-
-    # then get DBLP BibTeX
-    bibtex = fetch_bibtex_from_dblp(
-        title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
-    )
-    if bibtex:
-        result["bibtex"] = bibtex
-
-    return result
-
-
-def search_arxiv_by_title_only(title: str) -> Optional[Dict[str, Any]]:
-    """
-    Search using title only arXiv Papers (including DBLP BibTeX）
-
-    Args:
-        title: Paper title
-
-    Returns:
-        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
-    """
-    # Get it quickly first arXiv information
-    result = search_arxiv_by_title_only_fast(title)
-    if not result:
-        return None
-
-    # then get DBLP BibTeX
-    bibtex = fetch_bibtex_from_dblp(
-        title=result["title"], authors=result["authors"], arxiv_id=result["arxiv_id"]
-    )
-    if bibtex:
-        result["bibtex"] = bibtex
-
-    return result
-
-
-def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str, Any]]:
+def process_uploaded_pdf(pdf_path: str, filename: str) -> Optional[Dict[str, Any]]:
     """
     Quick version: handles uploads PDF file(no wait DBLP）
 
@@ -610,7 +515,7 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
     arxiv_id_from_filename = _extract_arxiv_id_from_filename(filename)
     if arxiv_id_from_filename:
         print(f"[Way2.1 Fast] Extract from file name to arXiv ID: {arxiv_id_from_filename}")
-        result = fetch_paper_by_arxiv_id_fast(arxiv_id_from_filename)
+        result = fetch_paper_by_arxiv_id(arxiv_id_from_filename)
         if result:
             print(f"[Way2.1 Fast] ✅ passed successfully arXiv ID Get information")
             return result
@@ -625,7 +530,7 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
         print(
             f"[Way2.2 Fast] from PDF metadata Extract to arXiv ID: {pdf_metadata['arxiv_id']}"
         )
-        result = fetch_paper_by_arxiv_id_fast(pdf_metadata["arxiv_id"])
+        result = fetch_paper_by_arxiv_id(pdf_metadata["arxiv_id"])
         if result:
             print(f"[Way2.2 Fast] ✅ passed successfully arXiv ID Get information")
             return result
@@ -640,7 +545,7 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
         # Extract the first author (for search)
         authors = pdf_metadata["authors"].split(",")[0].strip()
 
-        result = search_arxiv_by_title_and_author_fast(pdf_metadata["title"], authors)
+        result = search_arxiv_by_title_and_author(pdf_metadata["title"], authors)
         if result:
             print(f"[Way2.3 Fast] ✅ Successfully found matching paper")
             return result
@@ -687,7 +592,7 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
 
     # Use the extracted title search
     if title:
-        result = search_arxiv_by_title_only_fast(title)
+        result = search_arxiv_by_title_only(title)
         if result:
             print(f"[Way2.4 Fast] ✅ Successfully found matching paper")
             return result
@@ -699,36 +604,3 @@ def process_uploaded_pdf_fast(pdf_path: str, filename: str) -> Optional[Dict[str
     return None
 
 
-def process_uploaded_pdf(pdf_path: str, filename: str) -> Optional[Dict[str, Any]]:
-    """
-    Way2: Handle uploaded PDF File (multi-level downgrade policy, containing DBLP BibTeX）
-
-    Processing flow:
-    2.1 Extract from file name arXiv ID → If found, jump to method1（fetch_paper_by_arxiv_id）
-    2.2 from PDF metadata of '/arXivID' extract → If found, jump to method1
-    2.3 from PDF metadata of '/Title' and '/Author' search arXiv(use title+author）
-    2.4 use PDF Parse and extract title, and then just use title search arXiv
-
-    Args:
-        pdf_path: PDF file path
-        filename: PDF file name
-
-    Returns:
-        Paper information dictionary (the format is the same as fetch_paper_by_arxiv_id), return on failure None
-    """
-    # Get it quickly first arXiv information
-    result = process_uploaded_pdf_fast(pdf_path, filename)
-    if not result:
-        return None
-
-    # then get DBLP BibTeX
-    if result.get("title") and result.get("authors") and result.get("arxiv_id"):
-        bibtex = fetch_bibtex_from_dblp(
-            title=result["title"],
-            authors=result["authors"],
-            arxiv_id=result["arxiv_id"],
-        )
-        if bibtex:
-            result["bibtex"] = bibtex
-
-    return result

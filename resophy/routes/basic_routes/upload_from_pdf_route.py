@@ -19,7 +19,7 @@ from resophy.tools.basic_tools.paper_repository import (
 )
 from resophy.tools.basic_tools.upload_paper import (
     fetch_bibtex_from_dblp,
-    process_uploaded_pdf_fast,
+    process_uploaded_pdf,
 )
 
 
@@ -89,7 +89,7 @@ def register_upload_from_pdf_routes(
             print(f"[Backstage] Start processingPDFmetadata: {file_path}")
 
             # 【stage1】Get it quickly arXiv message(no wait DBLP）
-            paper_info = process_uploaded_pdf_fast(file_path, original_filename)
+            paper_info = process_uploaded_pdf(file_path, original_filename)
 
             if not paper_info:
                 print("[Backstage] Unable to obtain paper information, keep original file name")

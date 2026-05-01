@@ -15,7 +15,6 @@ import os
 import shutil
 import threading
 import time
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -1206,87 +1205,6 @@ Now the input abstract is:
             progress.set_error(str(e))
             return []
 
-    def _validate_pdf_integrity(self, pdf_path: str) -> bool:
-        """verify PDF file integrity
-
-        Returns:
-            True if PDF The document is complete and valid,False otherwise
-        """
-        try:
-            if not os.path.exists(pdf_path):
-                return False
-
-            file_size = os.path.getsize(pdf_path)
-            if file_size == 0 or file_size < 1024:
-                return False
-
-            # examine PDF File header (must end with %PDF- beginning)
-            with open(pdf_path, "rb") as f:
-                header = f.read(8)
-                if not header.startswith(b"%PDF-"):
-                    print(f"[DailyArxiv] PDF Invalid file header: {pdf_path}")
-                    return False
-
-            # examine PDF End of file (should contain %%EOF）
-            with open(pdf_path, "rb") as f:
-                f.seek(max(0, file_size - 1024))  # read last1KB
-                tail = f.read()
-                if b"%%EOF" not in tail:
-                    print(
-                        f"[DailyArxiv] PDF Invalid end of file (missing %%EOF）: {pdf_path}"
-                    )
-                    return False
-
-            # Try using PyMuPDF Open file to verify integrity (most reliable method)
-            try:
-                import fitz  # PyMuPDF
-
-                doc = fitz.open(pdf_path)
-                # Try accessing the first and last pages
-                if len(doc) == 0:
-                    doc.close()
-                    print(f"[DailyArxiv] PDF File has no pages: {pdf_path}")
-                    return False
-                # Try rendering the first page (verify file integrity)
-                try:
-                    page = doc[0]
-                    _ = page.get_pixmap()  # Try rendering the page
-                except Exception as e:
-                    doc.close()
-                    print(
-                        f"[DailyArxiv] PDF File cannot render page: {pdf_path}, mistake: {e}"
-                    )
-                    return False
-                doc.close()
-            except ImportError:
-                # if not PyMuPDF, try using PyPDF2
-                try:
-                    import PyPDF2
-
-                    with open(pdf_path, "rb") as f:
-                        pdf_reader = PyPDF2.PdfReader(f)
-                        if len(pdf_reader.pages) == 0:
-                            print(
-                                f"[DailyArxiv] PDF File has no pages (PyPDF2): {pdf_path}"
-                            )
-                            return False
-                        # Try to access the first page
-                        _ = pdf_reader.pages[0]
-                except Exception as e:
-                    print(
-                        f"[DailyArxiv] PDF File cannot be parsed (PyPDF2): {pdf_path}, mistake: {e}"
-                    )
-                    return False
-            except Exception as e:
-                print(
-                    f"[DailyArxiv] PDF File verification failed: {pdf_path}, mistake: {e}"
-                )
-                return False
-
-            return True
-        except Exception as e:
-            print(f"[DailyArxiv] verify PDF Integrity error: {pdf_path}, mistake: {e}")
-            return False
 
     def _download_pdf_only(
         self, paper: ArxivPaper, cat_dir: str
@@ -1368,165 +1286,6 @@ Now the input abstract is:
             print(f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): {e}")
             return None
 
-    def _download_pdf(
-        self, paper: ArxivPaper, cat_dir: str, progress: FetchProgress = None
-    ) -> Optional[str]:
-        """download PDF
-
-        use export.arxiv.org to avoid IP Limitation issue
-
-        Args:
-            paper: Thesis object
-            cat_dir: Categories
-            progress: Progress tracking object (optional) used to update the file size during the download process
-        """
-        try:
-            basename = _arxiv_paper_basename(paper)
-            pdf_filename = f"{basename}.pdf"
-            pdf_path = os.path.join(cat_dir, pdf_filename)
-
-            # If the file already exists, delete it (because it has been marked downloading, indicating that the previous download was not completed)
-            if os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                    print(
-                        f"[DailyArxiv] Delete existing PDF file, re-download: {paper.arxiv_id}"
-                    )
-                except:
-                    pass
-
-            print(f"[DailyArxiv] download PDF: {paper.arxiv_id}")
-
-            # Will PDF URL from arxiv.org Convert to export.arxiv.org(Officially recommended export service)
-            # For example: https://arxiv.org/pdf/2512.04025v1 -> https://export.arxiv.org/pdf/2512.04025v1
-            pdf_url = paper.pdf_url
-            if "arxiv.org/pdf/" in pdf_url:
-                pdf_url = pdf_url.replace("arxiv.org/pdf/", "export.arxiv.org/pdf/")
-            elif "arxiv.org/abs/" in pdf_url:
-                # in the case of abs URL, also converted to export
-                pdf_url = pdf_url.replace("arxiv.org/abs/", "export.arxiv.org/pdf/")
-            else:
-                # if it is already export.arxiv.org, remain unchanged
-                pass
-
-            # Try using it first requests library (if available), which usually handles the anti-crawling mechanism better
-            try:
-                import requests
-
-                # use requests Library, add complete browser request headers
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Referer": "https://arxiv.org/",
-                    "Connection": "keep-alive",
-                }
-
-                # download PDF(use export.arxiv.org, no need to visit the home page first)
-                response = requests.get(
-                    pdf_url,
-                    headers=headers,
-                    timeout=30,
-                    stream=True,
-                    allow_redirects=True,
-                )
-
-                if response.status_code == 200:
-                    chunk_count = 0
-                    with open(pdf_path, "wb") as out_file:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                out_file.write(chunk)
-                                chunk_count += 1
-                                # every write 10 indivual chunk(about 80KB) Update the progress once
-                                if progress and chunk_count % 10 == 0:
-                                    progress.update(
-                                        progress.current,
-                                        progress.current_paper,
-                                        pdf_path=pdf_path,
-                                    )
-
-                    # Check if the file downloaded successfully (basic check: the file exists and is not empty)
-                    if os.path.exists(pdf_path):
-                        file_size = os.path.getsize(pdf_path)
-                        if (
-                            file_size == 0 or file_size < 1024
-                        ):  # less than1KBPossibly an error page
-                            print(
-                                f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
-                            )
-                            try:
-                                os.remove(pdf_path)
-                            except:
-                                pass
-                            return None
-
-                    # Update the progress one last time to make sure the final file size is shown
-                    if progress:
-                        progress.update(
-                            progress.current, progress.current_paper, pdf_path=pdf_path
-                        )
-
-                    print(f"[DailyArxiv] PDF Download successful: {paper.arxiv_id}")
-                    return pdf_path
-                else:
-                    raise Exception(f"HTTP {response.status_code}: {response.reason}")
-
-            except ImportError:
-                # if not requests library, fallback to urllib
-                # Create request, add User-Agent
-                req = urllib.request.Request(
-                    pdf_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "application/pdf,text/html,*/*",
-                        "Referer": "https://arxiv.org/",
-                    },
-                )
-
-                # Download file (urllib It is a one-time read and the progress cannot be updated during the download process)
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    with open(pdf_path, "wb") as out_file:
-                        out_file.write(response.read())
-
-                # Update progress after download completes (showing final file size)
-                if progress:
-                    progress.update(
-                        progress.current, progress.current_paper, pdf_path=pdf_path
-                    )
-
-                # Check if the file downloaded successfully (basic check: the file exists and is not empty)
-                if os.path.exists(pdf_path):
-                    file_size = os.path.getsize(pdf_path)
-                    if (
-                        file_size == 0 or file_size < 1024
-                    ):  # less than1KBPossibly an error page
-                        print(
-                            f"[DailyArxiv] PDF File is empty or too small ({file_size} bytes),delete: {paper.arxiv_id}"
-                        )
-                        try:
-                            os.remove(pdf_path)
-                        except:
-                            pass
-                        return None
-
-                print(f"[DailyArxiv] PDF Download successful: {paper.arxiv_id}")
-                return pdf_path
-
-        except urllib.error.HTTPError as e:
-            if e.code == 403:
-                print(
-                    f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): 403 Forbidden - maybe the server IP restricted or PDF Not published yet, will try again next time we check"
-                )
-            else:
-                print(
-                    f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): HTTP Error {e.code}: {e.reason}"
-                )
-            return None
-        except Exception as e:
-            print(f"[DailyArxiv] download PDF fail ({paper.arxiv_id}): {e}")
-            return None
 
     def _generate_thumbnail(self, pdf_path: str, cat_dir: str) -> Optional[str]:
         """generatePDFthumbnail"""
@@ -2230,7 +1989,6 @@ def extract_affiliations_with_llm(
 
         # Standardization body name (unification of various variants into a standard abbreviation)
         try:
-            import os
             import sys
 
             # Add to tools Directory to Python path
@@ -2384,45 +2142,3 @@ def get_manager(base_dir: str, settings_file: str) -> DailyArxivManager:
     return _manager_instance
 
 
-# Compatible with old interfaces
-class DailyArxivFetcher:
-    """Old interface compatibility layer"""
-
-    def __init__(self, temp_dir: str):
-        self.temp_dir = temp_dir
-        self.client = arxiv.Client(
-            page_size=50,
-            delay_seconds=3.0,
-            num_retries=3,
-        )
-
-    def fetch_latest_papers(
-        self,
-        category: str,
-        max_results: int = 3,
-        days_back: int = 7,
-    ) -> List[ArxivPaper]:
-        try:
-            search = arxiv.Search(
-                query=f"cat:{category}",
-                max_results=max_results,
-                sort_by=arxiv.SortCriterion.SubmittedDate,
-                sort_order=arxiv.SortOrder.Descending,
-            )
-
-            papers = []
-            for result in self.client.results(search):
-                paper = ArxivPaper.from_arxiv_result(result, fetch_category=category)
-                papers.append(paper)
-
-            print(f"[DailyArxiv] from {category} Got {len(papers)} papers")
-            return papers
-
-        except Exception as e:
-            print(f"[DailyArxiv] get {category} Thesis failed: {e}")
-            return []
-
-
-def get_fetcher(temp_dir: str) -> DailyArxivFetcher:
-    """get old style fetcher Example"""
-    return DailyArxivFetcher(temp_dir)
