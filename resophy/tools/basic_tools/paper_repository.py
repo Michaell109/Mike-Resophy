@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from datetime import datetime
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import paper_store
@@ -374,6 +374,65 @@ def _find_source_paper_for_inherit(
            (p.has_analysis_result and p.analysis_result_path and os.path.exists(p.analysis_result_path)):
             return p
     return None
+
+
+def sync_results_to_duplicates(
+    source_paper: Paper,
+    save_paper_metadata_fn: Optional[Callable[[str, Paper], None]] = None,
+) -> int:
+    """Sync translation/analysis results from source_paper to all duplicate papers.
+
+    After a paper is translated or analyzed, this function finds all copies of the
+    same paper (by arxiv_id or title) across all directories, copies the result
+    files to their directories, and updates their JSON metadata.
+
+    Args:
+        source_paper: The paper that was just translated or analyzed.
+        save_paper_metadata_fn: Optional custom save function (e.g., app-level wrapper
+                               that also updates search index). Falls back to the
+                               module-level save_paper_metadata.
+
+    Returns: Number of duplicate papers updated.
+    """
+    if not source_paper.file_path or not os.path.exists(source_paper.file_path):
+        return 0
+
+    if not source_paper.has_chinese_version and not source_paper.has_analysis_result:
+        return 0
+
+    save_fn = save_paper_metadata_fn or save_paper_metadata
+
+    # Find all duplicates across all categories
+    duplicates = paper_store.find_all_duplicates(
+        arxiv_id=source_paper.arxiv_id,
+        title=source_paper.title,
+        exclude_paper_id=source_paper.id,
+    )
+
+    if not duplicates:
+        return 0
+
+    updated = 0
+    for dup in duplicates:
+        if not dup.file_path or not os.path.exists(dup.file_path):
+            continue
+
+        target_dir = os.path.dirname(dup.file_path)
+        target_base = os.path.splitext(os.path.basename(dup.file_path))[0]
+
+        copied = inherit_chinese_and_analysis(source_paper, target_dir, target_base, dup)
+
+        if copied:
+            # Upsert in paper_store to sync in-memory state
+            category_id = paper_store.get_category_id(dup.id)
+            category_path = paper_store.get_category_path(dup.id)
+            if category_id and category_path:
+                paper_store.upsert(dup, category_id=category_id, category_path=category_path)
+            save_fn(dup.file_path, dup)
+            updated += 1
+            print(f"[Sync] Synced results to duplicate: {dup.file_path}")
+
+    return updated
 
 
 def refresh_paper_status(paper: Paper) -> None:

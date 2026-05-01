@@ -582,6 +582,20 @@ INPUT: <MARKDOWN>"""
                 if search_and_update_analysis_time(child):
                     break
 
+        # Sync analysis results to duplicate papers across all directories
+        try:
+            from resophy.tools.basic_tools.paper_repository import (
+                sync_results_to_duplicates,
+            )
+
+            entry = paper_store.get_entry(paper_id)
+            if entry:
+                sync_results_to_duplicates(
+                    entry.paper, deps.save_paper_metadata
+                )
+        except Exception as e:  # noqa: BLE001
+            print(f"[Sync] Failed to sync analysis to duplicates: {e}")
+
         with deps.analysis_tasks_lock:
             deps.analysis_tasks[task_id]["status"] = "completed"
             deps.analysis_tasks[task_id]["result"] = {

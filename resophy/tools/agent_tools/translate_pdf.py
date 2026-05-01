@@ -201,6 +201,20 @@ def translate_paper_task(
                             if search_and_update_time(child):
                                 break
 
+                    # Sync translation results to duplicate papers across all directories
+                    try:
+                        from resophy.tools.basic_tools.paper_repository import (
+                            sync_results_to_duplicates,
+                        )
+
+                        entry = paper_store.get_entry(paper_id)
+                        if entry:
+                            sync_results_to_duplicates(
+                                entry.paper, deps.save_paper_metadata
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[Sync] Failed to sync translation to duplicates: {e}")
+
                     deps.translation_tasks[task_id]["status"] = "completed"
                     deps.translation_tasks[task_id]["result"] = {
                         "success": True,

@@ -205,6 +205,27 @@ class PaperStore:
                         return entry
             return None
 
+    def find_all_duplicates(
+        self,
+        arxiv_id: Optional[str] = None,
+        title: Optional[str] = None,
+        exclude_paper_id: Optional[str] = None,
+    ) -> List[Paper]:
+        """Find all papers matching by arxiv_id or title (case-insensitive), excluding a given ID."""
+        with self._lock:
+            results: List[Paper] = []
+            for entry in self._papers.values():
+                pid = entry.paper.id
+                if exclude_paper_id and pid == exclude_paper_id:
+                    continue
+                paper = entry.paper
+                if arxiv_id and paper.arxiv_id == arxiv_id:
+                    results.append(paper)
+                    continue
+                if title and paper.title and paper.title.strip().lower() == title.strip().lower():
+                    results.append(paper)
+            return results
+
     # ------------------------------------------------------------------
     # Status helpers
     # ------------------------------------------------------------------
