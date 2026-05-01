@@ -177,6 +177,7 @@ def register_relative_paper_routes(
                 "task_id": task_id,
                 "category_id": category_id,
                 "category_name": category_name,
+                "paper_title": ref_paper.title or "",
                 "message": f"Started searching related papers for: {ref_paper.title[:50] if ref_paper.title else paper_id}",
             })
 
@@ -207,3 +208,16 @@ def register_relative_paper_routes(
         """Clean up a completed task from memory."""
         cleanup_task(task_id)
         return jsonify({"success": True})
+
+    @app.route("/api/paper/title/<paper_id>", methods=["GET"])
+    def api_paper_title(paper_id: str):
+        """Get the title of a paper by its ID."""
+        try:
+            entry = paper_store.get_entry(paper_id)
+            if not entry:
+                return jsonify({"success": False, "error": "Paper not found"}), 404
+            title = entry.paper.title or ""
+            return jsonify({"success": True, "title": title})
+        except Exception as exc:
+            print(f"[PaperTitle] Lookup failed: {exc}")
+            return jsonify({"success": False, "error": str(exc)}), 500

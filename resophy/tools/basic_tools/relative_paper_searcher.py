@@ -727,7 +727,7 @@ def _parse_references_section(md_content: str) -> Dict[int, _RefEntry]:
 
     # Find References section (could be # References, ## References, # REFERENCES, etc.)
     ref_match = re.search(
-        r"^#{1,3}\s*(References|REFERENCES|Bibliography|参考文献)\s*$",
+        r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(References|REFERENCES|Bibliography|参考文献)\s*$",
         md_content,
         re.MULTILINE | re.IGNORECASE,
     )
@@ -918,7 +918,7 @@ def _extract_experiment_section(md_content: str) -> str:
     """Extract the experiment/results section from the paper markdown."""
     # Find experiment section header (various formats)
     exp_match = re.search(
-        r"^#{1,3}\s*(\d+\.?\s*)?(Experiments?|Results?|Experimental\s+Results?|Evaluation|实验)",
+        r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(Experiments?|Results?|Experimental\s+Results?|Evaluation|实验)",
         md_content,
         re.MULTILINE | re.IGNORECASE,
     )
@@ -930,7 +930,7 @@ def _extract_experiment_section(md_content: str) -> str:
     # Find the next major section that's NOT a subsection (## but not ###)
     # Look for sections like Discussion, Conclusion, Limitations, Related Work, Acknowledgments, References
     next_section = re.search(
-        r"^#{1,3}\s*(\d+\.?\s*)?(Discussion|Conclusion|Limitation|Related\s+Work|Acknowledgment|Reference|Appendix|Future\s+Work|总结|讨论|局限|致谢|参考文献)",
+        r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(Discussion|Conclusion|Limitation|Related\s+Work|Acknowledgment|Reference|Appendix|Future\s+Work|总结|讨论|局限|致谢|参考文献)",
         md_content[start:],
         re.MULTILINE | re.IGNORECASE,
     )
@@ -951,7 +951,7 @@ def _extract_related_work_section(md_content: str) -> str:
     section (identified by known section names like Method, Approach, etc.).
     """
     rw_match = re.search(
-        r"^#{1,3}\s*(\d+\.?\s*)?(Related\s+Work[s]?|相关工作|文献综述)",
+        r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(Related\s+Work[s]?|相关工作|文献综述)",
         md_content,
         re.MULTILINE | re.IGNORECASE,
     )
@@ -965,7 +965,7 @@ def _extract_related_work_section(md_content: str) -> str:
     # so we can't rely on header level alone. Instead, look for known
     # section names that typically follow Related Work.
     next_section = re.search(
-        r"^#{1,3}\s*(\d+\.?\s*)?(Method|Approach|Preliminar|Model|Framework|Problem|Background|Notation|Dataset|Experiment|Evaluation|Validation|Setup|Implementation|Architecture|Design|方法|模型|实验|方法)",
+        r"^#{1,3}\s*(?:\d+\.?\s*|[IVXLCDM]+\.\s*)?(Method|Approach|Preliminar|Model|Framework|Problem|Background|Notation|Dataset|Experiment|Evaluation|Validation|Setup|Implementation|Architecture|Design|方法|模型|实验|方法)",
         md_content[start:],
         re.MULTILINE | re.IGNORECASE,
     )
@@ -1035,29 +1035,29 @@ def _resolve_related_work_from_pdf(
     md_path = _find_pdf2md_path(ref_paper_data)
     if not md_path:
         print("[RelativePaper] No PDF-to-markdown file found for Related Work extraction")
-        return []
+        return [], 0
 
     try:
         with open(md_path, "r", encoding="utf-8") as f:
             md_content = f.read()
     except Exception as e:
         print(f"[RelativePaper] Failed to read markdown file: {e}")
-        return []
+        return [], 0
 
     ref_map = _parse_references_section(md_content)
     if not ref_map:
         print("[RelativePaper] No references found in markdown")
-        return []
+        return [], 0
 
     section = _extract_related_work_section(md_content)
     if not section:
         print("[RelativePaper] No Related Work section found in markdown")
-        return []
+        return [], 0
 
     rw_entries = _extract_refs_from_related_work(section, ref_map)
     if not rw_entries:
         print("[RelativePaper] No citations found in Related Work section")
-        return []
+        return [], 0
 
     print(f"[RelativePaper] Related Work: {len(rw_entries)} unique citations, resolving via arXiv...")
 
@@ -1998,7 +1998,10 @@ def _extract_baselines_from_citations(
             if name_norm in c_title_norm and name_norm != c_title_norm and len(name_norm) < len(c_title_norm):
                 # Also verify the author matches to avoid false positives
                 author_match = False
-                for author_name, _ in method["ref_author_year"]:
+                for ay_pair in method["ref_author_year"]:
+                    if not isinstance(ay_pair, (list, tuple)) or len(ay_pair) != 2:
+                        continue
+                    author_name, _ = ay_pair
                     author_surname_check = re.match(r"([A-Z][a-z]+)", author_name)
                     if author_surname_check and author_surname_check.group(1).lower() in c.authors.lower():
                         author_match = True
@@ -2010,7 +2013,11 @@ def _extract_baselines_from_citations(
         if is_substring_of_resolved:
             continue
 
-        author, year_raw = method["ref_author_year"][0]
+        ay_pair = method["ref_author_year"][0]
+        if not isinstance(ay_pair, (list, tuple)) or len(ay_pair) != 2:
+            print(f"[RelativePaper] Invalid ref_author_year entry for '{method_name}': {ay_pair}")
+            continue
+        author, year_raw = ay_pair
         year_clean = re.match(r"(\d{4})", year_raw)
         expected_year = year_clean.group(1) if year_clean else year_raw
         author_surname = re.match(r"([A-Z][a-z]+)", author)
@@ -2883,9 +2890,17 @@ def search_related_papers(
     except Exception as e:
         print(f"[RelativePaper] Search failed: {e}")
         import traceback
-        traceback.print_exc()
+        tb = traceback.format_exc()
+        print(tb)
         progress.status = "error"
-        progress.error = str(e)
+        # Extract line number from traceback for precise debugging
+        tb_lines = tb.strip().split("\n")
+        line_info = ""
+        for line in tb_lines:
+            m = re.search(r'File ".+", line (\d+), in (.+)', line)
+            if m:
+                line_info = f"line {m.group(1)} in {m.group(2)}"
+        progress.error = f"{e} [{line_info}]" if line_info else str(e)
 
 
 def start_search(

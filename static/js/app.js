@@ -14492,6 +14492,16 @@ async function startRelativePaperSearch() {
         const titleEl = paperEl.querySelector('.paper-title');
         if (titleEl) paperTitle = titleEl.textContent.trim();
     }
+    // If DOM extraction failed, fetch title from backend
+    if (!paperTitle || paperTitle === paperId) {
+        try {
+            const resp = await fetch(`/api/paper/title/${paperId}`);
+            const data = await resp.json();
+            if (data.success && data.title) paperTitle = data.title;
+        } catch (e) {
+            // silently fall back to paperId
+        }
+    }
 
     // Check if already queued/running for this paper
     if (_searchQueue.some(t => t.paperId === paperId && (t.status === 'queued' || t.status === 'running'))) {
@@ -14544,6 +14554,11 @@ async function startRelativePaperSearch() {
         }
 
         closeRelativePaperModal();
+
+        // Use backend-returned title if better than what we have
+        if (data.paper_title && data.paper_title !== paperId) {
+            paperTitle = data.paper_title;
+        }
 
         const task = {
             taskId: data.task_id,
@@ -14702,6 +14717,10 @@ async function startNextQueuedSearch() {
         nextTask.categoryId = data.category_id;
         nextTask.status = 'running';
         nextTask.progress = {};
+        // Update title from backend response
+        if (data.paper_title) {
+            nextTask.paperTitle = data.paper_title;
+        }
         updateSearchBadge();
         if (_searchDropdownOpen) renderSearchDropdown();
 
