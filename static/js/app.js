@@ -1709,6 +1709,41 @@ function renderPaperInfo(paper) {
             <!-- Basic information -->
             ${createExpandableTextBlock('title', getPaperDisplayName(paper), 'title', false, false, true)}
             ${createExpandableTextBlock('author', paper.authors, 'authors', false, false, true)}
+            ${(() => {
+                let affs = paper.affiliations || (paper.extra && paper.extra.affiliations);
+                if (!affs || !Array.isArray(affs) || affs.length === 0) {
+                    const affStr = paper.affiliation && paper.affiliation !== 'nan' ? paper.affiliation : '';
+                    if (affStr) {
+                        affs = affStr.split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
+                    }
+                }
+                if (affs && Array.isArray(affs) && affs.length > 0) {
+                    const affItems = affs.map((aff, i) => `<div class="affiliation-item"><span class="affiliation-index">${i + 1}</span><span class="affiliation-text affiliation-editable" contenteditable="true" data-field="affiliation_${i}" data-full-text="${escapeHtml(aff)}">${escapeHtml(aff)}</span></div>`).join('');
+                    return `<div class="info-section compact" data-field="affiliation">
+                        <div class="info-header">
+                            <span class="info-label">Affiliation</span>
+                        </div>
+                        <div class="info-content">
+                            <div class="affiliation-list" data-paper-id="${paper.id}">${affItems}</div>
+                        </div>
+                    </div>`;
+                } else if (paper.arxiv_id) {
+                    return `<div class="info-section compact" data-field="affiliation">
+                        <div class="info-header">
+                            <span class="info-label">Affiliation</span>
+                        </div>
+                        <div class="info-content">
+                            <div class="affiliation-extract-prompt">
+                                <p style="color: #8b949e; font-size: 12px; margin: 0 0 6px 0;">Institutional information not available</p>
+                                <button class="btn btn-secondary btn-sm" onclick="fetchPaperAffiliations('${paper.id}')">
+                                    <i class="fas fa-building"></i> Fetch Affiliations
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+                }
+                return '';
+            })()}
             ${paper.arxiv_id || paper.arxiv_url ? `
             <div class="info-section compact">
                 <div class="info-header">
@@ -1757,42 +1792,6 @@ function renderPaperInfo(paper) {
                     </div>
                 </div>
             </div>
-            ${(() => {
-                let affs = paper.affiliations || (paper.extra && paper.extra.affiliations);
-                if (!affs || !Array.isArray(affs) || affs.length === 0) {
-                    const affStr = paper.affiliation && paper.affiliation !== 'nan' ? paper.affiliation : '';
-                    if (affStr) {
-                        affs = affStr.split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
-                    }
-                }
-                if (affs && Array.isArray(affs) && affs.length > 0) {
-                    const affItems = affs.map((aff, i) => `<div class="affiliation-item"><span class="affiliation-index">${i + 1}</span><span class="affiliation-text affiliation-editable" contenteditable="true" data-field="affiliation_${i}" data-full-text="${escapeHtml(aff)}">${escapeHtml(aff)}</span></div>`).join('');
-                    return `<div class="info-section compact" data-field="affiliation">
-                        <div class="info-header">
-                            <span class="info-label">Affiliation</span>
-                        </div>
-                        <div class="info-content">
-                            <div class="affiliation-list" data-paper-id="${paper.id}">${affItems}</div>
-                        </div>
-                    </div>`;
-                } else if (paper.arxiv_id) {
-                    return `<div class="info-section compact" data-field="affiliation">
-                        <div class="info-header">
-                            <span class="info-label">Affiliation</span>
-                        </div>
-                        <div class="info-content">
-                            <div class="affiliation-extract-prompt">
-                                <p style="color: #8b949e; font-size: 12px; margin: 0 0 6px 0;">Institutional information not available</p>
-                                <button class="btn btn-secondary btn-sm" onclick="fetchPaperAffiliations('${paper.id}')">
-                                    <i class="fas fa-building"></i> Fetch Affiliations
-                                </button>
-                            </div>
-                        </div>
-                    </div>`;
-                }
-                return '';
-            })()}
-            
             <!-- Time info -->
             <div class="info-section compact">
                 <div class="info-header">
