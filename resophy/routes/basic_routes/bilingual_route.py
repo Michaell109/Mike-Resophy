@@ -235,6 +235,36 @@ def register_bilingual_routes(
                     )
             return jsonify({"success": True, "tasks": active})
 
+    @app.route("/api/paper/bilingual-translate/logs", methods=["GET"])
+    def api_get_bilingual_logs_by_paper():
+        """Get logs for active bilingual tasks for a given paper_id."""
+        paper_id = request.args.get("paper_id")
+        if not paper_id:
+            return jsonify({"success": False, "error": "paper_id is required"}), 400
+
+        with bilingual_tasks_lock:
+            for tid, tinfo in bilingual_tasks.items():
+                if tinfo["paper_id"] == paper_id and tinfo["status"] in (
+                    "queued",
+                    "running",
+                ):
+                    with tinfo["log_lock"]:
+                        logs = tinfo["logs"].copy()
+                    return jsonify(
+                        {
+                            "success": True,
+                            "status": tinfo["status"],
+                            "progress": tinfo.get("progress", {}),
+                            "logs": logs,
+                            "start_time": tinfo["start_time"],
+                            "result": tinfo.get("result"),
+                            "task_id": tid,
+                        }
+                    )
+            return jsonify(
+                {"success": False, "error": "No active task found for this paper"}
+            )
+
     @app.route("/api/paper/bilingual-translate/<task_id>/logs", methods=["GET"])
     def api_get_bilingual_logs(task_id):
         with bilingual_tasks_lock:
@@ -253,6 +283,20 @@ def register_bilingual_routes(
                     "result": tinfo.get("result"),
                 }
             )
+
+    @app.route("/api/paper/bilingual-translate/cancel-all", methods=["POST"])
+    def api_cancel_all_bilingual():
+        """Cancel all queued/running bilingual translation tasks."""
+        with bilingual_tasks_lock:
+            count = 0
+            for tid, tinfo in bilingual_tasks.items():
+                if tinfo["status"] in ("queued", "running"):
+                    tinfo["status"] = "cancelled"
+                    tinfo["result"] = {"success": False, "error": "Cancelled by user"}
+                    count += 1
+        return jsonify(
+            {"success": True, "message": f"Cancelled {count} task(s)", "count": count}
+        )
 
     @app.route("/api/paper/bilingual-translate/<task_id>/cancel", methods=["POST"])
     def api_cancel_bilingual(task_id):

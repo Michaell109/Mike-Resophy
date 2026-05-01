@@ -607,6 +607,10 @@ fileInput.addEventListener('change', handleFileSelect);
     const batchReadingList = document.getElementById('batch-reading-list');
     if (batchReadingList) batchReadingList.addEventListener('click', onBatchReadingList);
     if (batchCancel) batchCancel.addEventListener('click', (e)=>{ e.stopPropagation(); exitMultiSelectMode(); });
+    const batchCancelTasks = document.getElementById('batch-cancel-tasks');
+    if (batchCancelTasks) batchCancelTasks.addEventListener('click', onBatchCancelTasks);
+    const cancelAllBtn = document.getElementById('btn-cancel-all-tasks');
+    if (cancelAllBtn) cancelAllBtn.addEventListener('click', onBatchCancelTasks);
 
     // Select All / Invert Selection
     const batchSelectAll = document.getElementById('batch-select-all');
@@ -5461,6 +5465,47 @@ async function onBatchReadingList() {
     updateBatchUI();
 }
 
+async function onBatchCancelTasks() {
+    // Cancel all running/queued translation and analysis tasks
+    if (!confirm('Cancel all running and queued translation/analysis tasks?')) return;
+
+    // Stop all log polling intervals
+    Object.keys(translationLogInterval).forEach(tid => {
+        clearInterval(translationLogInterval[tid]);
+        delete translationLogInterval[tid];
+    });
+    Object.keys(analysisLogInterval).forEach(tid => {
+        clearInterval(analysisLogInterval[tid]);
+        delete analysisLogInterval[tid];
+    });
+
+    // Call backend cancel-all endpoints (fire-and-forget)
+    fetch('/api/paper/bilingual-translate/cancel-all', { method: 'POST' }).catch(() => {});
+    fetch('/api/paper/analyze/cancel-all', { method: 'POST' }).catch(() => {});
+
+    // Clear frontend queues
+    translationQueue = [];
+    analysisQueue = [];
+
+    // Clear all status tracking
+    translationStatus = {};
+    analysisStatus = {};
+
+    // Reset active counters
+    activeTranslationCount = 0;
+    activeAnalysisCount = 0;
+
+    // Persist empty state
+    saveQueuesToStorage();
+    updateTaskIndicator();
+
+    showMessage('All tasks cancelled', 'success');
+
+    // Refresh current view
+    await refreshCurrentViewList();
+    renderPapersList();
+}
+
 async function getExportMdPathPrefix() {
     try {
         const resp = await fetch('/api/settings/agentic');
@@ -7443,6 +7488,12 @@ function updateTaskIndicator() {
         } else {
             btnA.classList.remove('has-tasks');
         }
+    }
+
+    // Show/hide cancel-all button
+    const cancelAllBtn = document.getElementById('btn-cancel-all-tasks');
+    if (cancelAllBtn) {
+        cancelAllBtn.style.display = (tCount + aCount > 0) ? '' : 'none';
     }
 }
 

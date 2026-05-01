@@ -488,6 +488,7 @@ INPUT: <MARKDOWN>"""
             r"<think>[\s\S]*?</think>", "", result_content, flags=re.IGNORECASE
         )
         result_file = os.path.join(pdf_output_dir, "result.md")
+        result_temp = result_file + ".new"
         # Append model info to the paper information block at the top
         # Use the actual model returned by the API response, not the configured name
         display_model = chat_completion.model or model
@@ -504,8 +505,11 @@ INPUT: <MARKDOWN>"""
             result_content = "\n".join(lines)
         else:
             result_content = model_line + "\n" + result_content
-        with open(result_file, "w", encoding="utf-8") as f:
+        # Write to .new first, then atomically rename — keeps old result.md
+        # intact during re-analysis
+        with open(result_temp, "w", encoding="utf-8") as f:
             f.write(result_content)
+        os.replace(result_temp, result_file)
 
         with log_lock:
             log_lines.append("=" * 50)

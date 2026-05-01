@@ -193,9 +193,11 @@ def bilingual_translate_task(
         segments = split_markdown_into_segments(md_content)
         log(f"Split into {len(segments)} segments")
 
-        # Output path
+        # Output path — write to .new during translation, rename on completion
+        # so old bilingual.json stays intact during re-translation
         vlm_dir = os.path.dirname(md_file)
         bilingual_json_path = os.path.join(vlm_dir, "bilingual.json")
+        bilingual_temp_path = bilingual_json_path + ".new"
 
         # Initialize OpenAI client
         from openai import OpenAI
@@ -259,9 +261,9 @@ def bilingual_translate_task(
                     raise _Cancelled()
 
         def _save_and_report() -> None:
-            """Incremental save + progress update."""
+            """Incremental save to .new file + progress update."""
             try:
-                with open(bilingual_json_path, "w", encoding="utf-8") as f:
+                with open(bilingual_temp_path, "w", encoding="utf-8") as f:
                     json.dump(translated_segments, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 log(f"Failed to save intermediate result: {e}")
@@ -408,6 +410,12 @@ def bilingual_translate_task(
         )
         _translate_group(segments, BATCH_SIZE)
         log(f"Translation complete: {len(translated_segments)} segments")
+
+        # Atomic rename: .new -> bilingual.json
+        # This ensures old bilingual.json stays intact during re-translation
+        if os.path.exists(bilingual_temp_path):
+            os.replace(bilingual_temp_path, bilingual_json_path)
+            log(f"Saved translation to {bilingual_json_path}")
 
         # Update paper metadata
         entry = paper_store.get_entry(paper_id)

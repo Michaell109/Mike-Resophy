@@ -334,6 +334,30 @@ def register_agent_summary_routes(
                 }
             )
 
+    @app.route("/api/paper/analyze/cancel-all", methods=["POST"])
+    def api_cancel_all_analysis():
+        """Cancel all queued/running analysis tasks."""
+        with analysis_tasks_lock:
+            count = 0
+            for tid, tinfo in analysis_tasks.items():
+                if tinfo["status"] in ("queued", "running"):
+                    process = tinfo.get("process")
+                    if process and process.poll() is None:
+                        try:
+                            process.terminate()
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                        except Exception as exc:
+                            print(f"Failed to terminate process: {exc}")
+                    tinfo["status"] = "cancelled"
+                    tinfo["result"] = {"success": False, "error": "Cancelled by user"}
+                    count += 1
+        return jsonify(
+            {"success": True, "message": f"Cancelled {count} task(s)", "count": count}
+        )
+
     @app.route("/api/paper/analyze/<task_id>/cancel", methods=["POST"])
     def api_cancel_analysis(task_id):
         """Cancel interpretation task"""
