@@ -291,54 +291,83 @@ def inherit_chinese_and_analysis(
     target_dir: str,
     target_base_name: str,
     target_paper: Paper,
+    sync_mode: str = "all",
 ) -> bool:
-    """Copy Chinese version and AI interpretation from source_paper to target location.
+    """Copy Chinese version and/or AI interpretation from source_paper to target location.
 
-    After copying, re-marks has_chinese_version / has_analysis_result on target_paper.
+    Args:
+        source_paper: Paper with the results to copy from.
+        target_dir: Directory where target paper lives.
+        target_base_name: Base filename (without extension) for target paper files.
+        target_paper: Target paper to update in-memory.
+        sync_mode:
+            "all" (default) — copy everything available, used for inheritance on upload.
+            "translation" — only copy Chinese version + bilingual JSON (skip analysis),
+                            and only if target doesn't already have them.
+            "analysis" — only copy analysis result (result.md), and only if target
+                         doesn't already have it.
 
     Returns True if anything was copied.
     """
     copied = False
     source_base = os.path.splitext(os.path.basename(source_paper.file_path))[0] if source_paper.file_path else ""
 
-    # Chinese version: copy .zh.dual.pdf (and .zh.mono.pdf if present)
-    if source_paper.has_chinese_version and source_paper.chinese_version_path:
-        source_dir = os.path.dirname(source_paper.chinese_version_path)
-        for suffix in [".zh.dual.pdf", ".zh.mono.pdf"]:
-            src = os.path.join(source_dir, f"{source_base}{suffix}")
-            dst = os.path.join(target_dir, f"{target_base_name}{suffix}")
-            if os.path.exists(src) and src != dst:
-                try:
-                    shutil.copy2(src, dst)
-                    copied = True
-                except Exception as exc:
-                    print(f"[Inherit] Failed to copy {src}: {exc}")
+    # --- Chinese version & bilingual sync ---
+    if sync_mode in ("all", "translation"):
+        target_dual = os.path.join(target_dir, f"{target_base_name}.zh.dual.pdf")
+        needs_chinese = sync_mode == "all" or not os.path.exists(target_dual)
+        if needs_chinese and source_paper.has_chinese_version and source_paper.chinese_version_path:
+            source_dir = os.path.dirname(source_paper.chinese_version_path)
+            for suffix in [".zh.dual.pdf", ".zh.mono.pdf"]:
+                src = os.path.join(source_dir, f"{source_base}{suffix}")
+                dst = os.path.join(target_dir, f"{target_base_name}{suffix}")
+                if os.path.exists(src) and src != dst:
+                    try:
+                        shutil.copy2(src, dst)
+                        copied = True
+                    except Exception as exc:
+                        print(f"[Inherit] Failed to copy {src}: {exc}")
 
-    # AI interpretation: copy outputs/<base_name>* directory
-    if source_paper.has_analysis_result and source_paper.analysis_result_path:
-        source_dir = os.path.dirname(source_paper.file_path)
-        source_outputs = os.path.join(source_dir, "outputs")
-        if os.path.exists(source_outputs):
+    # --- AI interpretation sync ---
+    if sync_mode in ("all", "analysis"):
+        needs_analysis = sync_mode == "all"
+        if sync_mode == "analysis":
             target_outputs = os.path.join(target_dir, "outputs")
-            os.makedirs(target_outputs, exist_ok=True)
-            for item in os.listdir(source_outputs):
-                item_full = os.path.join(source_outputs, item)
-                if os.path.isdir(item_full) and source_base in item:
-                    new_item_name = item.replace(source_base, target_base_name)
-                    dst_item = os.path.join(target_outputs, new_item_name)
-                    if item_full != dst_item:
-                        try:
-                            shutil.copytree(item_full, dst_item, dirs_exist_ok=True)
-                            copied = True
-                        except Exception as exc:
-                            print(f"[Inherit] Failed to copy outputs/{item}: {exc}")
+            needs_analysis = True
+            if os.path.exists(target_outputs):
+                for item in os.listdir(target_outputs):
+                    item_path = os.path.join(target_outputs, item)
+                    if os.path.isdir(item_path) and target_base_name in item:
+                        vlm_dir = os.path.join(item_path, "vlm")
+                        if os.path.exists(vlm_dir) and os.path.exists(os.path.join(vlm_dir, "result.md")):
+                            needs_analysis = False
+                            break
 
-    # Re-mark on target paper
+        if needs_analysis and source_paper.has_analysis_result and source_paper.analysis_result_path:
+            source_dir = os.path.dirname(source_paper.file_path)
+            source_outputs = os.path.join(source_dir, "outputs")
+            if os.path.exists(source_outputs):
+                target_outputs = os.path.join(target_dir, "outputs")
+                os.makedirs(target_outputs, exist_ok=True)
+                for item in os.listdir(source_outputs):
+                    item_full = os.path.join(source_outputs, item)
+                    if os.path.isdir(item_full) and source_base in item:
+                        new_item_name = item.replace(source_base, target_base_name)
+                        dst_item = os.path.join(target_outputs, new_item_name)
+                        if item_full != dst_item:
+                            try:
+                                shutil.copytree(item_full, dst_item, dirs_exist_ok=True)
+                                copied = True
+                            except Exception as exc:
+                                print(f"[Inherit] Failed to copy outputs/{item}: {exc}")
+
+    # --- Re-mark on target paper from filesystem ---
     dual_file = os.path.join(target_dir, f"{target_base_name}.zh.dual.pdf")
     target_paper.mark_chinese_version(dual_file if os.path.exists(dual_file) else None)
 
     target_outputs = os.path.join(target_dir, "outputs")
     analysis_result_path = None
+    bilingual_json_path = None
     if os.path.exists(target_outputs):
         for item in os.listdir(target_outputs):
             item_path = os.path.join(target_outputs, item)
@@ -348,11 +377,16 @@ def inherit_chinese_and_analysis(
                     result_file = os.path.join(vlm_dir, "result.md")
                     if os.path.exists(result_file):
                         analysis_result_path = result_file
-                        break
+                    bj = os.path.join(vlm_dir, "bilingual.json")
+                    if os.path.exists(bj):
+                        bilingual_json_path = bj
+                    break
     target_paper.mark_analysis_result(analysis_result_path)
+    target_paper.mark_bilingual_version(bilingual_json_path)
 
     if copied:
-        print(f"[Inherit] Copied Chinese version/AI interpretation to {target_base_name}")
+        label = "Chinese version/AI interpretation" if sync_mode == "all" else sync_mode
+        print(f"[Inherit] Copied {label} to {target_base_name}")
     return copied
 
 
@@ -379,6 +413,7 @@ def _find_source_paper_for_inherit(
 def sync_results_to_duplicates(
     source_paper: Paper,
     save_paper_metadata_fn: Optional[Callable[[str, Paper], None]] = None,
+    sync_mode: str = "all",
 ) -> int:
     """Sync translation/analysis results from source_paper to all duplicate papers.
 
@@ -391,13 +426,21 @@ def sync_results_to_duplicates(
         save_paper_metadata_fn: Optional custom save function (e.g., app-level wrapper
                                that also updates search index). Falls back to the
                                module-level save_paper_metadata.
+        sync_mode: "all" (default, copy everything), "translation" (only Chinese
+                   version + bilingual), or "analysis" (only analysis result).
+                   Mode-specific syncs skip targets that already have the result.
 
     Returns: Number of duplicate papers updated.
     """
     if not source_paper.file_path or not os.path.exists(source_paper.file_path):
         return 0
 
-    if not source_paper.has_chinese_version and not source_paper.has_analysis_result:
+    # Check source has what we need based on mode
+    if sync_mode == "translation" and not source_paper.has_chinese_version:
+        return 0
+    if sync_mode == "analysis" and not source_paper.has_analysis_result:
+        return 0
+    if sync_mode == "all" and not source_paper.has_chinese_version and not source_paper.has_analysis_result:
         return 0
 
     save_fn = save_paper_metadata_fn or save_paper_metadata
@@ -420,7 +463,9 @@ def sync_results_to_duplicates(
         target_dir = os.path.dirname(dup.file_path)
         target_base = os.path.splitext(os.path.basename(dup.file_path))[0]
 
-        copied = inherit_chinese_and_analysis(source_paper, target_dir, target_base, dup)
+        copied = inherit_chinese_and_analysis(
+            source_paper, target_dir, target_base, dup, sync_mode=sync_mode,
+        )
 
         if copied:
             # Upsert in paper_store to sync in-memory state
@@ -430,7 +475,7 @@ def sync_results_to_duplicates(
                 paper_store.upsert(dup, category_id=category_id, category_path=category_path)
             save_fn(dup.file_path, dup)
             updated += 1
-            print(f"[Sync] Synced results to duplicate: {dup.file_path}")
+            print(f"[Sync] Synced {sync_mode} results to duplicate: {dup.file_path}")
 
     return updated
 
@@ -450,6 +495,7 @@ def refresh_paper_status(paper: Paper) -> None:
     # Check interpretation results
     outputs_dir = os.path.join(pdf_dir, "outputs")
     analysis_result_path = None
+    bilingual_json_path = None
     if os.path.exists(outputs_dir):
         for item in os.listdir(outputs_dir):
             item_path = os.path.join(outputs_dir, item)
@@ -459,8 +505,12 @@ def refresh_paper_status(paper: Paper) -> None:
                     result_file = os.path.join(vlm_dir, "result.md")
                     if os.path.exists(result_file):
                         analysis_result_path = result_file
-                        break
+                    bj = os.path.join(vlm_dir, "bilingual.json")
+                    if os.path.exists(bj):
+                        bilingual_json_path = bj
+                    break
     paper.mark_analysis_result(analysis_result_path)
+    paper.mark_bilingual_version(bilingual_json_path)
 
 
 def get_papers_in_category(

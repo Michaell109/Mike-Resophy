@@ -414,6 +414,7 @@ class CandidatePaper:
     source: str = ""  # "baseline", "citation", "recommendation", "keyword"
     relevance_score: int = 0  # 0=not relevant, 1=partially, 2=highly
     year: str = ""
+    published_date: str = ""  # Full ISO date (e.g. "2025-03-11T06:03:53+00:00")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -427,6 +428,7 @@ class CandidatePaper:
             "source": self.source,
             "relevance_score": self.relevance_score,
             "year": self.year,
+            "published_date": self.published_date,
         }
 
 
@@ -1685,6 +1687,7 @@ def _resolve_paper_by_title_arxiv_only(title: str) -> Optional[CandidatePaper]:
                     source="baseline",
                     relevance_score=2,
                     year=str(result.published.year) if result.published else "",
+                    published_date=result.published.isoformat() if result.published else "",
                 )
                 _cache_set(cache_key_title, cp.to_dict())
                 return cp
@@ -1773,6 +1776,7 @@ def _resolve_paper_by_arxiv_id(arxiv_id: str) -> Optional[CandidatePaper]:
                 source="baseline",
                 relevance_score=2,
                 year=str(result.published.year) if result.published else "",
+                published_date=result.published.isoformat() if result.published else "",
             )
             _cache_set(cache_key, cp.to_dict())
             return cp
@@ -1818,6 +1822,15 @@ def _resolve_ref_entry_by_arxiv(
             this client, preventing 429 responses.
     """
     search_title = _normalize_search_title(entry.title)
+
+    # Check cache
+    cache_key = _cache_key("arxiv_ref", search_title[:100])
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        if cached == "__NONE__":
+            return None
+        return CandidatePaper(**cached)
+
     for attempt in range(2):  # Retry once on rate limit
         try:
             client = arxiv_client or arxiv.Client(page_size=5, delay_seconds=3.0, num_retries=3)
@@ -1851,7 +1864,7 @@ def _resolve_ref_entry_by_arxiv(
 
                 arxiv_id = result.entry_id.split("/abs/")[-1]
                 authors = ", ".join(a.name for a in result.authors)
-                return CandidatePaper(
+                cp = CandidatePaper(
                     title=result_title,
                     abstract=result.summary.replace("\n", " ").strip() if result.summary else "",
                     authors=authors,
@@ -1861,8 +1874,13 @@ def _resolve_ref_entry_by_arxiv(
                     source="reference",
                     relevance_score=2,
                     year=str(result.published.year) if result.published else "",
+                    published_date=result.published.isoformat() if result.published else "",
                 )
-            return None  # Not found on arXiv (not an error)
+                _cache_set(cache_key, cp.to_dict())
+                return cp
+            # Not found on arXiv — cache the miss
+            _cache_set(cache_key, "__NONE__")
+            return None
         except Exception as e:
             err_str = str(e)
             if "429" in err_str and attempt == 0:
@@ -2330,6 +2348,7 @@ def _extract_baselines_from_citations(
             )
             for result in client.results(search):
                 result_year = str(result.published.year) if result.published else ""
+                result_published = result.published.isoformat() if result.published else ""
                 if result_year == expected_year:
                     arxiv_id = result.entry_id.split("/abs/")[-1]
                     if arxiv_id in resolved_arxiv_ids:
@@ -2346,6 +2365,7 @@ def _extract_baselines_from_citations(
                         source="baseline",
                         relevance_score=2,
                         year=result_year,
+                        published_date=result_published,
                     )
                     candidates.append(cp)
                     resolved_arxiv_ids.add(arxiv_id)
@@ -2363,6 +2383,7 @@ def _extract_baselines_from_citations(
                 )
                 for result in client.results(search2):
                     result_year = str(result.published.year) if result.published else ""
+                    result_published = result.published.isoformat() if result.published else ""
                     if result_year == expected_year:
                         norm_title = re.sub(r"[\s\-_]", "", result.title.lower())
                         norm_method = re.sub(r"[\s\-_]", "", method_name.lower())
@@ -2382,6 +2403,7 @@ def _extract_baselines_from_citations(
                                 source="baseline",
                                 relevance_score=2,
                                 year=result_year,
+                                published_date=result_published,
                             )
                             candidates.append(cp)
                             resolved_arxiv_ids.add(arxiv_id)
@@ -2474,6 +2496,11 @@ def _extract_baselines_from_citations(
 
 def _search_arxiv_by_method(method_name: str, max_results: int = 3) -> List[CandidatePaper]:
     """Search arxiv for a specific method name."""
+    cache_key = _cache_key("arxiv_mtd", method_name[:100])
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return [CandidatePaper(**d) for d in cached]
+
     candidates: List[CandidatePaper] = []
     try:
         client = arxiv.Client(page_size=max_results, delay_seconds=1.0, num_retries=2)
@@ -2495,12 +2522,15 @@ def _search_arxiv_by_method(method_name: str, max_results: int = 3) -> List[Cand
                 source="baseline",
                 relevance_score=2,  # Baseline methods are directly accepted
             )
-            # Extract year from published date
+            # Extract year and full date from published date
             if result.published:
                 cp.year = str(result.published.year)
+                cp.published_date = result.published.isoformat()
             candidates.append(cp)
     except Exception as e:
         print(f"[RelativePaper] arxiv search for '{method_name}' failed: {e}")
+        return candidates
+    _cache_set(cache_key, [cp.to_dict() for cp in candidates])
     return candidates
 
 
@@ -2524,6 +2554,12 @@ def _search_arxiv_by_keywords(
 
         query = " OR ".join(query_parts) if query_parts else title[:100]
 
+        # Check cache before making API call
+        cache_key = _cache_key("arxiv_kw", query[:150])
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return [CandidatePaper(**d) for d in cached]
+
         client = arxiv.Client(page_size=max_results, delay_seconds=2.0, num_retries=2)
         search = arxiv.Search(
             query=query,
@@ -2545,12 +2581,15 @@ def _search_arxiv_by_keywords(
                 pdf_url=result.pdf_url,
                 source="keyword",
                 year=str(result.published.year) if result.published else "",
+                published_date=result.published.isoformat() if result.published else "",
             )
             # Filter: only keep papers from recent 1 year
             if result.published and result.published.year >= one_year_ago:
                 candidates.append(cp)
     except Exception as e:
         print(f"[RelativePaper] arxiv keyword search failed: {e}")
+        return candidates
+    _cache_set(cache_key, [cp.to_dict() for cp in candidates])
     return candidates
 
 
@@ -2779,6 +2818,7 @@ def search_related_papers(
                 keyword_list = [k.strip() for k in ref_keywords.split(",") if k.strip()]
 
         all_candidates: List[CandidatePaper] = []
+        unverified_candidates: List[CandidatePaper] = []  # Need LLM relevance check
         seen_titles: Set[str] = set()  # For dedup (case-insensitive)
         seen_arxiv_ids: Set[str] = set()
 
@@ -2880,12 +2920,8 @@ def search_related_papers(
                         cp.relevance_score = 0
                     unique = _add_unique(found)
                     if unique:
-                        relevant = _check_relevance_with_llm(
-                            ref_abstract, unique,
-                            llm_base_url, llm_api_key, llm_model,
-                        )
-                        all_candidates.extend(relevant)
-                        print(f"[RelativePaper] Baseline '{method_name}': {len(relevant)} relevant papers")
+                        unverified_candidates.extend(unique)
+                        print(f"[RelativePaper] Baseline '{method_name}': {len(unique)} papers to verify")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
@@ -2948,15 +2984,8 @@ def search_related_papers(
             print(f"[RelativePaper] Total recommendations before filtering: {len(unique)}")
             downloadable = [cp for cp in unique if cp.arxiv_id or cp.pdf_url]
             if downloadable:
-                progress.current_step = "Checking relevance of recommendations..."
-                relevant = _check_relevance_with_llm(
-                    ref_abstract, downloadable,
-                    llm_base_url, llm_api_key, llm_model,
-                    min_score=1,
-                )
-                all_candidates.extend(relevant)
-                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
-                      f"(from {len(downloadable)} downloadable)")
+                unverified_candidates.extend(downloadable)
+                print(f"[RelativePaper] Recommendations: {len(downloadable)} papers to verify")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
@@ -3005,15 +3034,8 @@ def search_related_papers(
                 # Keep papers with arXiv ID or PDF URL (not just arXiv-only)
                 downloadable = [cp for cp in oa_unique if cp.arxiv_id or cp.pdf_url]
                 if downloadable:
-                    progress.current_step = "Checking relevance of citations..."
-                    relevant = _check_relevance_with_llm(
-                        ref_abstract, downloadable,
-                        llm_base_url, llm_api_key, llm_model,
-                        min_score=1,  # Keep partially relevant too
-                    )
-                    all_candidates.extend(relevant)
-                    print(f"[RelativePaper] After relevance check: {len(relevant)} relevant "
-                          f"(from {len(downloadable)} downloadable)")
+                    unverified_candidates.extend(downloadable)
+                    print(f"[RelativePaper] Citations: {len(downloadable)} papers to verify")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
@@ -3028,17 +3050,23 @@ def search_related_papers(
             print(f"[RelativePaper] Arxiv keyword search: {len(unique)} unique papers")
 
             if unique:
-                progress.current_step = "Checking relevance of keyword results..."
-                relevant = _check_relevance_with_llm(
-                    ref_abstract, unique,
-                    llm_base_url, llm_api_key, llm_model,
-                    min_score=1,
-                )
-                all_candidates.extend(relevant)
-                print(f"[RelativePaper] After relevance check: {len(relevant)} relevant")
+                unverified_candidates.extend(unique)
+                print(f"[RelativePaper] Keyword search: {len(unique)} papers to verify")
 
             progress.found = len(all_candidates)
             progress.candidates = [c.to_dict() for c in all_candidates]
+
+        # ==================== Unified LLM Relevance Check ====================
+        if unverified_candidates and not stop_event.is_set():
+            progress.current_step = f"Checking relevance of {len(unverified_candidates)} papers..."
+            print(f"[RelativePaper] Unified LLM relevance check: {len(unverified_candidates)} papers")
+            relevant = _check_relevance_with_llm(
+                ref_abstract, unverified_candidates,
+                llm_base_url, llm_api_key, llm_model,
+                min_score=1,
+            )
+            all_candidates.extend(relevant)
+            print(f"[RelativePaper] Unified relevance check: {len(relevant)} relevant papers")
 
         # ==================== Dedup & Truncate ====================
         # Already deduped via seen_titles/seen_arxiv_ids during collection
@@ -3148,7 +3176,7 @@ def search_related_papers(
                     abstract=cp.abstract,
                     arxiv_id=cp.arxiv_id,
                     arxiv_url=cp.arxiv_url,
-                    arxiv_published_date=cp.year or None,
+                    arxiv_published_date=cp.published_date or cp.year or None,
                     year=cp.year,
                     upload_source="relative_paper_search",
                 )

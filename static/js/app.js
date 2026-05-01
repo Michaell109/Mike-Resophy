@@ -1447,8 +1447,15 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
     `;
     
     // date column
-    const uploadDate = new Date(paper.upload_date).toLocaleDateString('en-US');
-    const arxivDate = paper.arxiv_published_date ? new Date(paper.arxiv_published_date).toLocaleDateString('en-US') : null;
+    const formatPaperDate = (dateStr) => {
+        if (!dateStr) return '';
+        // Year-only (e.g. "2025") — display as-is, not as Jan 1
+        if (/^\d{4}$/.test(dateStr)) return dateStr;
+        try { return new Date(dateStr).toLocaleDateString('en-US'); }
+        catch (e) { return dateStr; }
+    };
+    const uploadDate = formatPaperDate(paper.upload_date);
+    const arxivDate = paper.arxiv_published_date ? formatPaperDate(paper.arxiv_published_date) : null;
     const dateCol = `
         <div class="paper-col-date">
             ${uploadDate}${arxivDate ? '<br>arXiv: ' + arxivDate : ''}
@@ -1647,6 +1654,8 @@ function renderPaperInfo(paper) {
     // Helper function: formattingarXivdate（Remove duplicate years）
     const formatArxivDate = (dateString) => {
         if (!dateString) return '';
+        // Year-only (e.g. "2025") — display as-is, not as Jan 1
+        if (/^\d{4}$/.test(dateString)) return dateString;
         try {
             const date = new Date(dateString);
             const year = date.getFullYear();
@@ -14525,9 +14534,6 @@ async function startRelativePaperSearch() {
     // Gather options
     const sources = [];
     if (document.getElementById('rel-source-baseline').checked) sources.push('baseline');
-    if (document.getElementById('rel-source-citation').checked) sources.push('citation');
-    if (document.getElementById('rel-source-recommendation').checked) sources.push('recommendation');
-    if (document.getElementById('rel-source-keyword').checked) sources.push('keyword');
     if (document.getElementById('rel-source-related-work').checked) sources.push('related_work');
 
     if (sources.length === 0) {
