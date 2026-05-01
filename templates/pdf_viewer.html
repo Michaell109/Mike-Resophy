@@ -699,6 +699,14 @@
         body.light-theme .md-render th, body.light-theme .md-render td { border-color: #ddd; }
         body.light-theme .md-render a { color: #1a73e8; }
         body.light-theme .md-render .algorithm-block { background: #f5f5f5; }
+
+        .sync-highlight {
+            background-color: rgba(255, 213, 79, 0.3) !important;
+            border-radius: 3px;
+        }
+        body.light-theme .sync-highlight {
+            background-color: rgba(255, 193, 7, 0.3) !important;
+        }
     </style>
 </head>
 <body data-use-chinese="{{ 'true' if use_chinese else 'false' }}" data-has-bilingual="{{ 'true' if has_bilingual else 'false' }}">
@@ -964,6 +972,7 @@
                 container.appendChild(segmentEl);
             }
 
+            labelBilingualBlocks(container);
             typesetMathJax(container);
         }
 
@@ -1576,6 +1585,254 @@
             } else {
                 startReadingTimer();
             }
+        });
+
+        // Synchronous highlighting — precise text-range mapping
+        var _syncHighlights = [];
+
+        function clearSyncHighlights() {
+            for (var i = 0; i < _syncHighlights.length; i++) {
+                var span = _syncHighlights[i];
+                if (span && span.parentNode) {
+                    span.parentNode.replaceChild(document.createTextNode(span.textContent), span);
+                }
+            }
+            _syncHighlights = [];
+            var mds = document.querySelectorAll('.md-render');
+            for (var i = 0; i < mds.length; i++) mds[i].normalize();
+        }
+
+        function getTextOffsetInElement(root, targetNode, targetOffset) {
+            var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            var total = 0;
+            while (walker.nextNode()) {
+                var tn = walker.currentNode;
+                if (tn === targetNode) return total + targetOffset;
+                total += tn.textContent.length;
+            }
+            return total;
+        }
+
+        function highlightTextRange(el, startOff, endOff) {
+            var tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+            var entries = [];
+            var pos = 0;
+            while (tw.nextNode()) {
+                var tn = tw.currentNode;
+                var len = tn.textContent.length;
+                entries.push({ node: tn, start: pos, end: pos + len });
+                pos += len;
+            }
+            if (startOff < 0) startOff = 0;
+            if (endOff > pos) endOff = pos;
+            if (startOff >= endOff) return [];
+
+            var spans = [];
+            for (var i = 0; i < entries.length; i++) {
+                var e = entries[i];
+                if (e.end <= startOff || e.start >= endOff) continue;
+                var rStart = Math.max(0, startOff - e.start);
+                var rEnd = Math.min(e.node.textContent.length, endOff - e.start);
+                if (rStart >= rEnd) continue;
+                var text = e.node.textContent;
+                var before = text.substring(0, rStart);
+                var middle = text.substring(rStart, rEnd);
+                var after = text.substring(rEnd);
+                if (!middle) continue;
+                var span = document.createElement('span');
+                span.className = 'sync-highlight';
+                span.textContent = middle;
+                var parent = e.node.parentNode;
+                var frag = document.createDocumentFragment();
+                if (before) frag.appendChild(document.createTextNode(before));
+                frag.appendChild(span);
+                if (after) frag.appendChild(document.createTextNode(after));
+                parent.replaceChild(frag, e.node);
+                spans.push(span);
+            }
+            el.normalize();
+            return spans;
+        }
+
+        function handleSelectionSync() {
+            var sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+                clearSyncHighlights();
+                return;
+            }
+            var range = sel.getRangeAt(0);
+            var startNode = range.startContainer;
+            if (startNode.nodeType === 3) startNode = startNode.parentElement;
+            var sideBlock = startNode.closest('.original-block, .translated-block');
+            if (!sideBlock) { clearSyncHighlights(); return; }
+            var segment = sideBlock.closest('.segment');
+            if (!segment) return;
+            var isOrig = sideBlock.classList.contains('original-block');
+            var targetMd = segment.querySelector((isOrig ? '.translated-block' : '.original-block') + ' .md-render');
+            if (!targetMd) { clearSyncHighlights(); return; }
+
+            var srcChild = range.startContainer;
+            if (srcChild.nodeType === 3) srcChild = srcChild.parentElement;
+            while (srcChild && !srcChild.hasAttribute('data-bidx')) {
+                srcChild = srcChild.parentElement;
+            }
+            if (!srcChild || !srcChild.hasAttribute('data-bidx')) { clearSyncHighlights(); return; }
+            var bidx = parseInt(srcChild.getAttribute('data-bidx'));
+            if (isNaN(bidx)) { clearSyncHighlights(); return; }
+
+            var tgtChild = null;
+            for (var i = 0; i < targetMd.children.length; i++) {
+                if (parseInt(targetMd.children[i].getAttribute('data-bidx')) === bidx) {
+                    tgtChild = targetMd.children[i];
+                    break;
+                }
+            }
+            if (!tgtChild) { clearSyncHighlights(); return; }
+
+            var srcText = srcChild.textContent || '';
+            var tgtText = tgtChild.textContent || '';
+            if (!srcText || !tgtText) { clearSyncHighlights(); return; }
+
+            var srcStartOff = getTextOffsetInElement(
+                srcChild, range.startContainer, range.startOffset
+            );
+            var srcEndOff = getTextOffsetInElement(
+                srcChild, range.endContainer, range.endOffset
+            );
+            if (srcStartOff > srcEndOff) {
+                var tmp = srcStartOff; srcStartOff = srcEndOff; srcEndOff = tmp;
+            }
+
+            var srcBounds = getSentenceBounds(srcText);
+            var tgtBounds = getSentenceBounds(tgtText);
+            if (srcBounds.length === 0 || tgtBounds.length === 0) { clearSyncHighlights(); return; }
+
+            var srcSentStart = findSentenceIdx(srcBounds, srcStartOff);
+            var srcSentEnd   = findSentenceIdx(srcBounds, srcEndOff);
+            if (srcSentStart > srcSentEnd) {
+                var tmp = srcSentStart; srcSentStart = srcSentEnd; srcSentEnd = tmp;
+            }
+
+            var numSrc = srcBounds.length;
+            var numTgt = tgtBounds.length;
+            var tgtSentStart, tgtSentEnd;
+            if (numSrc <= 1) {
+                tgtSentStart = 0; tgtSentEnd = numTgt - 1;
+            } else {
+                tgtSentStart = Math.round((srcSentStart / (numSrc - 1)) * (numTgt - 1));
+                tgtSentEnd   = Math.round((srcSentEnd   / (numSrc - 1)) * (numTgt - 1));
+            }
+            tgtSentStart = Math.max(0, Math.min(numTgt - 1, tgtSentStart));
+            tgtSentEnd   = Math.max(0, Math.min(numTgt - 1, tgtSentEnd));
+            if (tgtSentStart > tgtSentEnd) {
+                var tmp = tgtSentStart; tgtSentStart = tgtSentEnd; tgtSentEnd = tmp;
+            }
+
+            var tgtStartOff = tgtBounds[tgtSentStart].start;
+            var tgtEndOff   = tgtBounds[tgtSentEnd].end;
+            if (tgtStartOff >= tgtEndOff) { clearSyncHighlights(); return; }
+
+            clearSyncHighlights();
+            var spans = highlightTextRange(tgtChild, tgtStartOff, tgtEndOff);
+            for (var i = 0; i < spans.length; i++) _syncHighlights.push(spans[i]);
+        }
+
+        function splitSentences(text) {
+            if (!text || !text.trim()) return [];
+            var result = [];
+            var start = 0;
+            for (var i = 0; i < text.length; i++) {
+                var ch = text[i];
+                var isEnd = false;
+                if (ch === '。' || ch === '！' || ch === '？') {
+                    isEnd = true;
+                } else if ((ch === '.' || ch === '!' || ch === '?') && (i - start) >= 3) {
+                    if (/^\s*([^a-z0-9]|\n|$)/.test(text.substring(i + 1))) {
+                        isEnd = true;
+                    }
+                } else if (ch === '\n') {
+                    isEnd = true;
+                }
+                if (isEnd) {
+                    var part = text.substring(start, i + 1).trim();
+                    if (part) result.push(part);
+                    start = i + 1;
+                }
+            }
+            var remaining = text.substring(start).trim();
+            if (remaining) result.push(remaining);
+            return result.length > 0 ? result : [text.trim()];
+        }
+
+        function getSentenceBounds(text) {
+            var bounds = [];
+            var start = 0;
+            for (var i = 0; i < text.length; i++) {
+                var ch = text[i];
+                var isEnd = false;
+                if (ch === '。' || ch === '！' || ch === '？') {
+                    isEnd = true;
+                } else if ((ch === '.' || ch === '!' || ch === '?') && (i - start) >= 3) {
+                    if (/^\s*([^a-z0-9]|\n|$)/.test(text.substring(i + 1))) {
+                        isEnd = true;
+                    }
+                } else if (ch === '\n') {
+                    isEnd = true;
+                }
+                if (isEnd) {
+                    bounds.push({ start: start, end: i + 1 });
+                    start = i + 1;
+                }
+            }
+            if (start < text.length) {
+                bounds.push({ start: start, end: text.length });
+            }
+            if (bounds.length === 0 && text.length > 0) {
+                bounds.push({ start: 0, end: text.length });
+            }
+            return bounds;
+        }
+
+        function findSentenceIdx(bounds, charOffset) {
+            for (var i = 0; i < bounds.length; i++) {
+                if (charOffset < bounds[i].end) return i;
+            }
+            return bounds.length - 1;
+        }
+
+        function labelBilingualBlocks(container) {
+            var segments = container.querySelectorAll('.segment');
+            for (var s = 0; s < segments.length; s++) {
+                var seg = segments[s];
+                var origMd = seg.querySelector('.original-block .md-render');
+                var transMd = seg.querySelector('.translated-block .md-render');
+                if (!origMd || !transMd) continue;
+                var origChildren = [];
+                var transChildren = [];
+                for (var i = 0; i < origMd.children.length; i++) {
+                    var el = origMd.children[i];
+                    if (el.tagName && el.textContent.trim()) origChildren.push(el);
+                }
+                for (var i = 0; i < transMd.children.length; i++) {
+                    var el = transMd.children[i];
+                    if (el.tagName && el.textContent.trim()) transChildren.push(el);
+                }
+                var count = Math.min(origChildren.length, transChildren.length);
+                for (var i = 0; i < count; i++) {
+                    origChildren[i].setAttribute('data-bidx', i);
+                    transChildren[i].setAttribute('data-bidx', i);
+                }
+            }
+        }
+
+        // Selection highlight events
+        var _selTimer = null;
+        document.addEventListener('selectionchange', function() {
+            if (_selTimer) clearTimeout(_selTimer);
+            _selTimer = setTimeout(handleSelectionSync, 100);
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') clearSyncHighlights();
         });
     </script>
 </body>
