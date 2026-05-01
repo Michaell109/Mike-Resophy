@@ -166,6 +166,26 @@ def register_category_routes(
         save_categories(categories)
         return jsonify({"success": True, "color": color})
 
+    @app.route("/api/categories/<category_id>/aggregate", methods=["PUT"])
+    def api_toggle_aggregate(category_id):
+        """Toggle aggregate flag on a category.
+
+        When aggregate is true, the category shows all papers from itself
+        and all descendant subcategories, deduplicated by paper ID.
+        """
+        data = request.json or {}
+        aggregate = data.get("aggregate", False)
+
+        categories = get_categories()
+        category_node = find_category_node(categories, category_id)
+
+        if category_node is None:
+            return jsonify({"success": False, "error": "Category not found"}), 404
+
+        category_node["aggregate"] = bool(aggregate)
+        save_categories(categories)
+        return jsonify({"success": True, "aggregate": category_node["aggregate"]})
+
     @app.route("/api/categories/<category_id>", methods=["DELETE"])
     def api_delete_category(category_id):
         categories = get_categories()

@@ -1282,6 +1282,14 @@ body {
     color: #999;
 }
 
+.aggregate-badge {
+    font-size: 11px;
+    color: #e8b830;
+    margin-left: 3px;
+    cursor: help;
+    font-weight: bold;
+}
+
 .category-children {
     /* Subdirectories appear below the parent directory and are indented */
     margin-left: 0;

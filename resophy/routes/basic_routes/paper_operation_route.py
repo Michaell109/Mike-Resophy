@@ -160,26 +160,31 @@ def register_paper_operation_routes(
 
     @app.route("/api/papers/<category_id>/recursive")
     def api_papers_recursive(category_id: str):
-        """Recursively obtain papers under a category and all its subcategories (for first-level directories/Project）"""
+        """Recursively obtain papers under a category and all its subcategories, deduplicated by paper ID."""
         categories = get_categories()
         category_node = find_category_node(categories, category_id)
 
         if not category_node:
             return jsonify({"error": "Category not found"}), 404
 
-        def collect_papers_recursive(node: Dict[str, Any]) -> List[Any]:
-            """Recursively collect all papers under a category and its subcategories"""
-            all_papers = []
+        def collect_papers_recursive(node: Dict[str, Any], seen: Optional[set] = None) -> List[Paper]:
+            """Recursively collect all papers under a category and its subcategories, deduplicated by paper ID."""
+            if seen is None:
+                seen = set()
+            all_papers: List[Paper] = []
 
             # Get papers in the current category
             node_path = get_category_path(categories, node["id"])
             if node_path:
                 node_papers = get_papers_in_category(node["id"], node_path)
-                all_papers.extend(node_papers)
+                for p in node_papers:
+                    if p.id not in seen:
+                        seen.add(p.id)
+                        all_papers.append(p)
 
             # Recursively process subcategories
             for child in node.get("children", []):
-                all_papers.extend(collect_papers_recursive(child))
+                all_papers.extend(collect_papers_recursive(child, seen))
 
             return all_papers
 

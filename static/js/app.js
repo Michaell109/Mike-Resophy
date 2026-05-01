@@ -840,10 +840,13 @@ function createCategoryElement(category, level = 0) {
     // Pin icon
     const pinIcon = category.pinned ? '<i class="fas fa-thumbtack pin-icon"></i>' : '';
     
+    const isAggregate = category.aggregate === true;
+
     div.innerHTML = `
         ${hasChildren ? '<button class="category-toggle"><i class="fas fa-chevron-right"></i></button>' : '<span class="category-toggle-placeholder"></span>'}
         <i class="fas fa-folder" style="margin-right: 6px; color: ${folderColor}; font-size: 12px;"></i>
         <span class="category-name">${category.name}</span>${pinIcon}
+        ${isAggregate ? '<span class="aggregate-badge" title="包含所有子目录的论文">⊞</span>' : ''}
         <span class="pdf-count">${category.pdf_count || 0}</span>
     `;
 
