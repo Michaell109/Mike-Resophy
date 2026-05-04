@@ -21,7 +21,7 @@ Rules:
 2. Preserve ALL markdown formatting (headings, lists, bold, italic, links)
 3. Preserve ALL image references exactly as-is, e.g. ![](images/xxx.jpg)
 4. Do NOT translate figure/table numbers (e.g. "Figure 1" → "Figure 1", not "图1")
-5. Keep technical terms accurate — use widely-accepted Chinese translations where they exist, otherwise keep the English term
+5. CRITICAL: Keep ALL AI/ML technical terms in English. NEVER translate model names (e.g. Transformer, Diffusion, GAN), technical concepts (e.g. attention, embedding, latent, backbone), or dataset names (e.g. ImageNet, COCO). These are proper names of technical concepts and MUST retain their English form.
 6. Translate naturally and fluently, not word-by-word
 7. Output ONLY the translated text, no explanations or notes
 """
@@ -29,6 +29,40 @@ Rules:
 # Number of segments to translate in a single API call.
 # Automatically halves on parse failure (20 -> 10 -> 5 -> 2 -> 1).
 BATCH_SIZE = 20
+
+# Glossary of AI/ML terms that MUST stay in English during translation
+GLOSSARY_PATH = os.path.join(os.path.dirname(__file__), "glossary.json")
+
+
+def _load_glossary() -> dict:
+    """Load glossary terms from JSON file. Returns {category: [terms]}."""
+    try:
+        if os.path.exists(GLOSSARY_PATH):
+            with open(GLOSSARY_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+_glossary = _load_glossary()
+
+
+def _format_glossary_prompt() -> str:
+    """Format glossary terms into a constraint line for the translation prompt."""
+    if not _glossary:
+        return ""
+    all_terms = []
+    for terms in _glossary.values():
+        for t in terms:
+            if t not in all_terms:
+                all_terms.append(t)
+    return (
+        "CRITICAL glossary — The following AI/ML terms MUST remain in English, "
+        "DO NOT translate them:\n" + ", ".join(all_terms)
+    )
 
 # Max conversation tokens before reset. Model supports ~1M context; leave generous
 # headroom for the response and per-message overhead.
@@ -337,11 +371,13 @@ def bilingual_translate_task(
                 f"---SEGMENT {j}---\n{s['content']}"
                 for j, s in enumerate(group)
             ]
+            glossary_prompt = _format_glossary_prompt()
             user_content = (
                 "Translate the following academic paper segments to Chinese.\n\n"
                 "IMPORTANT: Return ONLY valid JSON (no other text) in this exact format:\n"
                 '{"translations": [{"index": 0, "translated": "..."}, '
                 '{"index": 1, "translated": "..."}]}\n\n'
+                + (glossary_prompt + "\n\n" if glossary_prompt else "")
                 + "\n\n".join(batch_parts)
             )
 

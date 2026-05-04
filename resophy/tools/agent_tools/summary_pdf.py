@@ -57,6 +57,66 @@ def _build_paper_info_block(paper_title: str, paper_metadata: dict | None) -> st
     return "\n".join(parts) + "\n\n"
 
 
+def _inject_images_to_result(result_content: str, markdown_content: str) -> str:
+    """Inject images from the original MinerU markdown into the LLM-generated result.
+
+    Extracts ![](images/xxx.jpg) references with explicit figure captions (Fig. N / 图N)
+    from the markdown, then inserts them at the corresponding figure references in the result.
+    Images without explicit figure captions are skipped to keep the output clean.
+    """
+    if not markdown_content:
+        return result_content
+
+    # Check if the LLM already embedded images
+    if "![](images/" in result_content:
+        return result_content
+
+    # Extract only named figures (those with Fig. N or 图N captions)
+    figure_images: dict[str, list[str]] = {}
+
+    pattern = re.compile(
+        r"!\[\]\(images/([^)]+\.(?:jpg|jpeg|png|gif|webp))\)[ \t]*"
+        r"(?:\n\s*(?:Fig(?:ure)?\.?\s*(\d+)|图\s*(\d+)[\s：:]))?",
+        re.IGNORECASE,
+    )
+
+    for m in pattern.finditer(markdown_content):
+        img_path = f"images/{m.group(1)}"
+        fig_en = m.group(2)
+        fig_cn = m.group(3)
+        fig_num = fig_en or fig_cn
+        if fig_num:
+            figure_images.setdefault(fig_num, []).append(img_path)
+
+    if not figure_images:
+        return result_content
+
+    result = result_content
+
+    # Inject images by matching figure references in the result text
+    for fig_num in sorted(figure_images.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+        img_paths = figure_images[fig_num]
+        img_placeholder = "\n\n" + "\n".join(f"![]({p})" for p in img_paths) + "\n\n"
+
+        # Pre-build the full replacement: image + the figure reference text
+        for ref_text, ref_pat in [
+            (f"图{fig_num}", rf'(图\s*{fig_num})'),
+            (f"Fig. {fig_num}", rf'(Fig(?:ure)?\.?\s*{fig_num}\b)'),
+            (f"Figure {fig_num}", rf'(Figure\s+{fig_num}\b)'),
+        ]:
+            ref_match = re.search(ref_pat, result)
+            if ref_match:
+                pos = ref_match.start()
+                # Skip if an image already appears in the preceding 150 chars
+                if "![](" in result[max(0, pos - 150) : pos]:
+                    continue
+                # Insert the image right before the figure reference
+                result = result[:pos] + img_placeholder + result[pos:]
+                break
+
+    return result
+
+
 def analyze_paper_task(
     task_id: str,
     paper_id: str,
@@ -487,6 +547,10 @@ INPUT: <MARKDOWN>"""
         result_content = re.sub(
             r"<think>[\s\S]*?</think>", "", result_content, flags=re.IGNORECASE
         )
+
+        # Inject images from original MinerU markdown into result
+        result_content = _inject_images_to_result(result_content, markdown_content)
+
         result_file = os.path.join(pdf_output_dir, "result.md")
         result_temp = result_file + ".new"
         # Append model info to the paper information block at the top

@@ -1,0 +1,58 @@
+{
+  "model_architectures": [
+    "Transformer", "Diffusion", "GAN", "VAE", "RNN", "LSTM", "GRU",
+    "CNN", "ResNet", "ViT", "Swin", "UNet", "MLP", "NeRF",
+    "BERT", "GPT", "CLIP", "SAM", "DINO", "MAE", "BLIP",
+    "T5", "LLaMA", "Mistral", "Gemma", "Qwen", "DeepSeek",
+    "Stable Diffusion", "DALL-E", "Imagen", "ControlNet",
+    "Autoencoder", "Decoder", "Encoder",
+    "RetNet", "Mamba", "State Space Model"
+  ],
+  "technical_terms": [
+    "attention", "self-attention", "cross-attention", "multi-head attention",
+    "embedding", "positional embedding", "token", "tokenizer",
+    "latent", "feature", "feature map", "backbone", "head",
+    "normalization", "layer normalization", "batch normalization",
+    "activation", "activation function", "ReLU", "GELU", "SiLU", "softmax",
+    "convolution", "pooling", "dropout", "residual",
+    "fine-tuning", "fine-tune", "prompt", "prompting",
+    "alignment", "supervision", "self-supervised", "unsupervised",
+    "representation learning", "transfer learning", "meta-learning",
+    "reinforcement learning", "RLHF", "instruction tuning",
+    "chain-of-thought", "in-context learning", "zero-shot", "few-shot",
+    "multimodal", "cross-modal", "modality",
+    "logit", "logits", "softmax", "temperature", "top-k", "top-p",
+    "beam search", "greedy decoding", "nucleus sampling",
+    "perplexity", "perplexities",
+    "ground truth", "ground-truth",
+    "policy", "value function", "Q-function", "advantage",
+    "diffusion process", "denoising", "noise schedule",
+    "score function", "flow matching", "probability flow",
+    "ODE", "SDE", "Euler", "Runge-Kutta",
+    "semantic", "semantics", "discriminative", "generative",
+    "ablation", "baseline", "benchmark", "SOTA", "state-of-the-art",
+    "end-to-end", "large-scale", "open-vocabulary",
+    "data augmentation", "data-efficient",
+    "resolution", "upsampling", "downsampling", "stride", "dilation",
+    "receptive field", "skip connection", "bottleneck"
+  ],
+  "datasets_metrics": [
+    "ImageNet", "COCO", "CIFAR", "CIFAR-10", "CIFAR-100",
+    "MNIST", "FashionMNIST", "SVHN",
+    "Cityscapes", "ADE20K", "PASCAL VOC",
+    "LAION", "LAION-5B", "CC3M", "CC12M", "SBU",
+    "FID", "Fréchet Inception Distance",
+    "Inception Score", "IS", "mAP", "AP",
+    "BLEU", "ROUGE", "METEOR", "CIDEr",
+    "PSNR", "SSIM", "LPIPS", "CLIP score",
+    "perplexity", "accuracy", "precision", "recall", "F1",
+    "AUC", "ROC", "IoU", "mIoU"
+  ],
+  "abbreviations": [
+    "LLM", "LLMs", "NLP", "CV", "ML", "AI",
+    "OOD", "IOU", "NMS", "SVD", "PCA",
+    "Adam", "AdamW", "SGD",
+    "GPU", "TPU", "CPU",
+    "API", "JSON", "CSV", "YAML"
+  ]
+}
