@@ -2594,7 +2594,12 @@ def _search_arxiv_by_keywords(
 
 
 def _download_pdf(url: str, target_path: str) -> bool:
-    """Download a PDF from URL to target path."""
+    """Download a PDF from URL to target path.
+
+    Uses a single total timeout (connect + read) without streaming. This avoids
+    hangs from arXiv throttling large PDFs, where streaming iter_content can
+    stall indefinitely between chunks.
+    """
     from resophy.tools.basic_tools.parallel_downloader import RateLimitError
 
     def _try_download(download_url: str, label: str = "") -> bool:
@@ -2603,14 +2608,15 @@ def _download_pdf(url: str, target_path: str) -> bool:
             "Accept": "application/pdf,*/*",
             "Referer": "https://arxiv.org/",
         }
-        resp = requests.get(download_url, headers=headers, timeout=(15, 120), stream=True, allow_redirects=True)
+        # Single total timeout (not per-chunk) so the entire download must
+        # complete within this window. arXiv can be very slow for large PDFs;
+        # 300s handles a 25MB+ file at throttled rates (~85 KB/s).
+        resp = requests.get(download_url, headers=headers, timeout=300, allow_redirects=True)
         if resp.status_code == 429:
             raise RateLimitError(f"429 from {download_url}")
         if resp.status_code == 200:
             with open(target_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
+                f.write(resp.content)
             if os.path.getsize(target_path) < 1024:
                 os.remove(target_path)
                 print(f"[RelativePaper] Downloaded file too small (<1KB), removed: {download_url}")
