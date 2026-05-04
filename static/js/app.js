@@ -1236,14 +1236,16 @@ async function updateReadingListCount() {
             fetch('/api/reading-list/status')
         ]);
         const papers = await papersResponse.json();
-        readingListCount = papers.length;
-        // renew ID set
-        readingListPaperIds.clear();
-        papers.forEach(p => readingListPaperIds.add(p.id));
-        // renew read status
+        // renew read status (needed before filtering read papers)
         if (statusResponse.ok) {
             readingListReadStatus = await statusResponse.json();
         }
+        // Filter out read papers from count and ID set
+        const unreadPapers = papers.filter(p => readingListReadStatus[p.id] !== true);
+        readingListCount = unreadPapers.length;
+        // renew ID set (only unread papers)
+        readingListPaperIds.clear();
+        unreadPapers.forEach(p => readingListPaperIds.add(p.id));
 
         const tiReadingCount = document.getElementById('ti-reading-count');
         if (tiReadingCount) {
