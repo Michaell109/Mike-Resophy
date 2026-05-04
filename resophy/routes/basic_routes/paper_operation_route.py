@@ -88,36 +88,77 @@ def register_paper_operation_routes(
     paper_store: PaperStore,
 ) -> None:
 
-    def load_reading_list() -> List[str]:
+    def load_reading_list_data() -> Dict[str, Dict]:
+        """Load full reading list data. Returns {paper_id: {"read": bool}}.
+        Auto-migrates old format (list of strings) to new format (dict)."""
         try:
             with open(reading_list_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("papers", [])
+                papers = data.get("papers", {})
+                # Auto-migrate old format (list of strings → dict)
+                if isinstance(papers, list):
+                    papers = {pid: {"read": False} for pid in papers}
+                    with open(reading_list_file, "w", encoding="utf-8") as fw:
+                        json.dump({"papers": papers}, fw, ensure_ascii=False, indent=2)
+                return papers
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to read to-be-read list: {exc}")
-            return []
+            return {}
+
+    def load_reading_list() -> List[str]:
+        return list(load_reading_list_data().keys())
 
     def save_reading_list(paper_ids: List[str]) -> None:
+        """Save reading list, preserving read status of existing entries."""
+        existing = {}
+        try:
+            with open(reading_list_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                raw = data.get("papers", {})
+                if isinstance(raw, dict):
+                    existing = raw
+        except Exception:
+            pass
+        papers = {}
+        for pid in paper_ids:
+            papers[pid] = existing.get(pid, {"read": False})
+        _save_reading_list_data(papers)
+
+    def add_to_reading_list(paper_id: str) -> None:
+        data = load_reading_list_data()
+        if paper_id not in data:
+            data[paper_id] = {"read": False}
+            _save_reading_list_data(data)
+
+    def remove_from_reading_list(paper_id: str) -> None:
+        data = load_reading_list_data()
+        if paper_id in data:
+            del data[paper_id]
+            _save_reading_list_data(data)
+
+    def is_in_reading_list(paper_id: str) -> bool:
+        return paper_id in load_reading_list_data()
+
+    def _save_reading_list_data(data: Dict[str, Dict]) -> None:
         try:
             with open(reading_list_file, "w", encoding="utf-8") as f:
-                json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
+                json.dump({"papers": data}, f, ensure_ascii=False, indent=2)
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to save to-read list: {exc}")
 
-    def add_to_reading_list(paper_id: str) -> None:
-        paper_ids = load_reading_list()
-        if paper_id not in paper_ids:
-            paper_ids.append(paper_id)
-            save_reading_list(paper_ids)
+    def load_reading_list_status() -> Dict[str, bool]:
+        """Return {paper_id: read_status} for all papers in reading list."""
+        data = load_reading_list_data()
+        return {pid: info.get("read", False) for pid, info in data.items()}
 
-    def remove_from_reading_list(paper_id: str) -> None:
-        paper_ids = load_reading_list()
-        if paper_id in paper_ids:
-            paper_ids.remove(paper_id)
-            save_reading_list(paper_ids)
-
-    def is_in_reading_list(paper_id: str) -> bool:
-        return paper_id in load_reading_list()
+    def toggle_read_status(paper_id: str) -> bool:
+        data = load_reading_list_data()
+        if paper_id not in data:
+            return False
+        current = data[paper_id].get("read", False)
+        data[paper_id]["read"] = not current
+        _save_reading_list_data(data)
+        return not current
 
     def find_paper(paper_id: str) -> Optional[Tuple[Paper, List[str], str]]:
         entry = paper_store.get_entry(paper_id)
@@ -684,6 +725,19 @@ def register_paper_operation_routes(
 
         # Returns whether the file was deleted (the file is only deleted when it is in the temporary directory and the user confirms the deletion)
         return jsonify({"success": True, "deleted_files": delete_files and is_in_temp})
+
+    @app.route("/api/reading-list/status", methods=["GET"])
+    def api_get_reading_list_status():
+        """Return read status for all papers in the reading list."""
+        return jsonify(load_reading_list_status())
+
+    @app.route("/api/reading-list/<paper_id>/toggle-read", methods=["POST"])
+    def api_toggle_read_status(paper_id: str):
+        """Toggle the read/unread status of a paper in the reading list."""
+        if not is_in_reading_list(paper_id):
+            return jsonify({"success": False, "error": "Paper not in reading list"}), 404
+        new_status = toggle_read_status(paper_id)
+        return jsonify({"success": True, "read": new_status})
 
     @app.route("/api/paper/<paper_id>/read-time", methods=["POST"])
     def api_record_read_time(paper_id: str):

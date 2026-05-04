@@ -148,6 +148,8 @@ let dragExpandTimer = null; // timer for auto-expanding on drag
 let currentViewMode = 'category'; // 'category' | 'translating' | 'analyzing' | 'reading-list'
 let readingListCount = 0; // reading list size
 let readingListPaperIds = new Set(); // ids in reading list
+let readingListReadStatus = {}; // {paper_id: true/false} — read status
+let columnFilters = { translate: new Set(), analysis: new Set(), reading: new Set() };
 
 // Translation-related
 let translationQueue = []; // translation queue
@@ -1181,9 +1183,17 @@ async function showReadingList() {
                 <p>loading...</p>
             </div>
         `;
-        const response = await fetch('/api/reading-list');
-        papers = await response.json();
-        // update count sumIDgather（Make sure to complete before rendering）
+        const [papersResponse, statusResponse] = await Promise.all([
+            fetch('/api/reading-list'),
+            fetch('/api/reading-list/status')
+        ]);
+        papers = await papersResponse.json();
+        if (statusResponse.ok) {
+            readingListReadStatus = await statusResponse.json();
+        }
+        // Filter out read papers from reading list display
+        papers = papers.filter(p => readingListReadStatus[p.id] !== true);
+        // update count and ID set (Make sure to complete before rendering)
         readingListCount = papers.length;
         readingListPaperIds.clear();
         papers.forEach(p => readingListPaperIds.add(p.id));
@@ -1218,16 +1228,23 @@ async function showReadingList() {
     }
 }
 
-// Update the to-read list count andIDgather
+// Update the to-read list count, ID set, and read status
 async function updateReadingListCount() {
     try {
-        const response = await fetch('/api/reading-list');
-        const papers = await response.json();
+        const [papersResponse, statusResponse] = await Promise.all([
+            fetch('/api/reading-list'),
+            fetch('/api/reading-list/status')
+        ]);
+        const papers = await papersResponse.json();
         readingListCount = papers.length;
-        // renewIDgather
+        // renew ID set
         readingListPaperIds.clear();
         papers.forEach(p => readingListPaperIds.add(p.id));
-        
+        // renew read status
+        if (statusResponse.ok) {
+            readingListReadStatus = await statusResponse.json();
+        }
+
         const tiReadingCount = document.getElementById('ti-reading-count');
         if (tiReadingCount) {
             tiReadingCount.textContent = readingListCount;
@@ -1270,6 +1287,74 @@ async function addToReadingList(paperId, event) {
     }
 }
 
+// 3-state cycle: × (not in list) → 📖 (in list, unread) → ✓ (read) → ×
+async function cycleReadingListState(paperId, event) {
+    if (event) event.stopPropagation();
+    const isRead = readingListReadStatus[paperId] === true;
+    const isInList = readingListPaperIds.has(paperId);
+    if (isRead) {
+        // State: ✓ → remove from reading list (and clear read status)
+        try {
+            const response = await fetch(`/api/reading-list/${paperId}/remove`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ delete_files: false })
+            });
+            const data = await response.json();
+            if (data.requires_confirmation) {
+                const confirmed = confirm(data.message || 'Delete files?');
+                if (confirmed) {
+                    const delResp = await fetch(`/api/reading-list/${paperId}/remove`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ delete_files: true })
+                    });
+                    const delData = await delResp.json();
+                    if (delData.success) {
+                        delete readingListReadStatus[paperId];
+                        readingListPaperIds.delete(paperId);
+                        await updateReadingListCount();
+                        if (currentViewMode === 'reading-list') showReadingList();
+                        else if (currentViewMode === 'category') renderPapersList();
+                    }
+                }
+                return;
+            }
+            if (response.ok && data.success) {
+                delete readingListReadStatus[paperId];
+                readingListPaperIds.delete(paperId);
+                await updateReadingListCount();
+                if (currentViewMode === 'reading-list') showReadingList();
+                else if (currentViewMode === 'category') renderPapersList();
+            }
+        } catch (e) { console.error(e); }
+    } else if (isInList) {
+        // State: 📖 → mark as read
+        try {
+            const response = await fetch(`/api/reading-list/${paperId}/toggle-read`, { method: 'POST' });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    readingListReadStatus[paperId] = true;
+                    if (currentViewMode === 'reading-list') showReadingList();
+                    else if (currentViewMode === 'category') renderPapersList();
+                }
+            }
+        } catch (e) { console.error(e); }
+    } else {
+        // State: × → add as unread
+        try {
+            const response = await fetch(`/api/reading-list/${paperId}/add`, { method: 'POST' });
+            if (response.ok) {
+                readingListPaperIds.add(paperId);
+                readingListReadStatus[paperId] = false;
+                await updateReadingListCount();
+                if (currentViewMode === 'category') renderPapersList();
+            }
+        } catch (e) { console.error(e); }
+    }
+}
+
 // Remove paper from to-read list
 async function removeFromReadingList(paperId, event) {
     if (event) event.stopPropagation();
@@ -1297,6 +1382,7 @@ async function removeFromReadingList(paperId, event) {
                 if (deleteData.success) {
                     showMessage('Removed from reading list and deleted related files', 'success');
                     // renewIDSets and counting
+                    delete readingListReadStatus[paperId];
                     readingListPaperIds.delete(paperId);
                     await updateReadingListCount();
                     // If you are currently viewing the to-read list, refresh the list
@@ -1320,6 +1406,7 @@ async function removeFromReadingList(paperId, event) {
                 : 'Removed from reading list';
             showMessage(message, 'success');
             // renewIDSets and counting
+            delete readingListReadStatus[paperId];
             readingListPaperIds.delete(paperId);
             await updateReadingListCount();
             // If you are currently viewing the to-read list, refresh the list
@@ -1490,17 +1577,103 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         analyzeCol = `<div class="paper-col-action"><button class="paper-col-btn analyze icon-only" onclick="requestAnalysis('${paper.id}', event)" title="AI Interpretation"><i class="fas fa-brain"></i></button></div>`;
     }
 
-    // Column to be read
+    // Column to be read — 3-state cycle: × → 📖 → ✓ → ×
+    // Icon represents CURRENT state, not action.
+    // Check read status first (persistent), then reading list membership (display-only unread count)
+    const isRead = readingListReadStatus[paper.id] === true;
     const isInReadingList = readingListPaperIds.has(paper.id);
     let readingCol = '';
-    if (isInReadingList) {
-        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading in-list icon-only" onclick="removeFromReadingList('${paper.id}', event)" title="Remove from to-read list"><i class="fas fa-times"></i></button></div>`;
+    if (isRead) {
+        // State: read — checkmark (not shown in reading list view, visible in category view)
+        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="cycleReadingListState('${paper.id}', event)" title="Remove from reading list"><i class="fas fa-check"></i></button></div>`;
+    } else if (isInReadingList) {
+        // State: in reading list, unread — show book
+        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading in-list icon-only" onclick="cycleReadingListState('${paper.id}', event)" title="Mark as read"><i class="fas fa-book-open"></i></button></div>`;
     } else {
-        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="addToReadingList('${paper.id}', event)" title="Add to Readling List"><i class="fas fa-book-open"></i></button></div>`;
+        // State: not in reading list — show ×
+        readingCol = `<div class="paper-col-action"><button class="paper-col-btn reading icon-only" onclick="cycleReadingListState('${paper.id}', event)" title="Add to reading list"><i class="fas fa-times"></i></button></div>`;
     }
     
     return iconCol + titleCol + dateCol + translateCol + analyzeCol + readingCol;
 }
+
+// Column filter definitions
+const FILTER_OPTIONS = {
+    translate: [
+        { value: 'has', label: 'Has translation' },
+        { value: 'none', label: 'No translation' },
+        { value: 'translating', label: 'Translating' },
+        { value: 'queued', label: 'In queue' },
+    ],
+    analysis: [
+        { value: 'has', label: 'Has analysis' },
+        { value: 'none', label: 'No analysis' },
+        { value: 'analyzing', label: 'Analyzing' },
+        { value: 'queued', label: 'In queue' },
+    ],
+    reading: [
+        { value: 'notinlist', label: 'Not in list' },
+        { value: 'unread', label: 'Unread' },
+        { value: 'read', label: 'Read' },
+    ]
+};
+
+function closeAllFilterMenus() {
+    document.querySelectorAll('.col-filter-menu').forEach(m => m.remove());
+}
+
+function toggleColumnFilterMenu(event, col) {
+    event.stopPropagation();
+    // Remove other open menus
+    document.querySelectorAll('.col-filter-menu').forEach(m => {
+        if (m.dataset.col !== col) m.remove();
+    });
+    const existingMenu = document.querySelector(`.col-filter-menu[data-col="${col}"]`);
+    if (existingMenu) {
+        existingMenu.remove();
+        return;
+    }
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const papersListRect = document.getElementById('papers-list').getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.className = 'col-filter-menu';
+    menu.dataset.col = col;
+    menu.style.top = (rect.bottom - papersListRect.top + 4) + 'px';
+    menu.style.left = Math.max(0, rect.left - papersListRect.left - 60) + 'px';
+    menu.style.position = 'absolute';
+    menu.style.zIndex = '1000';
+
+    const options = FILTER_OPTIONS[col];
+    const activeSet = columnFilters[col];
+    options.forEach(opt => {
+        const label = document.createElement('label');
+        label.className = 'col-filter-option';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = activeSet.has(opt.value);
+        cb.addEventListener('change', () => {
+            if (cb.checked) {
+                activeSet.add(opt.value);
+            } else {
+                activeSet.delete(opt.value);
+            }
+            renderPapersList();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + opt.label));
+        menu.appendChild(label);
+    });
+
+    document.getElementById('papers-list').appendChild(menu);
+}
+
+// Close filter menus on outside click
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.col-filter-menu') && !e.target.closest('.col-filter-btn')) {
+        closeAllFilterMenus();
+    }
+});
 
 // Render paper list
 function renderPapersList() {
@@ -1526,25 +1699,77 @@ function renderPapersList() {
     
     // sort papers
     const sortedPapers = sortPapers([...papers], sortBy);
+    // Apply column filters (OR within column, AND across columns)
+    let filteredPapers = sortedPapers;
+    const hasTranslateFilter = columnFilters.translate.size > 0;
+    const hasAnalysisFilter = columnFilters.analysis.size > 0;
+    const hasReadingFilter = columnFilters.reading.size > 0;
+    if (hasTranslateFilter || hasAnalysisFilter || hasReadingFilter) {
+        filteredPapers = sortedPapers.filter(paper => {
+            if (hasTranslateFilter) {
+                const tStatus = translationStatus[paper.id];
+                const hasTranslation = paper.has_bilingual_version || paper.has_chinese_version;
+                const isTranslating = tStatus && tStatus.status === 'translating';
+                const isQueued = tStatus && tStatus.status === 'queued';
+                const noTranslation = !hasTranslation && !isTranslating && !isQueued;
+                const translateMatch =
+                    (columnFilters.translate.has('has') && hasTranslation) ||
+                    (columnFilters.translate.has('none') && noTranslation) ||
+                    (columnFilters.translate.has('translating') && isTranslating) ||
+                    (columnFilters.translate.has('queued') && isQueued);
+                if (!translateMatch) return false;
+            }
+            if (hasAnalysisFilter) {
+                const aStatus = analysisStatus[paper.id];
+                const hasAnalysis = paper.has_analysis_result;
+                const isAnalyzing = aStatus && aStatus.status === 'analyzing';
+                const isQueued = aStatus && aStatus.status === 'queued';
+                const noAnalysis = !hasAnalysis && !isAnalyzing && !isQueued;
+                const analysisMatch =
+                    (columnFilters.analysis.has('has') && hasAnalysis) ||
+                    (columnFilters.analysis.has('none') && noAnalysis) ||
+                    (columnFilters.analysis.has('analyzing') && isAnalyzing) ||
+                    (columnFilters.analysis.has('queued') && isQueued);
+                if (!analysisMatch) return false;
+            }
+            if (hasReadingFilter) {
+                const inList = readingListPaperIds.has(paper.id);
+                const isRead = readingListReadStatus[paper.id] === true;
+                const isUnread = inList && !isRead;
+                const notInList = !inList;
+                const readingMatch =
+                    (columnFilters.reading.has('inlist') && inList) ||
+                    (columnFilters.reading.has('unread') && isUnread) ||
+                    (columnFilters.reading.has('read') && isRead) ||
+                    (columnFilters.reading.has('notinlist') && notInList);
+                if (!readingMatch) return false;
+            }
+            return true;
+        });
+    }
+
     // Save the current sorting for easy shift choose
-    window.__currentSortedPapers = sortedPapers.map(p=>p.id);
+    window.__currentSortedPapers = filteredPapers.map(p=>p.id);
 
     // Add header
+    const translateActive = columnFilters.translate.size > 0;
+    const analysisActive = columnFilters.analysis.size > 0;
+    const readingActive = columnFilters.reading.size > 0;
     papersList.innerHTML = `
         <div class="paper-header">
             <div class="paper-header-col"></div>
             <div class="paper-header-col">title<div class="paper-header-resizer" data-col="1"></div></div>
             <div class="paper-header-col">date<div class="paper-header-resizer" data-col="2"></div></div>
-            <div class="paper-header-col">AI translate<div class="paper-header-resizer" data-col="3"></div></div>
-            <div class="paper-header-col">AI Interpretation<div class="paper-header-resizer" data-col="4"></div></div>
-            <div class="paper-header-col">To be read</div>
+            <div class="paper-header-col">AI translate<div class="paper-header-resizer" data-col="3"></div><span class="col-filter-btn" data-col="translate" onclick="toggleColumnFilterMenu(event, 'translate')"><i class="fas fa-filter" style="${translateActive ? 'color:#7d4a9d;' : ''}"></i></span></div>
+            <div class="paper-header-col">AI Interpretation<div class="paper-header-resizer" data-col="4"></div><span class="col-filter-btn" data-col="analysis" onclick="toggleColumnFilterMenu(event, 'analysis')"><i class="fas fa-filter" style="${analysisActive ? 'color:#7d4a9d;' : ''}"></i></span></div>
+            <div class="paper-header-col">To be read<span class="col-filter-btn" data-col="reading" onclick="toggleColumnFilterMenu(event, 'reading')"><i class="fas fa-filter" style="${readingActive ? 'color:#7d4a9d;' : ''}"></i></span></div>
         </div>
     `;
     
     // Add column width adjustment function
     setupColumnResizing();
     
-    sortedPapers.forEach(paper => {
+    filteredPapers.forEach(paper => {
         const div = document.createElement('div');
         const isSelected = selectedPaperIds.has(paper.id);
         // If the currently selected paper is this, add selected kind
