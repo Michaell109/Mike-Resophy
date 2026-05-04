@@ -263,7 +263,7 @@
                     continue;
                 }
                 if (inDisplayMath) { result.push(line); continue; }
-                if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') || trimmed.startsWith('```') || trimmed.startsWith('>') || trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed)) {
+                if (!trimmed || trimmed.startsWith('```') || trimmed.startsWith('![')) {
                     result.push(line); continue;
                 }
                 if (/\$[^$]+\$/.test(trimmed) || /\$\$[\s\S]*?\$\$/.test(trimmed)) {
@@ -274,7 +274,26 @@
                 var withoutLatex = trimmed.replace(/\\[a-zA-Z]+(\{[^}]*\})?/g, '').replace(/[_^]\{[^}]*\}/g, '').replace(/[=+\-*/|,.\s\[\]\(\)\{\}\\~!@#$%&?;:'"]/g, '');
                 var isDisplayMath = withoutLatex.length <= Math.max(trimmed.length * 0.25, 8);
                 if (isDisplayMath) { result.push('$$' + trimmed + '$$'); continue; }
-                result.push(line);
+                // Inline math mixed with CJK text: find math segments between CJK boundaries
+                var processedLine = line;
+                var cjkBoundary = /[一-鿿，。；：！？“”（）　]{2,}/;
+                var segments = processedLine.split(cjkBoundary);
+                var separators = processedLine.match(cjkBoundary) || [];
+                var rebuilt = '';
+                for (var s = 0; s < segments.length; s++) {
+                    var seg = segments[s];
+                    if (latexCommand.test(seg) || subSuper.test(seg)) {
+                        var leading = seg.match(/^(\s*)/)[1];
+                        var trailing = seg.match(/(\s*)$/)[1];
+                        var core = seg.slice(leading.length, seg.length - trailing.length);
+                        if (core.length > 2) {
+                            seg = leading + '$' + core + '$' + trailing;
+                        }
+                    }
+                    rebuilt += seg;
+                    if (s < separators.length) rebuilt += separators[s];
+                }
+                result.push(rebuilt);
             }
             return result.join('\n');
         }

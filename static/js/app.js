@@ -15,10 +15,7 @@ function wrapLatexDelimiters(text) {
         const line = lines[i];
         const trimmed = line.trim();
 
-        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') ||
-            trimmed.startsWith('```') || trimmed.startsWith('>') ||
-            trimmed.startsWith('- ') || trimmed.startsWith('* ') ||
-            /^\d+\.\s/.test(trimmed)) {
+        if (!trimmed || trimmed.startsWith('```') || trimmed.startsWith('![')) {
             result.push(line);
             continue;
         }

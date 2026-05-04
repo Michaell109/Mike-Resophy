@@ -1108,10 +1108,7 @@
                     continue;
                 }
 
-                if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!') ||
-                    trimmed.startsWith('```') || trimmed.startsWith('>') ||
-                    trimmed.startsWith('- ') || trimmed.startsWith('* ') ||
-                    /^\d+\.\s/.test(trimmed)) {
+                if (!trimmed || trimmed.startsWith('```') || trimmed.startsWith('![')) {
                     result.push(line);
                     continue;
                 }
@@ -1574,12 +1571,36 @@
             });
 
             clearBtn.addEventListener('click', clearChat);
+
+            loadChatHistory();
         }
 
         function clearChat() {
             chatMessages = [];
             const messagesEl = document.getElementById('chat-messages');
             messagesEl.innerHTML = '<div class="chat-welcome" id="chat-welcome"><i class="fas fa-robot"></i><p>Ask questions about this paper</p><p style="font-size: 12px; color: #666; margin-top: 8px;">The AI analysis result is used as context.<br>Ask about any part of the analysis.</p></div>';
+            saveChatHistory();
+        }
+
+        function saveChatHistory() {
+            try { localStorage.setItem('resophy-chat-' + paperId, JSON.stringify(chatMessages)); } catch(e) {}
+        }
+
+        function loadChatHistory() {
+            try {
+                var saved = localStorage.getItem('resophy-chat-' + paperId);
+                if (saved) {
+                    var messages = JSON.parse(saved);
+                    if (messages && messages.length > 0) {
+                        chatMessages = messages;
+                        var welcome = document.getElementById('chat-welcome');
+                        if (welcome) welcome.remove();
+                        for (var i = 0; i < messages.length; i++) {
+                            appendMessageToUI(messages[i].role, messages[i].content);
+                        }
+                    }
+                }
+            } catch(e) {}
         }
 
         async function sendChatMessage() {
@@ -1642,7 +1663,7 @@
                             if (parsed.content) {
                                 fullContent += parsed.content;
                                 if (typeof marked !== 'undefined') {
-                                    mdContentEl.innerHTML = '<div class="md-content">' + marked.parse(fullContent) + '<span class="typing-cursor"></span></div>';
+                                    mdContentEl.innerHTML = '<div class="md-content">' + renderChatMessage(fullContent) + '<span class="typing-cursor"></span></div>';
                                 } else {
                                     mdContentEl.textContent = fullContent + '|';
                                 }
@@ -1659,10 +1680,12 @@
 
                 chatMessages.push({ role: 'assistant', content: fullContent });
                 if (typeof marked !== 'undefined') {
-                    mdContentEl.innerHTML = '<div class="md-content">' + marked.parse(fullContent) + '</div>';
+                    mdContentEl.innerHTML = '<div class="md-content">' + renderChatMessage(fullContent) + '</div>';
+                    typesetMathJax(mdContentEl);
                 } else {
                     mdContentEl.textContent = fullContent;
                 }
+                saveChatHistory();
 
             } catch (error) {
                 console.error('Chat error:', error);
@@ -1681,7 +1704,9 @@
 
             if (role === 'assistant') {
                 if (typeof marked !== 'undefined' && content) {
-                    msgEl.innerHTML = '<div class="md-content">' + marked.parse(content) + '</div>';
+                    msgEl.innerHTML = '<div class="md-content">' + renderChatMessage(content) + '</div>';
+                    var contentEl = msgEl.querySelector('.md-content');
+                    if (contentEl) typesetMathJax(contentEl);
                 } else {
                     msgEl.textContent = content;
                 }
@@ -1692,6 +1717,27 @@
             messagesEl.appendChild(msgEl);
             messagesEl.scrollTop = messagesEl.scrollHeight;
             return msgEl;
+        }
+
+        function renderChatMessage(text) {
+            if (typeof marked === 'undefined') return escapeHtml(text);
+            var md = text;
+            // Convert \(...\) to $...$ and \[...\] to $$...$$ for MathJax
+            md = md.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+            md = md.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
+            md = wrapLatexDelimiters(md);
+            var preserved = [];
+            md = md.replace(/\$\$([\s\S]*?)\$\$/g, function(match) {
+                var id = preserved.length; preserved.push(match); return '@@MJXB' + id + '@@';
+            });
+            md = md.replace(/(?<!\\)\$([^\n$]+)\$/g, function(match) {
+                var id = preserved.length; preserved.push(match); return '@@MJXI' + id + '@@';
+            });
+            var html = marked.parse(protectLatexSubSuper(md));
+            html = restoreLatexSubSuper(html);
+            html = html.replace(/@@MJXB(\d+)@@/g, function(_, idx) { return preserved[Number(idx)]; })
+                       .replace(/@@MJXI(\d+)@@/g, function(_, idx) { return preserved[Number(idx)]; });
+            return html;
         }
 
         function escapeHtml(text) {
