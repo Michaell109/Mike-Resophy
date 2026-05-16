@@ -4731,9 +4731,9 @@ async function refreshPaperMetadata(paperId) {
             const result = await response.json();
             showMessage('Metadata fetched successfully and is being updated...', 'success', 2000);
             
-            // Start polling to detect updates
+            // Start polling to detect updates (refresh involves arXiv API + DBLP, can take 30-90s)
             const initialTitle = paper.title;
-            startPollingPaperUpdate(paperId, currentCategoryId, initialTitle);
+            startPollingPaperUpdate(paperId, currentCategoryId, initialTitle, 60);
             
         } else {
             const error = await response.json();

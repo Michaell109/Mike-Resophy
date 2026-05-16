@@ -58,15 +58,19 @@ def register_upload_from_pdf_routes(
         try:
             with open(reading_list_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("papers", [])
+                papers = data.get("papers", {})
+                if isinstance(papers, dict):
+                    return list(papers.keys())
+                return papers
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to read to-be-read list: {exc}")
             return []
 
     def _save_reading_list(paper_ids: list[str]) -> None:
         try:
+            data = {pid: {"read": False} for pid in paper_ids}
             with open(reading_list_file, "w", encoding="utf-8") as f:
-                json.dump({"papers": paper_ids}, f, ensure_ascii=False, indent=2)
+                json.dump({"papers": data}, f, ensure_ascii=False, indent=2)
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to save to-read list: {exc}")
 
@@ -279,7 +283,10 @@ def register_upload_from_pdf_routes(
             paper, category_id=category_id, category_path=category_path
         )
         save_paper_metadata(file_path, registered_paper)
-        _add_to_reading_list(registered_paper.id)
+        try:
+            _add_to_reading_list(registered_paper.id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Failed to add to reading list: {exc}")
 
         # Start a background thread to process metadata
         thread = threading.Thread(
