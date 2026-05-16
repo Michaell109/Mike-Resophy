@@ -123,11 +123,18 @@ def register_upload_from_pdf_routes(
 
                 try:
                     os.rename(file_path, new_file_path)
-                    print(f"[Backstage] File has been renamed to: {new_filename}")
                 except Exception as exc:  # noqa: BLE001
                     print(f"[Backstage] Failed to rename file: {exc}")
                     new_file_path = file_path
                     new_filename = current_filename
+
+                # Update PaperStore immediately after rename to minimize race window
+                paper = paper_store.get(paper_id)
+                if paper:
+                    paper.filename = new_filename
+                    paper.file_path = new_file_path
+                if new_file_path != file_path:
+                    print(f"[Backstage] File has been renamed to: {new_filename}")
 
             # 【stage1】Update now Paper object(arXiv information)
             paper = paper_store.get(paper_id)

@@ -945,6 +945,12 @@ def register_paper_operation_routes(
                                     new_json_path = get_paper_json_path(new_file_path)
 
                                     os.rename(file_path, new_file_path)
+
+                                    # Update PaperStore immediately after PDF rename
+                                    paper_obj = paper_store.get(paper_id)
+                                    if paper_obj:
+                                        paper_obj.filename = new_filename
+                                        paper_obj.file_path = new_file_path
                                     print(
                                         f"[Re-crawl] File has been renamed: {new_filename}"
                                     )
