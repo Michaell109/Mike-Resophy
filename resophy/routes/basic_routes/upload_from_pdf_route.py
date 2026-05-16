@@ -202,15 +202,40 @@ def register_upload_from_pdf_routes(
                     else:
                         print(f"[Backstage stage2] ❌ Not obtained BibTeX")
 
+                # Clear refresh status now that processing is complete
+                paper.extra.pop("refresh_status", None)
+                paper_store.upsert(
+                    paper, category_id=category_id, category_path=category_path
+                )
+                save_paper_metadata(new_file_path, paper)
+
                 print(f"[Backstage] Paper metadata processing completed: {new_filename}")
             else:
                 print(f"[Backstage] warn: not found paper {paper_id}")
+                try:
+                    p = paper_store.get(paper_id)
+                    if p:
+                        p.extra.pop("refresh_status", None)
+                        paper_store.upsert(
+                            p, category_id=category_id, category_path=category_path
+                        )
+                except Exception:
+                    pass
 
         except Exception as exc:  # noqa: BLE001
             print(f"[Backstage] deal withPDFMetadata failed: {exc}")
             import traceback
 
             traceback.print_exc()
+            try:
+                p = paper_store.get(paper_id)
+                if p:
+                    p.extra.pop("refresh_status", None)
+                    paper_store.upsert(
+                        p, category_id=category_id, category_path=category_path
+                    )
+            except Exception:
+                pass
 
     @app.route("/api/upload", methods=["POST"])
     def api_upload():
@@ -294,6 +319,15 @@ def register_upload_from_pdf_routes(
             _add_to_reading_list(registered_paper.id)
         except Exception as exc:  # noqa: BLE001
             print(f"Failed to add to reading list: {exc}")
+
+        # Set the refresh status before starting the background thread so the frontend
+        # can immediately show "refreshing metadata..." next to the title.
+        registered_paper.extra["refresh_status"] = "refreshing"
+        paper_store.upsert(
+            registered_paper,
+            category_id=category_id,
+            category_path=category_path,
+        )
 
         # Start a background thread to process metadata
         thread = threading.Thread(

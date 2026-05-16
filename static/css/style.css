@@ -1822,6 +1822,14 @@ body {
     vertical-align: middle;
 }
 
+.refresh-hint {
+    color: #999;
+    font-size: 11px;
+    font-style: italic;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
 .paper-action-btn.edit {
     background: #007bff;
 }

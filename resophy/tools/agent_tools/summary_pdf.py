@@ -60,9 +60,11 @@ def _build_paper_info_block(paper_title: str, paper_metadata: dict | None) -> st
 def _inject_images_to_result(result_content: str, markdown_content: str) -> str:
     """Inject images from the original MinerU markdown into the LLM-generated result.
 
-    Extracts ![](images/xxx.jpg) references with explicit figure captions (Fig. N / 图N)
-    from the markdown, then inserts them at the corresponding figure references in the result.
-    Images without explicit figure captions are skipped to keep the output clean.
+    Uses a two-pass strategy:
+    Pass 1 — Match images with explicit figure captions (Fig. N / 图N) to the
+             corresponding figure references in the result.
+    Pass 2 — For any remaining figure references (图N) in the result that weren't
+             filled, fill them with images in MinerU document order as a fallback.
     """
     if not markdown_content:
         return result_content
@@ -71,34 +73,84 @@ def _inject_images_to_result(result_content: str, markdown_content: str) -> str:
     if "![](images/" in result_content:
         return result_content
 
-    # Extract only named figures (those with Fig. N or 图N captions)
+    lines = markdown_content.split("\n")
+
+    # ------------------------------------------------------------------
+    # Pass 1: match images to figure captions
+    # ------------------------------------------------------------------
+    # Collect all figure-number references from the result (e.g. 图1, 图2)
+    fig_refs_in_result = set()
+    for m in re.finditer(r"图\s*(\d+)", result_content):
+        fig_refs_in_result.add(m.group(1))
+
+    # Determine which images in MinerU are inside <details> or followed by it
+    is_details_image = [False] * len(lines)
+    for i, line in enumerate(lines):
+        if "<details>" in line or not line.startswith("![](images/"):
+            continue
+        next_text = "".join(lines[i + 1 : min(i + 4, len(lines))])
+        if "<details>" in next_text:
+            is_details_image[i] = True
+
     figure_images: dict[str, list[str]] = {}
+    # Collect ALL standalone images (including <details> ones) in order
+    all_standalone_images: list[str] = []
+    # Collect only "clean" standalone images (not details, not text_image)
+    clean_standalone_images: list[str] = []
 
-    pattern = re.compile(
-        r"!\[\]\(images/([^)]+\.(?:jpg|jpeg|png|gif|webp))\)[ \t]*"
-        r"(?:\n\s*(?:Fig(?:ure)?\.?\s*(\d+)|图\s*(\d+)[\s：:]))?",
-        re.IGNORECASE,
-    )
+    for i, line in enumerate(lines):
+        m = re.match(
+            r"!\[\]\(images/([^)]+\.(?:jpg|jpeg|png|gif|webp))\)",
+            line,
+        )
+        if not m:
+            continue
 
-    for m in pattern.finditer(markdown_content):
         img_path = f"images/{m.group(1)}"
-        fig_en = m.group(2)
-        fig_cn = m.group(3)
-        fig_num = fig_en or fig_cn
-        if fig_num:
-            figure_images.setdefault(fig_num, []).append(img_path)
+        all_standalone_images.append(img_path)
 
-    if not figure_images:
-        return result_content
+        # Skip images inside <details>
+        if "<details>" in line or is_details_image[i]:
+            # Only include if it's NOT a text_image or natural_image
+            next_text = "".join(lines[i + 1 : min(i + 5, len(lines))])
+            if "text_image" in next_text or "natural_image" in next_text:
+                continue
+            clean_standalone_images.append(img_path)
+            continue
+
+        clean_standalone_images.append(img_path)
+
+        # Try figure-caption matching (same line or next 5 lines)
+        rest = line[m.end():]
+        caption_m = re.search(
+            r"(?:Fig(?:ure)?\.?\s*(\d+)|图\s*(\d+)[\s：:])",
+            rest, re.IGNORECASE,
+        )
+        if caption_m:
+            fig_num = caption_m.group(1) or caption_m.group(2)
+            figure_images.setdefault(fig_num, []).append(img_path)
+            continue
+
+        for j in range(i + 1, min(i + 6, len(lines))):
+            caption_m = re.search(
+                r"(?:Fig(?:ure)?\.?\s*(\d+)|图\s*(\d+)[\s：:])",
+                lines[j], re.IGNORECASE,
+            )
+            if caption_m:
+                fig_num = caption_m.group(1) or caption_m.group(2)
+                figure_images.setdefault(fig_num, []).append(img_path)
+                break
 
     result = result_content
 
-    # Inject images by matching figure references in the result text
-    for fig_num in sorted(figure_images.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+    # Inject images matched by figure caption
+    matched_refs = set()
+    for fig_num in sorted(
+        figure_images.keys(), key=lambda x: int(x) if x.isdigit() else 999
+    ):
         img_paths = figure_images[fig_num]
         img_placeholder = "\n\n" + "\n".join(f"![]({p})" for p in img_paths) + "\n\n"
 
-        # Pre-build the full replacement: image + the figure reference text
         for ref_text, ref_pat in [
             (f"图{fig_num}", rf'(图\s*{fig_num})'),
             (f"Fig. {fig_num}", rf'(Fig(?:ure)?\.?\s*{fig_num}\b)'),
@@ -107,11 +159,45 @@ def _inject_images_to_result(result_content: str, markdown_content: str) -> str:
             ref_match = re.search(ref_pat, result)
             if ref_match:
                 pos = ref_match.start()
-                # Skip if an image already appears in the preceding 150 chars
                 if "![](" in result[max(0, pos - 150) : pos]:
                     continue
-                # Insert the image right before the figure reference
                 result = result[:pos] + img_placeholder + result[pos:]
+                matched_refs.add(fig_num)
+                break
+
+    # ------------------------------------------------------------------
+    # Pass 2: fill remaining figure references with unmatched images
+    # ------------------------------------------------------------------
+    matched_images_in_pass1 = set()
+    for paths in figure_images.values():
+        for p in paths:
+            matched_images_in_pass1.add(p)
+
+    unused_clean = [p for p in clean_standalone_images if p not in matched_images_in_pass1]
+    unused_clean.reverse()  # pop from end for easy iteration
+
+    # Find unfilled figure references in the result
+    unfilled_refs = sorted(
+        [r for r in fig_refs_in_result if r not in matched_refs],
+        key=int,
+    )
+
+    # For each unfilled reference, take the next unused image (in MinerU order)
+    # and inject it. We scan refs in numeric order and images in document order.
+    for fig_num in unfilled_refs:
+        if not unused_clean:
+            break
+        # Pick the next unused image (earliest in document order = last in reversed list)
+        img_path = unused_clean.pop()
+        img_md = f"\n\n![]({img_path})\n\n"
+
+        for ref_text, ref_pat in [
+            (f"图{fig_num}", rf'(图\s*{fig_num})'),
+        ]:
+            ref_match = re.search(ref_pat, result)
+            if ref_match:
+                pos = ref_match.start()
+                result = result[:pos] + img_md + result[pos:]
                 break
 
     return result

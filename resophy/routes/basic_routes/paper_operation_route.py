@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
 
@@ -12,7 +13,10 @@ from flask import Flask, jsonify, request, send_file
 
 from resophy.core.base_paper import Paper
 from resophy.core.paper_store import PaperStore
-from resophy.tools.basic_tools.paper_repository import scan_papers_in_directory
+from resophy.tools.basic_tools.paper_repository import (
+    get_paper_json_path,
+    scan_papers_in_directory,
+)
 from resophy.tools.basic_tools.upload_paper import (
     fetch_arxiv_affiliations,
     fetch_bibtex_from_dblp,
@@ -474,7 +478,51 @@ def register_paper_operation_routes(
 
         print(f"FindPDFdocument: {file_path}, exist: {os.path.exists(file_path)}")
         if not os.path.exists(file_path):
-            return jsonify({"error": f"File not found: {file_path}"}), 404
+            # Retry once after a short delay — handles race with background rename thread
+            # The background task does: os.rename → PaperStore.file_path update.
+            # If the HEAD request reads PaperStore between those two operations, the
+            # file_path points to the old path (file already renamed away). A 300ms
+            # pause is nearly always enough for the background thread to finish its update.
+            time.sleep(0.3)
+            if os.path.exists(file_path):
+                print(f"FindPDFdocument (retry): found at {file_path}")
+            elif category_path and paper.filename:
+                category_folder = create_category_folder(category_path[1:])
+                alt_path = os.path.join(category_folder, paper.filename)
+                if os.path.exists(alt_path):
+                    print(f"Fallback (filename): found file at {alt_path}")
+                    file_path = alt_path
+                else:
+                    # Last resort: scan the category directory for a PDF whose companion
+                    # JSON metadata contains this paper's ID. This catches cases where the
+                    # file was renamed but PaperStore has NOT been updated yet (stale path
+                    # AND stale filename in the record).
+                    found = False
+                    for fname in os.listdir(category_folder):
+                        if not fname.endswith(".pdf"):
+                            continue
+                        candidate = os.path.join(category_folder, fname)
+                        json_path = get_paper_json_path(candidate)
+                        if os.path.exists(json_path):
+                            try:
+                                with open(json_path, "r", encoding="utf-8") as jf:
+                                    meta = json.load(jf)
+                                if meta.get("id") == paper_id:
+                                    print(f"Fallback (directory scan): found file at {candidate}")
+                                    file_path = candidate
+                                    found = True
+                                    break
+                            except Exception:
+                                continue
+                    if not found:
+                        return jsonify({"error": f"File not found: {file_path}"}), 404
+            else:
+                return jsonify({"error": f"File not found: {file_path}"}), 404
+
+            # Update PaperStore so subsequent requests go straight to the right path
+            paper.file_path = file_path
+            paper.filename = os.path.basename(file_path)
+            paper_store.upsert(paper, category_id="", category_path=category_path)
 
         response = send_file(
             file_path,
@@ -997,6 +1045,7 @@ def register_paper_operation_routes(
                         paper_obj.keywords = metadata.get("keywords", "")
                         paper_obj.subject = metadata.get("subject", "")
                         paper_obj.extra["updated_date"] = datetime.now().isoformat()
+                        paper_obj.extra.pop("refresh_status", None)
 
                         # Save updates
                         paper_store.upsert(
@@ -1011,6 +1060,23 @@ def register_paper_operation_routes(
 
                 except Exception as exc:  # noqa: BLE001
                     print(f"[Re-crawl] fail: {exc}")
+                    try:
+                        pb = paper_store.get(paper_id)
+                        if pb:
+                            pb.extra.pop("refresh_status", None)
+                            paper_store.upsert(
+                                pb,
+                                category_id=category_id,
+                                category_path=category_path,
+                            )
+                    except Exception:
+                        pass
+
+            # Set refresh status before starting background thread
+            paper.extra["refresh_status"] = "refreshing"
+            paper_store.upsert(
+                paper, category_id=category_id, category_path=category_path
+            )
 
             thread = threading.Thread(target=_refresh_metadata_async, daemon=True)
             thread.start()

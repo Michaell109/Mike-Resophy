@@ -1526,9 +1526,12 @@ function generatePaperItemHTML(paper, showCheckbox = false) {
         ? '<span class="reference-paper-badge">REF</span>'
         : '';
     const displayName = getPaperDisplayName(paper);
+    const refreshHint = paper.refresh_status
+        ? '<span class="refresh-hint"> refreshing metadata...</span>'
+        : '';
     const titleCol = `
         <div class="paper-col-title" title="${displayName}">
-            ${displayName}${refBadge}${readTimeText}
+            ${displayName}${refBadge}${refreshHint}${readTimeText}
         </div>
     `;
     
@@ -2497,10 +2500,24 @@ async function uploadFile(file, categoryId) {
         }).then(response => response.json())
         .then(result => {
             if (result.success) {
+                const refreshStatus = result.paper?.refresh_status;
+                const paperId = result.paper?.id;
+
                 // Refresh silently without displaying success prompt
-                // If uploaded to the currently selected category, refresh the list immediately（Show placeholder）
+                // If uploaded to the currently selected category, refresh the list immediately
                 if (currentCategoryId === categoryId) {
-                    loadPapers(currentCategoryId);
+                    loadPapers(currentCategoryId).then(() => {
+                        // Background metadata refresh is often very fast (arXiv API).
+                        // By the time loadPapers fetches the list, refresh_status may
+                        // already be cleared. Inject it locally so the hint appears.
+                        if (refreshStatus && paperId) {
+                            const idx = papers.findIndex(p => p.id === paperId);
+                            if (idx !== -1) {
+                                    papers[idx].refresh_status = refreshStatus;
+                                renderPapersList();
+                            }
+                        }
+                    });
                 }
                 // If uploaded to the to-read list, refresh the to-read list
                 if (categoryId === 'reading_list_temp' && currentViewMode === 'reading-list') {
@@ -2510,9 +2527,9 @@ async function uploadFile(file, categoryId) {
                 updateCategoriesData();
                 renderCategoryTreeWithState();
                 updateReadingListCount();
-                
+
                 // Start background polling to check whether the metadata update is completed
-                if (result.paper && result.paper.id) {
+                if (paperId) {
                     // Use placeholders paper data as initial snapshot
                     const initialSnapshot = {
                         title: result.paper.title || '',
@@ -2520,8 +2537,9 @@ async function uploadFile(file, categoryId) {
                         abstract: result.paper.abstract || '',
                         bibtex: result.paper.bibtex || '',
                         arxiv_id: result.paper.arxiv_id || '',
+                        refresh_status: refreshStatus,
                     };
-                    startPollingPaperUpdate(result.paper.id, categoryId, initialSnapshot);
+                    startPollingPaperUpdate(paperId, categoryId, initialSnapshot);
                 }
             } else {
                 // Only show error on failure
@@ -2591,15 +2609,16 @@ function startPollingPaperUpdate(paperId, categoryId, initialSnapshotOrTitle, ma
                 abstract: paper.abstract || '',
                 bibtex: paper.bibtex || '',
                 arxiv_id: paper.arxiv_id || '',
+                refresh_status: paper.refresh_status,
             };
-            
-            // Check if key fields have changed（not just title）
-            const hasChanged = 
+
+            const hasChanged =
                 currentSnapshot.title !== previousSnapshot.title ||
                 currentSnapshot.authors !== previousSnapshot.authors ||
                 currentSnapshot.abstract !== previousSnapshot.abstract ||
                 currentSnapshot.bibtex !== previousSnapshot.bibtex ||
-                currentSnapshot.arxiv_id !== previousSnapshot.arxiv_id;
+                currentSnapshot.arxiv_id !== previousSnapshot.arxiv_id ||
+                currentSnapshot.refresh_status !== previousSnapshot.refresh_status;
             
             console.log(`[polling] No. ${attempts} inspections: title="${currentTitle}"`);
             
@@ -7599,7 +7618,7 @@ function renderRecentActivity() {
                             <i class="fas fa-file-pdf"></i>
                         </div>
                         <div class="recent-item-content">
-                            <div class="recent-item-title">${escapeHtml(getPaperDisplayName(paper))}</div>
+                            <div class="recent-item-title">${escapeHtml(getPaperDisplayName(paper))}${paper.refresh_status ? '<span class="refresh-hint"> refreshing metadata...</span>' : ''}</div>
                             <div class="recent-item-meta">${readTimeDisplay}</div>
                         </div>
                         <div class="recent-item-time">${timeAgo}</div>

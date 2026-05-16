@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List
@@ -31,6 +33,25 @@ def register_agent_translate_routes(
     save_paper_metadata: Callable[[str, Any], None],
     agentic_settings_file: str,
 ) -> None:
+    def _resolve_pdf_by_dir_scan(pdf_dir, paper_id):
+        """Scan directory for PDF whose companion JSON matches paper_id."""
+        if not pdf_dir or not os.path.isdir(pdf_dir):
+            return None
+        for fname in os.listdir(pdf_dir):
+            if not fname.endswith(".pdf"):
+                continue
+            candidate = os.path.join(pdf_dir, fname)
+            json_path = os.path.splitext(candidate)[0] + ".json"
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, "r", encoding="utf-8") as jf:
+                        meta = json.load(jf)
+                    if meta.get("id") == paper_id:
+                        return candidate
+                except Exception:
+                    continue
+        return None
+
     @app.route("/api/paper/translate", methods=["POST"])
     def api_translate_paper():
         """translatePDFpaper - Start background task"""
@@ -119,7 +140,14 @@ def register_agent_translate_routes(
             pdf_path = paper.file_path
 
             if not pdf_path or not os.path.exists(pdf_path):
-                return jsonify({"success": False, "error": "PDFFile does not exist"}), 404
+                if pdf_path:
+                    time.sleep(0.3)
+                    if os.path.exists(pdf_path):
+                        pass
+                    else:
+                        pdf_path = _resolve_pdf_by_dir_scan(os.path.dirname(pdf_path), paper_id)
+                if not pdf_path or not os.path.exists(pdf_path):
+                    return jsonify({"success": False, "error": "PDFFile does not exist"}), 404
 
             pdf_dir = os.path.dirname(pdf_path)
             pdf_filename = os.path.basename(pdf_path)

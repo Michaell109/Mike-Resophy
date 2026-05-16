@@ -81,6 +81,54 @@ class BilingualDependencies:
     save_paper_metadata: Callable[[str, Paper], None]
 
 
+def _clean_code_blocks(md_text: str) -> str:
+    """Remove MinerU figure-extraction blocks from markdown before translation.
+
+    MinerU wraps extracted figure/diagram content in:
+      <details>
+      <summary>flowchart</summary>
+      ```mermaid ... ```
+      </details>
+
+    These are OCR artifacts from paper figures, not text content, and should
+    not be included in the bilingual translation output. This function removes
+    the entire <details> block when it contains a flowchart summary.
+    """
+    lines = md_text.split("\n")
+    result = []
+    i = 0
+
+    while i < len(lines):
+        stripped = lines[i].strip()
+
+        # Detect <details> blocks that wrap flowchart content
+        if stripped == "<details>":
+            # Look ahead to see if this is a flowchart block
+            if (i + 1 < len(lines) and "flowchart" in lines[i + 1].strip()
+                    .removeprefix("<summary>").removesuffix("</summary>")):
+                # Skip until matching </details>
+                i += 1
+                while i < len(lines) and lines[i].strip() != "</details>":
+                    i += 1
+                if i < len(lines):
+                    i += 1  # skip </details>
+                continue
+
+        # Also skip standalone mermaid code blocks (safety net)
+        if stripped == "```mermaid":
+            i += 1
+            while i < len(lines) and lines[i].strip() != "```":
+                i += 1
+            if i < len(lines):
+                i += 1
+            continue
+
+        result.append(lines[i])
+        i += 1
+
+    return "\n".join(result)
+
+
 def split_markdown_into_segments(md_text: str) -> List[Dict[str, str]]:
     """Split markdown into segments by natural paragraphs.
 
@@ -255,6 +303,10 @@ def bilingual_translate_task(
         if match:
             md_content = md_content[: match.start()]
             log("Removed References section")
+
+        # Clean corrupted mermaid/code blocks (endless repeating patterns from OCR)
+        md_content = _clean_code_blocks(md_content)
+        log("Cleaned corrupted code blocks")
 
         # Split into segments
         segments = split_markdown_into_segments(md_content)
