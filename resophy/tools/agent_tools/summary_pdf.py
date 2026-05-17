@@ -312,6 +312,138 @@ INPUT: <MARKDOWN>"""
         else:
             system_prompt = en_prompt
 
+        # Chinese survey prompt
+        zh_survey_prompt = """请以中文 markdown 的形式为这篇综述论文撰写一篇结构清晰、内容详尽的解读文章。
+
+文章开头必须先输出论文信息头（如果输入中提供了论文信息），格式如下：
+> **Title**: 论文标题
+> **Authors**: 作者列表
+> **Affiliation**: 机构列表
+> **Venue**: 会议/期刊名称
+> **Year**: 发表年份
+> **arXiv Date**: arXiv发布日期
+> **Project**: 项目主页链接
+> **GitHub**: GitHub仓库链接
+
+然后按以下六个部分撰写正文，要求内容非常详细，充分覆盖原文中的所有重要内容：
+
+## 1. 综述范围与研究背景
+- 这篇综述覆盖的研究领域和范围
+- 为什么这个领域值得综述（领域重要性、发展脉络）
+- 与已有综述相比，本文的独特贡献和分类视角
+
+## 2. 分类体系与核心概念
+- 本文提出的分类法/分类体系（taxonomy）是什么
+- 每个类别的定义和区分标准
+- 如果原文有统一的问题形式化定义或概率图框架，必须完整阐述并保留公式
+
+## 3. 各类方法详述
+这是最核心的部分。对每个类别下的重要方法，逐一详细讲解：
+- 该方法的输入输出和核心思路
+- **必须保留原文中的重要公式**，使用原始 LaTeX 格式，用 `$...$`（行内）或 `$$...$$`（独立行）包裹
+- 方法之间的关键区别和改进点
+- 如果有模型结构图、流程图等，必须插入到对应位置
+- 每种方法的局限性也要提及
+
+## 4. 基准测试与实验结果
+- 本文综述了哪些 Benchmark 和数据集
+- 汇总了哪些代表性实验结果（表格、对比）
+- 如果有重要的结果图和表格，必须插入到对应位置
+- 各种方法在不同基准上的表现对比
+
+## 5. 关键发现与洞察
+- 本文通过对比分析得出的关键结论和发现
+- 不同方法的优劣对比总结
+- 领域内的共识和争议点
+
+## 6. 挑战与未来方向
+- 当前领域面临的主要挑战和开放问题
+- 论文提出的未来研究方向
+- 对领域发展的展望
+
+注意：
+- 图片必须直接插入到正文对应位置，不要放到最后
+- 公式必须保留原始 LaTeX 格式，不要省略或简化
+- 内容要**非常详细充分**，这是一篇综述论文，涵盖大量方法，请不要过度压缩。确保每个重要类别和方法都被覆盖
+- 目标和普通研究论文不同：不是深入解读单一方法，而是全面综述领域全貌
+
+INPUT: <MARKDOWN>"""
+
+        # English survey prompt
+        en_survey_prompt = """Please write a structured, detailed technical review of this survey paper in English Markdown format.
+
+At the beginning of the article, you must output a paper information header (if provided in the input), in the following format:
+> **Title**: Paper title
+> **Authors**: Author list
+> **Affiliation**: Affiliation list
+> **Venue**: Conference/Journal name
+> **Year**: Publication year
+> **arXiv Date**: arXiv publication date
+> **Project**: Project homepage URL
+> **GitHub**: GitHub repository URL
+
+Then write the review covering the following six sections. The content must be very detailed and cover all important content from the original survey:
+
+## 1. Scope and Background
+- The research field and scope covered by this survey
+- Why this field deserves a survey (importance, development trajectory)
+- The unique contributions and classification perspective of this survey compared to existing ones
+
+## 2. Taxonomy and Core Concepts
+- What taxonomy/classification framework does the paper propose
+- The definition and distinguishing criteria of each category
+- If there is a unified problem formulation or probabilistic framework, it must be fully explained with formulas preserved
+
+## 3. Detailed Method Review
+This is the most important section. For each category of methods, go through the important works one by one:
+- Each method's input/output and core idea
+- **Important formulas from the original paper must be preserved** in original LaTeX format, wrapped with `$...$` (inline) or `$$...$$` (display)
+- Key differences and improvements between methods
+- Insert model architecture diagrams at corresponding positions where available
+- Also mention each method's limitations
+
+## 4. Benchmarks and Experimental Results
+- What benchmarks and datasets does the survey cover
+- Representative experimental results summarized (tables, comparisons)
+- Insert important result figures and tables at corresponding positions
+- Performance comparison of different methods
+
+## 5. Key Findings and Insights
+- Key conclusions and findings from the survey's comparative analysis
+- Summary of strengths and weaknesses across methods
+- Consensus and points of debate in the field
+
+## 6. Challenges and Future Directions
+- Main challenges and open problems in the field
+- Future research directions proposed by the survey
+- Outlook for the field
+
+Notes:
+- Images must be inserted directly at corresponding positions in the text, not placed at the end
+- Formulas must be preserved in original LaTeX format — do not omit or oversimplify
+- Content must be **very detailed and thorough**. This is a survey paper covering many methods — do not over-compress. Ensure every important category and method is covered
+- The goal differs from a regular paper: not deep analysis of a single method, but a comprehensive overview of the field
+
+INPUT: <MARKDOWN>"""
+
+        # Detect survey papers by title keywords
+        _title = ""
+        if paper_metadata and paper_metadata.get("title"):
+            _title = paper_metadata["title"]
+        _is_survey = any(
+            kw in _title.lower()
+            for kw in ["survey", "review", "overview", "comprehensive"]
+        )
+
+        if _is_survey and ai_language and ai_language.lower().startswith("zh"):
+            system_prompt = zh_survey_prompt
+        elif _is_survey:
+            system_prompt = en_survey_prompt
+        elif ai_language and ai_language.lower().startswith("zh"):
+            system_prompt = zh_prompt
+        else:
+            system_prompt = en_prompt
+
     start_time = datetime.now()  # Recording start time
     with deps.analysis_tasks_lock:
         task_info = deps.analysis_tasks[task_id]
